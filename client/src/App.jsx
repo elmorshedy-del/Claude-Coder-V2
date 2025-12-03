@@ -30,17 +30,9 @@ const STORES = {
 
 const TABS = ['Dashboard', 'Budget Efficiency', 'Manual Data'];
 
-// Get saved store from localStorage or default to vironax
-function getSavedStore() {
-  try {
-    const saved = localStorage.getItem('selectedStore');
-    if (saved && STORES[saved]) return saved;
-  } catch (e) {}
-  return 'vironax';
-}
-
 export default function App() {
-  const [currentStore, setCurrentStore] = useState(getSavedStore);
+  const [currentStore, setCurrentStore] = useState('vironax');
+  const [storeLoaded, setStoreLoaded] = useState(false);
   const [storeDropdownOpen, setStoreDropdownOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -75,12 +67,28 @@ export default function App() {
     notes: ''
   });
 
-  // Save store selection to localStorage
+  // Load store from localStorage on mount
   useEffect(() => {
     try {
+      const saved = localStorage.getItem('selectedStore');
+      if (saved && STORES[saved]) {
+        setCurrentStore(saved);
+      }
+    } catch (e) {
+      console.error('Error reading localStorage:', e);
+    }
+    setStoreLoaded(true);
+  }, []);
+
+  // Save store selection to localStorage whenever it changes
+  useEffect(() => {
+    if (!storeLoaded) return; // Don't save during initial load
+    try {
       localStorage.setItem('selectedStore', currentStore);
-    } catch (e) {}
-  }, [currentStore]);
+    } catch (e) {
+      console.error('Error writing localStorage:', e);
+    }
+  }, [currentStore, storeLoaded]);
 
   useEffect(() => {
     const newStore = STORES[currentStore];
@@ -127,12 +135,17 @@ export default function App() {
     setLoading(false);
   }, [currentStore, dateRange]);
 
+  // Only load data after store is loaded from localStorage
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (storeLoaded) {
+      loadData();
+    }
+  }, [loadData, storeLoaded]);
 
   // Load breakdown data when breakdown changes
   useEffect(() => {
+    if (!storeLoaded) return;
+    
     async function loadBreakdown() {
       if (breakdown === 'none') {
         setBreakdownData([]);
@@ -155,7 +168,7 @@ export default function App() {
     }
     
     loadBreakdown();
-  }, [breakdown, currentStore, dateRange]);
+  }, [breakdown, currentStore, dateRange, storeLoaded]);
 
   async function handleSync() {
     setSyncing(true);
@@ -243,7 +256,7 @@ export default function App() {
     return 'Custom';
   };
 
-  if (loading && !dashboard) {
+  if (!storeLoaded || (loading && !dashboard)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
