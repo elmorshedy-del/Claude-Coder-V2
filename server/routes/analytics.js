@@ -1,5 +1,5 @@
 import express from 'express';
-import { getDashboard, getEfficiency, getEfficiencyTrends, getRecommendations, getAvailableCountries, getCampaignsByCountry, getCampaignsByAge, getCampaignsByGender, getCampaignsByPlacement } from '../services/analyticsService.js';
+import { getDashboard, getEfficiency, getEfficiencyTrends, getRecommendations, getAvailableCountries, getCampaignsByCountry, getCampaignsByAge, getCampaignsByGender, getCampaignsByPlacement, getCountryTrends } from '../services/analyticsService.js';
 
 const router = express.Router();
 
@@ -107,6 +107,18 @@ router.get('/countries', (req, res) => {
     res.json(countries);
   } catch (error) {
     console.error('Countries error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Per-country order trends
+router.get('/countries/trends', (req, res) => {
+  try {
+    const store = req.query.store || 'vironax';
+    const data = getCountryTrends(store, req.query);
+    res.json(data);
+  } catch (error) {
+    console.error('Country trends error:', error);
     res.status(500).json({ error: error.message });
   }
 });
