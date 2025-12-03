@@ -3,7 +3,7 @@ import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend 
 } from 'recharts';
-import { RefreshCw, TrendingUp, TrendingDown, Plus, Trash2, Calendar, Store, ChevronDown } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown, Plus, Trash2, Calendar, Store, ChevronDown, ChevronUp, ArrowUpDown } from 'lucide-react';
 
 const API_BASE = '/api';
 
@@ -38,24 +38,19 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   
-  // Date range state
   const [dateRange, setDateRange] = useState({ type: 'days', value: 7 });
   
-  // Dashboard data
   const [dashboard, setDashboard] = useState(null);
   const [efficiency, setEfficiency] = useState(null);
   const [efficiencyTrends, setEfficiencyTrends] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
   const [manualOrders, setManualOrders] = useState([]);
   const [availableCountries, setAvailableCountries] = useState([]);
+  const [campaignsByCountry, setCampaignsByCountry] = useState([]);
   
-  // Expanded KPI state
   const [expandedKpi, setExpandedKpi] = useState(null);
-  
-  // Campaign breakdown state
   const [breakdown, setBreakdown] = useState('none');
   
-  // Manual order form
   const store = STORES[currentStore];
   const [orderForm, setOrderForm] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -67,7 +62,6 @@ export default function App() {
     notes: ''
   });
 
-  // Reset form when store changes
   useEffect(() => {
     const newStore = STORES[currentStore];
     setOrderForm(prev => ({
@@ -77,10 +71,15 @@ export default function App() {
     }));
   }, [currentStore]);
 
-  // Load data when store or date range changes
   useEffect(() => {
     loadData();
   }, [currentStore, dateRange]);
+
+  useEffect(() => {
+    if (breakdown === 'country') {
+      loadCampaignsByCountry();
+    }
+  }, [breakdown, currentStore, dateRange]);
 
   async function loadData() {
     setLoading(true);
@@ -109,6 +108,19 @@ export default function App() {
       console.error('Error loading data:', error);
     }
     setLoading(false);
+  }
+
+  async function loadCampaignsByCountry() {
+    try {
+      const params = new URLSearchParams({
+        store: currentStore,
+        [dateRange.type]: dateRange.value
+      });
+      const data = await fetch(`${API_BASE}/analytics/campaigns/by-country?${params}`).then(r => r.json());
+      setCampaignsByCountry(data);
+    } catch (error) {
+      console.error('Error loading campaigns by country:', error);
+    }
   }
 
   async function handleSync() {
@@ -161,7 +173,6 @@ export default function App() {
     }
   }
 
-  // Currency formatter
   const formatCurrency = (value, decimals = 0) => {
     const symbol = store.currencySymbol;
     if (symbol === '$') {
@@ -201,12 +212,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              {/* Store Selector */}
               <div className="relative">
                 <button
                   onClick={() => setStoreDropdownOpen(!storeDropdownOpen)}
@@ -257,7 +266,6 @@ export default function App() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* Tabs */}
         <div className="flex gap-1 bg-white p-1.5 rounded-xl shadow-sm mb-6 w-fit">
           {TABS.map((tab, i) => (
             <button
@@ -270,14 +278,10 @@ export default function App() {
               }`}
             >
               {tab}
-              {tab === 'Budget Efficiency' && efficiency?.status !== 'green' && (
-                <span className="ml-2 w-2 h-2 bg-amber-400 rounded-full inline-block"></span>
-              )}
             </button>
           ))}
         </div>
 
-        {/* Date Range Picker */}
         <div className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm mb-6">
           <span className="text-sm font-medium text-gray-700">Period:</span>
           
@@ -323,17 +327,11 @@ export default function App() {
             <span className="text-sm text-gray-600">months</span>
           </div>
 
-          <button className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm">
-            <Calendar className="w-4 h-4" />
-            Custom
-          </button>
-
           <div className="ml-auto text-sm text-gray-500">
             Showing: <strong>{getDateRangeLabel()}</strong>
           </div>
         </div>
 
-        {/* Tab Content */}
         {activeTab === 0 && dashboard && (
           <DashboardTab 
             dashboard={dashboard} 
@@ -344,6 +342,7 @@ export default function App() {
             breakdown={breakdown}
             setBreakdown={setBreakdown}
             store={store}
+            campaignsByCountry={campaignsByCountry}
           />
         )}
         
@@ -371,20 +370,39 @@ export default function App() {
         )}
       </div>
       
-      {/* Click outside to close dropdown */}
       {storeDropdownOpen && (
-        <div 
-          className="fixed inset-0 z-40" 
-          onClick={() => setStoreDropdownOpen(false)}
-        />
+        <div className="fixed inset-0 z-40" onClick={() => setStoreDropdownOpen(false)} />
       )}
     </div>
   );
 }
 
-// Dashboard Tab Component
-function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, formatNumber, breakdown, setBreakdown, store }) {
+function SortableHeader({ label, field, sortConfig, onSort, className = '' }) {
+  const isActive = sortConfig.field === field;
+  const isAsc = isActive && sortConfig.direction === 'asc';
+  
+  return (
+    <th 
+      className={`cursor-pointer hover:bg-gray-100 select-none ${className}`}
+      onClick={() => onSort(field)}
+    >
+      <div className="flex items-center gap-1 justify-center">
+        {label}
+        {isActive ? (
+          isAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+        ) : (
+          <ArrowUpDown className="w-3 h-3 opacity-30" />
+        )}
+      </div>
+    </th>
+  );
+}
+
+function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, formatNumber, breakdown, setBreakdown, store, campaignsByCountry }) {
   const { overview, trends, campaigns, countries, diagnostics } = dashboard;
+  
+  const [countrySortConfig, setCountrySortConfig] = useState({ field: 'totalOrders', direction: 'desc' });
+  const [campaignSortConfig, setCampaignSortConfig] = useState({ field: 'spend', direction: 'desc' });
   
   const ecomLabel = store.ecommerce;
   
@@ -397,9 +415,40 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
     { key: 'roas', label: 'ROAS', value: overview.roas, format: 'roas', color: '#10b981' },
   ];
 
+  const sortedCountries = [...countries].sort((a, b) => {
+    const aVal = a[countrySortConfig.field] || 0;
+    const bVal = b[countrySortConfig.field] || 0;
+    return countrySortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
+  });
+
+  const sortedCampaigns = [...campaigns].sort((a, b) => {
+    const aVal = a[campaignSortConfig.field] || 0;
+    const bVal = b[campaignSortConfig.field] || 0;
+    return campaignSortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
+  });
+
+  const sortedCampaignsByCountry = [...campaignsByCountry].sort((a, b) => {
+    const aVal = a[campaignSortConfig.field] || 0;
+    const bVal = b[campaignSortConfig.field] || 0;
+    return campaignSortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
+  });
+
+  const handleCountrySort = (field) => {
+    setCountrySortConfig(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === 'desc' ? 'asc' : 'desc'
+    }));
+  };
+
+  const handleCampaignSort = (field) => {
+    setCampaignSortConfig(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === 'desc' ? 'asc' : 'desc'
+    }));
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* KPI Cards */}
       <div className="grid grid-cols-6 gap-4">
         {kpis.map((kpi) => (
           <KPICard 
@@ -413,8 +462,7 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
         ))}
       </div>
 
-      {/* Expanded Chart */}
-      {expandedKpi && (
+      {expandedKpi && trends && trends.length > 0 && (
         <div className="bg-white rounded-xl p-6 shadow-sm animate-fade-in">
           <h3 className="text-lg font-semibold mb-4 capitalize">{expandedKpi} Trend</h3>
           <div className="h-64">
@@ -437,7 +485,6 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
         </div>
       )}
 
-      {/* Campaign Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="p-6 border-b border-gray-100">
           <div className="flex items-center justify-between">
@@ -457,60 +504,91 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
             <thead>
               <tr className="bg-gray-50">
                 <th>Campaign</th>
-                <th>Spend</th>
-                <th className="bg-indigo-50 text-indigo-700">ROAS</th>
-                <th className="bg-indigo-50 text-indigo-700">AOV</th>
-                <th className="bg-indigo-50 text-indigo-700">CAC</th>
-                <th>Impr</th>
-                <th>Reach</th>
+                {breakdown === 'country' && <th>Country</th>}
+                <SortableHeader label="Spend" field="spend" sortConfig={campaignSortConfig} onSort={handleCampaignSort} />
+                <SortableHeader label="ROAS" field="metaRoas" sortConfig={campaignSortConfig} onSort={handleCampaignSort} className="bg-indigo-50 text-indigo-700" />
+                <SortableHeader label="AOV" field="metaAov" sortConfig={campaignSortConfig} onSort={handleCampaignSort} className="bg-indigo-50 text-indigo-700" />
+                <SortableHeader label="CAC" field="metaCac" sortConfig={campaignSortConfig} onSort={handleCampaignSort} className="bg-indigo-50 text-indigo-700" />
+                <SortableHeader label="Impr" field="impressions" sortConfig={campaignSortConfig} onSort={handleCampaignSort} />
+                <SortableHeader label="Reach" field="reach" sortConfig={campaignSortConfig} onSort={handleCampaignSort} />
                 <th>CPM</th>
                 <th>Freq</th>
-                <th>Clicks</th>
+                <SortableHeader label="Clicks" field="clicks" sortConfig={campaignSortConfig} onSort={handleCampaignSort} />
                 <th>CTR</th>
                 <th>CPC</th>
-                <th>LPV</th>
+                <SortableHeader label="LPV" field="lpv" sortConfig={campaignSortConfig} onSort={handleCampaignSort} />
                 <th>ATC</th>
                 <th>Checkout</th>
-                <th>Conv</th>
+                <SortableHeader label="Conv" field="conversions" sortConfig={campaignSortConfig} onSort={handleCampaignSort} />
                 <th>CR</th>
               </tr>
             </thead>
             <tbody>
-              {campaigns.map((c) => (
-                <tr key={c.campaignId}>
-                  <td className="font-medium">{c.campaignName}</td>
-                  <td className="text-indigo-600 font-semibold">{formatCurrency(c.spend)}</td>
-                  <td className="text-green-600 font-semibold">{c.metaRoas.toFixed(2)}×</td>
-                  <td>{formatCurrency(c.metaAov)}</td>
-                  <td className={c.metaCac > 100 ? 'text-amber-600' : ''}>{formatCurrency(c.metaCac)}</td>
-                  <td>{formatNumber(c.impressions)}</td>
-                  <td>{formatNumber(c.reach)}</td>
-                  <td>{formatCurrency(c.cpm, 2)}</td>
-                  <td>{c.frequency.toFixed(2)}</td>
-                  <td>{formatNumber(c.clicks)}</td>
-                  <td>{c.ctr.toFixed(2)}%</td>
-                  <td>{formatCurrency(c.cpc, 2)}</td>
-                  <td>{formatNumber(c.lpv)}</td>
-                  <td>{c.atc}</td>
-                  <td>{c.checkout}</td>
-                  <td>{c.conversions}</td>
-                  <td>{c.cr.toFixed(2)}%</td>
-                </tr>
-              ))}
+              {breakdown === 'country' ? (
+                sortedCampaignsByCountry.map((c, idx) => (
+                  <tr key={`${c.campaignId}-${c.country}-${idx}`}>
+                    <td className="font-medium">{c.campaignName}</td>
+                    <td>
+                      <span className="flex items-center gap-2">
+                        <span>{c.countryFlag}</span>
+                        <span className="text-xs text-gray-500">{c.country}</span>
+                      </span>
+                    </td>
+                    <td className="text-indigo-600 font-semibold">{formatCurrency(c.spend)}</td>
+                    <td className="text-green-600 font-semibold">{c.metaRoas.toFixed(2)}×</td>
+                    <td>{formatCurrency(c.metaAov)}</td>
+                    <td className={c.metaCac > 100 ? 'text-amber-600' : ''}>{formatCurrency(c.metaCac)}</td>
+                    <td>{formatNumber(c.impressions)}</td>
+                    <td>{formatNumber(c.reach)}</td>
+                    <td>{formatCurrency(c.cpm, 2)}</td>
+                    <td>{c.frequency?.toFixed(2) || '0.00'}</td>
+                    <td>{formatNumber(c.clicks)}</td>
+                    <td>{c.ctr.toFixed(2)}%</td>
+                    <td>{formatCurrency(c.cpc, 2)}</td>
+                    <td>{formatNumber(c.lpv)}</td>
+                    <td>{c.atc}</td>
+                    <td>{c.checkout}</td>
+                    <td>{c.conversions}</td>
+                    <td>{c.cr.toFixed(2)}%</td>
+                  </tr>
+                ))
+              ) : (
+                sortedCampaigns.map((c) => (
+                  <tr key={c.campaignId}>
+                    <td className="font-medium">{c.campaignName}</td>
+                    <td className="text-indigo-600 font-semibold">{formatCurrency(c.spend)}</td>
+                    <td className="text-green-600 font-semibold">{c.metaRoas.toFixed(2)}×</td>
+                    <td>{formatCurrency(c.metaAov)}</td>
+                    <td className={c.metaCac > 100 ? 'text-amber-600' : ''}>{formatCurrency(c.metaCac)}</td>
+                    <td>{formatNumber(c.impressions)}</td>
+                    <td>{formatNumber(c.reach)}</td>
+                    <td>{formatCurrency(c.cpm, 2)}</td>
+                    <td>{c.frequency.toFixed(2)}</td>
+                    <td>{formatNumber(c.clicks)}</td>
+                    <td>{c.ctr.toFixed(2)}%</td>
+                    <td>{formatCurrency(c.cpc, 2)}</td>
+                    <td>{formatNumber(c.lpv)}</td>
+                    <td>{c.atc}</td>
+                    <td>{c.checkout}</td>
+                    <td>{c.conversions}</td>
+                    <td>{c.cr.toFixed(2)}%</td>
+                  </tr>
+                ))
+              )}
               <tr className="bg-gray-50 font-semibold">
                 <td>TOTAL</td>
+                {breakdown === 'country' && <td></td>}
                 <td className="text-indigo-600">{formatCurrency(campaigns.reduce((s, c) => s + c.spend, 0))}</td>
                 <td className="text-green-600">
                   {(campaigns.reduce((s, c) => s + c.conversionValue, 0) / campaigns.reduce((s, c) => s + c.spend, 0) || 0).toFixed(2)}×
                 </td>
-                <td colSpan="14"></td>
+                <td colSpan={breakdown === 'country' ? 14 : 14}></td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Diagnostics */}
       {diagnostics && diagnostics.length > 0 && (
         <div className={`rounded-xl p-6 ${
           diagnostics.some(d => d.type === 'warning') 
@@ -519,9 +597,6 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
         }`}>
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             🔍 Funnel Diagnostics
-            <span className="text-sm font-normal text-gray-500">
-              {diagnostics.filter(d => d.type === 'warning').length} issues • {diagnostics.filter(d => d.type === 'success').length} positive
-            </span>
           </h3>
           <div className="space-y-3">
             {diagnostics.map((d, i) => (
@@ -538,27 +613,26 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
         </div>
       )}
 
-      {/* Countries Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="p-6 border-b border-gray-100">
           <h2 className="text-lg font-semibold">Countries Performance</h2>
-          <p className="text-sm text-gray-500">Combined: Meta Spend + {store.ecommerce} Orders + Manual Orders</p>
+          <p className="text-sm text-gray-500">Combined: Meta Spend + {store.ecommerce} Orders + Manual Orders • Click headers to sort</p>
         </div>
         <div className="overflow-x-auto">
           <table>
             <thead>
               <tr>
                 <th>Country</th>
-                <th>Spend</th>
-                <th>Share</th>
-                <th>Orders</th>
-                <th>AOV</th>
-                <th>CAC</th>
-                <th>ROAS</th>
+                <SortableHeader label="Spend" field="spend" sortConfig={countrySortConfig} onSort={handleCountrySort} />
+                <SortableHeader label="Share" field="spend" sortConfig={countrySortConfig} onSort={handleCountrySort} />
+                <SortableHeader label="Orders" field="totalOrders" sortConfig={countrySortConfig} onSort={handleCountrySort} />
+                <SortableHeader label="AOV" field="aov" sortConfig={countrySortConfig} onSort={handleCountrySort} />
+                <SortableHeader label="CAC" field="cac" sortConfig={countrySortConfig} onSort={handleCountrySort} />
+                <SortableHeader label="ROAS" field="roas" sortConfig={countrySortConfig} onSort={handleCountrySort} />
               </tr>
             </thead>
             <tbody>
-              {countries.map((c) => (
+              {sortedCountries.map((c) => (
                 <tr key={c.code}>
                   <td>
                     <div className="flex items-center gap-3">
@@ -585,12 +659,11 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
   );
 }
 
-// KPI Card Component
 function KPICard({ kpi, trends, expanded, onClick, formatCurrency }) {
-  const trendData = trends.slice(-7).map(t => ({ value: t[kpi.key] }));
+  const trendData = trends && trends.length > 0 ? trends.slice(-7).map(t => ({ value: t[kpi.key] || 0 })) : [];
   
-  const current = trends[trends.length - 1]?.[kpi.key] || 0;
-  const previous = trends[Math.max(0, trends.length - 8)]?.[kpi.key] || current;
+  const current = trends && trends.length > 0 ? (trends[trends.length - 1]?.[kpi.key] || 0) : 0;
+  const previous = trends && trends.length > 7 ? (trends[Math.max(0, trends.length - 8)]?.[kpi.key] || current) : current;
   const change = previous > 0 ? ((current - previous) / previous) * 100 : 0;
   const isPositive = kpi.key === 'cac' ? change < 0 : change > 0;
 
@@ -619,25 +692,26 @@ function KPICard({ kpi, trends, expanded, onClick, formatCurrency }) {
       <div className="text-2xl font-bold text-gray-900 mb-1">{formatValue()}</div>
       {kpi.subtitle && <div className="text-xs text-gray-400">{kpi.subtitle}</div>}
       
-      <div className="h-10 mt-3">
-        <ResponsiveContainer>
-          <LineChart data={trendData}>
-            <Line 
-              type="monotone" 
-              dataKey="value" 
-              stroke={kpi.color} 
-              strokeWidth={2}
-              dot={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+      {trendData.length > 0 && (
+        <div className="h-10 mt-3">
+          <ResponsiveContainer>
+            <LineChart data={trendData}>
+              <Line 
+                type="monotone" 
+                dataKey="value" 
+                stroke={kpi.color} 
+                strokeWidth={2}
+                dot={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
       <div className="text-xs text-gray-400 mt-1 text-center">Click to expand</div>
     </div>
   );
 }
 
-// Efficiency Tab Component
 function EfficiencyTab({ efficiency, trends, recommendations, formatCurrency }) {
   const statusColors = {
     green: { bg: 'bg-green-100', text: 'text-green-700', label: 'Healthy' },
@@ -649,7 +723,6 @@ function EfficiencyTab({ efficiency, trends, recommendations, formatCurrency }) 
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Overview Cards */}
       <div className="grid grid-cols-3 gap-6">
         <div className="bg-white rounded-xl p-6 shadow-sm">
           <div className="flex items-center gap-4 mb-4">
@@ -674,12 +747,6 @@ function EfficiencyTab({ efficiency, trends, recommendations, formatCurrency }) 
                 {efficiency.roasChange > 0 ? '↑' : '↓'} {Math.abs(efficiency.roasChange).toFixed(1)}%
               </span>
             </div>
-            <div className="flex justify-between p-3 bg-gray-50 rounded-lg">
-              <span className="text-sm text-gray-600">Efficiency Ratio</span>
-              <span className={`font-semibold ${efficiency.efficiencyRatio >= 0.85 ? 'text-green-600' : efficiency.efficiencyRatio >= 0.7 ? 'text-amber-600' : 'text-red-600'}`}>
-                {efficiency.efficiencyRatio.toFixed(2)}
-              </span>
-            </div>
           </div>
         </div>
 
@@ -696,16 +763,7 @@ function EfficiencyTab({ efficiency, trends, recommendations, formatCurrency }) 
                 {formatCurrency(efficiency.marginalCac, 2)}
               </span>
             </div>
-            <div className="flex justify-between p-3 bg-gray-50 rounded-lg">
-              <span className="text-sm text-gray-600">Marginal Premium</span>
-              <span className={`font-semibold ${efficiency.marginalPremium > 30 ? 'text-red-600' : efficiency.marginalPremium > 15 ? 'text-amber-600' : 'text-green-600'}`}>
-                +{efficiency.marginalPremium.toFixed(0)}%
-              </span>
-            </div>
           </div>
-          <p className="text-xs text-gray-500 mt-3">
-            Each new dollar is working {efficiency.marginalPremium.toFixed(0)}% harder than baseline
-          </p>
         </div>
 
         <div className="bg-white rounded-xl p-6 shadow-sm">
@@ -727,98 +785,42 @@ function EfficiencyTab({ efficiency, trends, recommendations, formatCurrency }) 
         </div>
       </div>
 
-      {/* Efficiency Trend Charts */}
-      <div className="grid grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl p-6 shadow-sm">
-          <h3 className="font-semibold mb-4">CAC Trend (Average vs Marginal)</h3>
-          <div className="h-64">
-            <ResponsiveContainer>
-              <LineChart data={trends}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v) => formatCurrency(v, 2)} />
-                <Legend />
-                <Line type="monotone" dataKey="cac" name="Daily CAC" stroke="#6366f1" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="rollingCac" name="Rolling CAC (3d)" stroke="#22c55e" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="marginalCac" name="Marginal CAC" stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
+      {trends && trends.length > 0 && (
+        <div className="grid grid-cols-2 gap-6">
+          <div className="bg-white rounded-xl p-6 shadow-sm">
+            <h3 className="font-semibold mb-4">CAC Trend</h3>
+            <div className="h-64">
+              <ResponsiveContainer>
+                <LineChart data={trends}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="cac" name="Daily CAC" stroke="#6366f1" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl p-6 shadow-sm">
+            <h3 className="font-semibold mb-4">ROAS Trend</h3>
+            <div className="h-64">
+              <ResponsiveContainer>
+                <AreaChart data={trends}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Area type="monotone" dataKey="roas" name="Daily ROAS" stroke="#10b981" fill="#10b981" fillOpacity={0.2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
+      )}
 
-        <div className="bg-white rounded-xl p-6 shadow-sm">
-          <h3 className="font-semibold mb-4">ROAS Trend</h3>
-          <div className="h-64">
-            <ResponsiveContainer>
-              <AreaChart data={trends}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v) => v.toFixed(2) + '×'} />
-                <Legend />
-                <Area type="monotone" dataKey="roas" name="Daily ROAS" stroke="#10b981" fill="#10b981" fillOpacity={0.2} />
-                <Line type="monotone" dataKey="rollingRoas" name="Rolling ROAS (3d)" stroke="#8b5cf6" strokeWidth={2} dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
-      {/* Campaign Efficiency Table */}
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-gray-100">
-          <h2 className="text-lg font-semibold">Efficiency by Campaign</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table>
-            <thead>
-              <tr>
-                <th>Campaign</th>
-                <th>Status</th>
-                <th>Frequency</th>
-                <th>CPM Change</th>
-                <th>CTR Change</th>
-                <th>Marginal CAC</th>
-                <th>Recommendation</th>
-              </tr>
-            </thead>
-            <tbody>
-              {efficiency.campaigns && efficiency.campaigns.map(c => (
-                <tr key={c.campaignId}>
-                  <td className="font-medium">{c.campaignName}</td>
-                  <td>
-                    <span className={`badge ${c.status === 'green' ? 'badge-green' : c.status === 'yellow' ? 'badge-yellow' : 'badge-red'}`}>
-                      {c.status === 'green' ? '🟢 Efficient' : c.status === 'yellow' ? '🟡 Pressure' : '🔴 Fatigued'}
-                    </span>
-                  </td>
-                  <td className={c.frequency > 3 ? 'text-red-600 font-medium' : c.frequency > 2.5 ? 'text-amber-600' : ''}>
-                    {c.frequency.toFixed(1)}
-                  </td>
-                  <td className={c.cpmChange > 15 ? 'text-red-600' : c.cpmChange > 5 ? 'text-amber-600' : 'text-green-600'}>
-                    {c.cpmChange > 0 ? '↑' : '↓'} {Math.abs(c.cpmChange).toFixed(0)}%
-                  </td>
-                  <td className={c.ctrChange < -15 ? 'text-red-600' : c.ctrChange < -5 ? 'text-amber-600' : 'text-green-600'}>
-                    {c.ctrChange > 0 ? '↑' : c.ctrChange < 0 ? '↓' : ''} {c.ctrChange === 0 ? 'Stable' : Math.abs(c.ctrChange).toFixed(0) + '%'}
-                  </td>
-                  <td className={c.marginalCac > c.metaCac * 1.3 ? 'text-red-600 font-medium' : ''}>
-                    {formatCurrency(c.marginalCac, 2)}
-                  </td>
-                  <td className="text-sm text-gray-500">
-                    {c.status === 'green' ? 'Room to scale' : c.status === 'yellow' ? 'Hold budget, refresh creatives' : 'Reduce 25%, new audiences'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Recommendations */}
       <div className="bg-white rounded-xl p-6 shadow-sm">
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          💡 Recommendations
-        </h3>
+        <h3 className="text-lg font-semibold mb-4">💡 Recommendations</h3>
         <div className="space-y-3">
           {recommendations.map((r, i) => (
             <div 
@@ -837,7 +839,6 @@ function EfficiencyTab({ efficiency, trends, recommendations, formatCurrency }) 
               <div className="flex-1">
                 <h4 className="font-semibold">{r.title}</h4>
                 <p className="text-sm text-gray-600 mt-1">{r.detail}</p>
-                <p className="text-sm text-indigo-600 mt-2">{r.impact}</p>
               </div>
             </div>
           ))}
@@ -847,14 +848,12 @@ function EfficiencyTab({ efficiency, trends, recommendations, formatCurrency }) 
   );
 }
 
-// Manual Data Tab Component
 function ManualDataTab({ orders, form, setForm, onSubmit, onDelete, onBulkDelete, formatCurrency, store, availableCountries }) {
   const [deleteScope, setDeleteScope] = useState('day');
   const [deleteDate, setDeleteDate] = useState(new Date().toISOString().split('T')[0]);
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Add Order Form */}
       <div className="bg-white rounded-xl p-6 shadow-sm">
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <Plus className="w-5 h-5" />
@@ -933,7 +932,6 @@ function ManualDataTab({ orders, form, setForm, onSubmit, onDelete, onBulkDelete
         </form>
       </div>
 
-      {/* Orders List */}
       <div className="bg-white rounded-xl p-6 shadow-sm">
         <h3 className="text-lg font-semibold mb-4">Manual Orders History</h3>
         {orders.length === 0 ? (
@@ -966,7 +964,6 @@ function ManualDataTab({ orders, form, setForm, onSubmit, onDelete, onBulkDelete
         )}
       </div>
 
-      {/* Bulk Delete */}
       <div className="bg-red-50 border border-red-200 rounded-xl p-6">
         <h3 className="text-lg font-semibold text-red-700 mb-4 flex items-center gap-2">
           <Trash2 className="w-5 h-5" />
@@ -983,7 +980,6 @@ function ManualDataTab({ orders, form, setForm, onSubmit, onDelete, onBulkDelete
               <option value="day">Specific Day</option>
               <option value="week">Specific Week</option>
               <option value="month">Specific Month</option>
-              <option value="year">Specific Year</option>
               <option value="all">All Manual Data</option>
             </select>
           </div>
