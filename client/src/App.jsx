@@ -371,7 +371,7 @@ export default function App() {
           </button>
           
           {/* Quick select buttons */}
-          {[7, 14, 30].map(d => (
+          {[3, 7, 14, 30].map(d => (
             <button
               key={d}
               onClick={() => { setDateRange({ type: 'days', value: d }); setShowCustomPicker(false); }}
