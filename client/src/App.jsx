@@ -55,6 +55,7 @@ export default function App() {
   
   const [expandedKpi, setExpandedKpi] = useState(null);
   const [breakdown, setBreakdown] = useState('none');
+  const [countryTrends, setCountryTrends] = useState([]);
   
   const store = STORES[currentStore];
   const [orderForm, setOrderForm] = useState({
@@ -114,13 +115,14 @@ export default function App() {
         params.set(dateRange.type, dateRange.value);
       }
       
-      const [dashData, effData, effTrends, recs, orders, countries] = await Promise.all([
+      const [dashData, effData, effTrends, recs, orders, countries, cTrends] = await Promise.all([
         fetch(`${API_BASE}/analytics/dashboard?${params}`).then(r => r.json()),
         fetch(`${API_BASE}/analytics/efficiency?${params}`).then(r => r.json()),
         fetch(`${API_BASE}/analytics/efficiency/trends?${params}`).then(r => r.json()),
         fetch(`${API_BASE}/analytics/recommendations?${params}`).then(r => r.json()),
         fetch(`${API_BASE}/manual?${params}`).then(r => r.json()),
-        fetch(`${API_BASE}/analytics/countries?store=${currentStore}`).then(r => r.json())
+        fetch(`${API_BASE}/analytics/countries?store=${currentStore}`).then(r => r.json()),
+        fetch(`${API_BASE}/analytics/countries/trends?${params}`).then(r => r.json())
       ]);
       
       setDashboard(dashData);
@@ -129,6 +131,7 @@ export default function App() {
       setRecommendations(recs);
       setManualOrders(orders);
       setAvailableCountries(countries);
+      setCountryTrends(cTrends);
     } catch (error) {
       console.error('Error loading data:', error);
     }
@@ -462,6 +465,7 @@ export default function App() {
             setBreakdown={setBreakdown}
             breakdownData={breakdownData}
             store={store}
+            countryTrends={countryTrends}
           />
         )}
         
@@ -517,11 +521,12 @@ function SortableHeader({ label, field, sortConfig, onSort, className = '' }) {
   );
 }
 
-function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, formatNumber, breakdown, setBreakdown, breakdownData, store }) {
+function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, formatNumber, breakdown, setBreakdown, breakdownData, store, countryTrends }) {
   const { overview, trends, campaigns, countries, diagnostics } = dashboard;
   
   const [countrySortConfig, setCountrySortConfig] = useState({ field: 'totalOrders', direction: 'desc' });
   const [campaignSortConfig, setCampaignSortConfig] = useState({ field: 'spend', direction: 'desc' });
+  const [showCountryTrends, setShowCountryTrends] = useState(false);
   
   const ecomLabel = store.ecommerce;
   
@@ -597,22 +602,22 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
         ))}
       </div>
 
-      {/* AOV Trend Chart */}
+      {/* Orders Trend Chart */}
       {trends && trends.length > 0 && (
         <div className="bg-white rounded-xl p-6 shadow-sm">
-          <h3 className="text-lg font-semibold mb-4">AOV Trend</h3>
+          <h3 className="text-lg font-semibold mb-4">Orders Trend</h3>
           <div className="h-64">
             <ResponsiveContainer>
               <AreaChart data={trends}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(v) => formatCurrency(v)} />
+                <Tooltip />
                 <Area 
                   type="monotone" 
-                  dataKey="aov" 
-                  stroke="#f59e0b"
-                  fill="#f59e0b"
+                  dataKey="orders" 
+                  stroke="#22c55e"
+                  fill="#22c55e"
                   fillOpacity={0.2}
                 />
               </AreaChart>
@@ -807,12 +812,101 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
           </table>
         </div>
       </div>
+
+      {/* Collapsible Per-Country Order Trends */}
+      {countryTrends && countryTrends.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          <button
+            onClick={() => setShowCountryTrends(!showCountryTrends)}
+            className="w-full p-6 flex items-center justify-between hover:bg-gray-50 transition-colors"
+          >
+            <div>
+              <h2 className="text-lg font-semibold text-left">Order Trends by Country</h2>
+              <p className="text-sm text-gray-500 text-left">Click to {showCountryTrends ? 'collapse' : 'expand'} daily order trends per country</p>
+            </div>
+            <div className={`transform transition-transform ${showCountryTrends ? 'rotate-180' : ''}`}>
+              <ChevronDown className="w-5 h-5 text-gray-500" />
+            </div>
+          </button>
+          
+          {showCountryTrends && (
+            <div className="p-6 pt-0 space-y-6">
+              {countryTrends.slice(0, 5).map((country) => (
+                <div key={country.countryCode} className="border-t border-gray-100 pt-4 first:border-0 first:pt-0">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xl">{country.flag}</span>
+                    <span className="font-semibold">{country.country}</span>
+                    <span className="text-sm text-gray-500">({country.totalOrders} orders)</span>
+                  </div>
+                  <div className="h-32">
+                    <ResponsiveContainer>
+                      <AreaChart data={country.trends}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis 
+                          dataKey="date" 
+                          tick={{ fontSize: 10 }}
+                          tickFormatter={(d) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        />
+                        <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                        <Tooltip 
+                          labelFormatter={(d) => new Date(d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                          formatter={(value, name) => [value, name === 'orders' ? 'Orders' : 'Revenue']}
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="orders" 
+                          stroke="#6366f1"
+                          fill="#6366f1"
+                          fillOpacity={0.2}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              ))}
+              {countryTrends.length > 5 && (
+                <p className="text-sm text-gray-500 text-center pt-2">
+                  Showing top 5 countries by orders. {countryTrends.length - 5} more countries available.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 function KPICard({ kpi, trends, expanded, onClick, formatCurrency }) {
   const trendData = trends && trends.length > 0 ? trends.slice(-7).map(t => ({ value: t[kpi.key] || 0 })) : [];
+  
+  // Calculate percentage change (compare last half to first half of period)
+  const calculateChange = () => {
+    if (!trends || trends.length < 2) return { value: 0, isPositive: true };
+    
+    const midPoint = Math.floor(trends.length / 2);
+    const firstHalf = trends.slice(0, midPoint);
+    const secondHalf = trends.slice(midPoint);
+    
+    const firstSum = firstHalf.reduce((sum, t) => sum + (t[kpi.key] || 0), 0);
+    const secondSum = secondHalf.reduce((sum, t) => sum + (t[kpi.key] || 0), 0);
+    
+    const firstAvg = firstHalf.length > 0 ? firstSum / firstHalf.length : 0;
+    const secondAvg = secondHalf.length > 0 ? secondSum / secondHalf.length : 0;
+    
+    if (firstAvg === 0) return { value: 0, isPositive: true };
+    
+    const change = ((secondAvg - firstAvg) / firstAvg) * 100;
+    
+    // For CAC and spend, lower is better (so invert the "positive" logic)
+    const isGoodChange = kpi.key === 'cac' || kpi.key === 'spend' 
+      ? change < 0 
+      : change > 0;
+    
+    return { value: Math.abs(change), isPositive: change >= 0, isGood: isGoodChange };
+  };
+  
+  const change = calculateChange();
   
   const formatValue = () => {
     if (kpi.format === 'currency') return formatCurrency(kpi.value);
@@ -827,6 +921,16 @@ function KPICard({ kpi, trends, expanded, onClick, formatCurrency }) {
     >
       <div className="flex items-start justify-between mb-2">
         <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">{kpi.label}</span>
+        {change.value > 0 && (
+          <span className={`flex items-center gap-1 text-xs font-medium ${change.isGood ? 'text-green-600' : 'text-red-500'}`}>
+            {change.isPositive ? (
+              <TrendingUp className="w-3 h-3" />
+            ) : (
+              <TrendingDown className="w-3 h-3" />
+            )}
+            {change.value.toFixed(1)}%
+          </span>
+        )}
       </div>
       <div className="text-2xl font-bold text-gray-900 mb-1">{formatValue()}</div>
       {kpi.subtitle && <div className="text-xs text-gray-400">{kpi.subtitle}</div>}
