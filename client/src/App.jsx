@@ -1,12 +1,10 @@
+// client/src/App.jsx
 import { useState, useEffect, useCallback } from 'react';
 import { 
   LineChart, Line, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
 } from 'recharts';
-import { 
-  RefreshCw, TrendingUp, TrendingDown, Plus, Trash2, Store,
-  ChevronDown, ChevronUp, ArrowUpDown, Calendar, AlertTriangle 
-} from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown, Plus, Trash2, Store, ChevronDown, ChevronUp, ArrowUpDown, Calendar } from 'lucide-react';
 
 const API_BASE = '/api';
 
@@ -56,7 +54,8 @@ export default function App() {
   const [availableCountries, setAvailableCountries] = useState([]);
   const [breakdownData, setBreakdownData] = useState([]);
   
-  const [expandedKpi, setExpandedKpi] = useState(null);
+  // NEW: allow multiple expanded KPI charts
+  const [expandedKpis, setExpandedKpis] = useState([]);
   const [breakdown, setBreakdown] = useState('none');
   const [countryTrends, setCountryTrends] = useState([]);
   
@@ -161,7 +160,7 @@ export default function App() {
       try {
         const params = new URLSearchParams({ store: currentStore });
 
-        // Mirror the same date-range logic used in loadData
+        // 🔧 FIX: use same date-range logic as main loader
         if (dateRange.type === 'custom') {
           params.set('startDate', dateRange.start);
           params.set('endDate', dateRange.end);
@@ -187,7 +186,6 @@ export default function App() {
     setSyncing(true);
     try {
       await fetch(`${API_BASE}/sync?store=${currentStore}`, { method: 'POST' });
-      // Reload data without changing store
       await loadData();
     } catch (error) {
       console.error('Sync error:', error);
@@ -304,6 +302,7 @@ export default function App() {
                         onClick={() => {
                           setCurrentStore(s.id);
                           setStoreDropdownOpen(false);
+                          setExpandedKpis([]); // reset charts when switching store
                         }}
                         className={`w-full px-4 py-3 text-left hover:bg-gray-50 ${currentStore === s.id ? 'bg-indigo-50' : ''}`}
                       >
@@ -467,8 +466,8 @@ export default function App() {
         {activeTab === 0 && dashboard && (
           <DashboardTab 
             dashboard={dashboard} 
-            expandedKpi={expandedKpi}
-            setExpandedKpi={setExpandedKpi}
+            expandedKpis={expandedKpis}
+            setExpandedKpis={setExpandedKpis}
             formatCurrency={formatCurrency}
             formatNumber={formatNumber}
             breakdown={breakdown}
@@ -531,7 +530,18 @@ function SortableHeader({ label, field, sortConfig, onSort, className = '' }) {
   );
 }
 
-function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, formatNumber, breakdown, setBreakdown, breakdownData, store, countryTrends }) {
+function DashboardTab({
+  dashboard,
+  expandedKpis,
+  setExpandedKpis,
+  formatCurrency,
+  formatNumber,
+  breakdown,
+  setBreakdown,
+  breakdownData,
+  store,
+  countryTrends
+}) {
   const { overview, trends, campaigns, countries, diagnostics } = dashboard;
   
   const [countrySortConfig, setCountrySortConfig] = useState({ field: 'totalOrders', direction: 'desc' });
@@ -581,31 +591,6 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
     }));
   };
 
-  // --- Meta debug detection (demo vs live) ---
-  const demoCampaignNames =
-    store.id === 'shawq'
-      ? [
-          'Palestinian Heritage Apparel',
-          'Syrian Traditional Wear',
-          'Keffiyeh Collection',
-          'Cultural Pride - USA'
-        ]
-      : [
-          'Modern Gentleman - Rings',
-          'Heritage Collection',
-          'Gift Giver - Misbaha'
-        ];
-
-  const campaignNamesSet = new Set((campaigns || []).map(c => c.campaignName));
-  const isDemoCampaignSet =
-    demoCampaignNames.length > 0 &&
-    demoCampaignNames.every(name => campaignNamesSet.has(name)) &&
-    campaignNamesSet.size === demoCampaignNames.length &&
-    (campaigns || []).length >= demoCampaignNames.length;
-
-  const hasSpendButNoCampaigns =
-    (!campaigns || campaigns.length === 0) && (overview?.spend || 0) > 0;
-
   // Get breakdown label for display
   const getBreakdownLabel = (row) => {
     switch(breakdown) {
@@ -616,10 +601,18 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
       case 'gender':
         return <span>{row.genderLabel || row.gender}</span>;
       case 'placement':
-        return <span className="text-xs">{row.placementLabel || `${row.publisher_platform || row.platform} - ${row.platform_position || row.placement}`}</span>;
+        return <span className="text-xs">{row.placementLabel || `${row.platform} - ${row.placement}`}</span>;
       default:
         return null;
     }
+  };
+
+  const toggleKpi = (key) => {
+    setExpandedKpis(prev =>
+      prev.includes(key)
+        ? prev.filter(k => k !== key)
+        : [...prev, key]
+    );
   };
 
   return (
@@ -630,14 +623,14 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
             key={kpi.key}
             kpi={kpi}
             trends={trends}
-            expanded={expandedKpi === kpi.key}
-            onClick={() => setExpandedKpi(expandedKpi === kpi.key ? null : kpi.key)}
+            expanded={expandedKpis.includes(kpi.key)}
+            onToggle={() => toggleKpi(kpi.key)}
             formatCurrency={formatCurrency}
           />
         ))}
       </div>
 
-      {/* Orders Trend Chart */}
+      {/* Orders Trend Chart (global) */}
       {trends && trends.length > 0 && (
         <div className="bg-white rounded-xl p-6 shadow-sm">
           <h3 className="text-lg font-semibold mb-4">Orders Trend</h3>
@@ -661,64 +654,35 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
         </div>
       )}
 
-      {/* Expanded KPI Chart */}
-      {expandedKpi && trends && trends.length > 0 && expandedKpi !== 'aov' && (
-        <div className="bg-white rounded-xl p-6 shadow-sm animate-fade-in">
-          <h3 className="text-lg font-semibold mb-4 capitalize">{expandedKpi} Trend</h3>
-          <div className="h-64">
-            <ResponsiveContainer>
-              <AreaChart data={trends}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Area 
-                  type="monotone" 
-                  dataKey={expandedKpi} 
-                  stroke={kpis.find(k => k.key === expandedKpi)?.color}
-                  fill={kpis.find(k => k.key === expandedKpi)?.color}
-                  fillOpacity={0.2}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      {/* Meta debug banner */}
-      {(isDemoCampaignSet || hasSpendButNoCampaigns) && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3 items-start">
-          <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5" />
-          <div className="text-sm text-amber-900">
-            <p className="font-semibold mb-1">
-              Meta campaign data looks like <span className="underline">DEMO / not live</span>.
-            </p>
-            {isDemoCampaignSet && (
-              <p className="mb-1">
-                The campaigns shown match the built-in demo set for <strong>{store.name}</strong>
-                : {demoCampaignNames.join(', ')}. When Meta credentials are missing or the API
-                errors, the backend falls back to this demo data.
-              </p>
-            )}
-            {hasSpendButNoCampaigns && (
-              <p className="mb-1">
-                There is Meta ad spend in this period, but no campaigns were synced into the
-                dashboard. That usually means the Meta sync failed (API error or wrong account).
-              </p>
-            )}
-            <p className="mt-1">
-              Check your Railway variables for this project:
-            </p>
-            <p className="mt-1 font-mono text-xs bg-amber-100 inline-block px-2 py-1 rounded">
-              {store.id === 'shawq'
-                ? 'SHAWQ_META_ACCESS_TOKEN, SHAWQ_META_AD_ACCOUNT_ID'
-                : 'META_ACCESS_TOKEN, META_AD_ACCOUNT_ID'}
-            </p>
-            <p className="mt-1 text-xs text-amber-800">
-              If those are empty or point to the wrong ad account, the dashboard will keep using
-              demo data even though the UI looks “alive”.
-            </p>
-          </div>
+      {/* Expanded KPI Charts – multiple at once */}
+      {expandedKpis.length > 0 && trends && trends.length > 0 && (
+        <div className="space-y-6">
+          {expandedKpis.map((key) => {
+            const thisKpi = kpis.find(k => k.key === key);
+            if (!thisKpi) return null;
+            return (
+              <div key={key} className="bg-white rounded-xl p-6 shadow-sm animate-fade-in">
+                <h3 className="text-lg font-semibold mb-4">{thisKpi.label} Trend</h3>
+                <div className="h-64">
+                  <ResponsiveContainer>
+                    <AreaChart data={trends}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} />
+                      <Tooltip />
+                      <Area 
+                        type="monotone" 
+                        dataKey={key} 
+                        stroke={thisKpi.color}
+                        fill={thisKpi.color}
+                        fillOpacity={0.2}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -806,16 +770,13 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
                 <td>TOTAL</td>
                 {breakdown !== 'none' && <td></td>}
                 <td className="text-indigo-600">
-                  {formatCurrency((campaigns || []).reduce((s, c) => s + c.spend, 0))}
+                  {formatCurrency(campaigns.reduce((s, c) => s + c.spend, 0))}
                 </td>
                 <td className="text-green-600">
-                  {(
-                    ((campaigns || []).reduce((s, c) => s + c.conversionValue, 0) /
-                      (campaigns || []).reduce((s, c) => s + c.spend, 0) || 0
-                    ).toFixed(2)
-                  )}×
+                  {(campaigns.reduce((s, c) => s + c.conversionValue, 0) /
+                    campaigns.reduce((s, c) => s + c.spend, 0) || 0).toFixed(2)}×
                 </td>
-                <td colSpan={11}></td>
+                <td colSpan={breakdown !== 'none' ? 11 : 11}></td>
               </tr>
             </tbody>
           </table>
@@ -851,7 +812,9 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="p-6 border-b border-gray-100">
           <h2 className="text-lg font-semibold">Countries Performance</h2>
-          <p className="text-sm text-gray-500">Combined: Meta Spend + {store.ecommerce} Orders + Manual Orders • Click headers to sort</p>
+          <p className="text-sm text-gray-500">
+            Combined: Meta Spend + {store.ecommerce} Orders + Manual Orders • Click headers to sort
+          </p>
         </div>
         <div className="overflow-x-auto">
           <table>
@@ -859,6 +822,8 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
               <tr>
                 <th>Country</th>
                 <SortableHeader label="Spend" field="spend" sortConfig={countrySortConfig} onSort={handleCountrySort} />
+                {/* NEW Revenue column */}
+                <SortableHeader label="Revenue" field="revenue" sortConfig={countrySortConfig} onSort={handleCountrySort} />
                 <SortableHeader label="Share" field="spend" sortConfig={countrySortConfig} onSort={handleCountrySort} />
                 <SortableHeader label="Orders" field="totalOrders" sortConfig={countrySortConfig} onSort={handleCountrySort} />
                 <SortableHeader label="AOV" field="aov" sortConfig={countrySortConfig} onSort={handleCountrySort} />
@@ -867,25 +832,30 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
               </tr>
             </thead>
             <tbody>
-              {sortedCountries.map((c) => (
-                <tr key={c.code}>
-                  <td>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xl">{c.flag}</span>
-                      <div>
-                        <div className="font-medium">{c.name}</div>
-                        <div className="text-xs text-gray-400">{c.code}</div>
+              {sortedCountries.map((c) => {
+                const totalSpend = countries.reduce((s, x) => s + x.spend, 0);
+                const share = totalSpend > 0 ? (c.spend / totalSpend) * 100 : 0;
+                return (
+                  <tr key={c.code}>
+                    <td>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xl">{c.flag}</span>
+                        <div>
+                          <div className="font-medium">{c.name}</div>
+                          <div className="text-xs text-gray-400">{c.code}</div>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="text-indigo-600 font-semibold">{formatCurrency(c.spend)}</td>
-                  <td>{((c.spend / countries.reduce((s, x) => s + x.spend, 0)) * 100 || 0).toFixed(0)}%</td>
-                  <td><span className="badge badge-green">{c.totalOrders}</span></td>
-                  <td>{formatCurrency(c.aov)}</td>
-                  <td className={c.cac > 80 ? 'text-amber-600 font-medium' : ''}>{formatCurrency(c.cac, 2)}</td>
-                  <td className="text-green-600 font-semibold">{c.roas.toFixed(2)}×</td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="text-indigo-600 font-semibold">{formatCurrency(c.spend)}</td>
+                    <td className="text-green-600 font-semibold">{formatCurrency(c.revenue || 0)}</td>
+                    <td>{share.toFixed(0)}%</td>
+                    <td><span className="badge badge-green">{c.totalOrders}</span></td>
+                    <td>{formatCurrency(c.aov)}</td>
+                    <td className={c.cac > 80 ? 'text-amber-600 font-medium' : ''}>{formatCurrency(c.cac, 2)}</td>
+                    <td className="text-green-600 font-semibold">{c.roas.toFixed(2)}×</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -900,7 +870,9 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
           >
             <div>
               <h2 className="text-lg font-semibold text-left">Order Trends by Country</h2>
-              <p className="text-sm text-gray-500 text-left">Click to {showCountryTrends ? 'collapse' : 'expand'} daily order trends per country</p>
+              <p className="text-sm text-gray-500 text-left">
+                Click to {showCountryTrends ? 'collapse' : 'expand'} daily order trends per country
+              </p>
             </div>
             <div className={`transform transition-transform ${showCountryTrends ? 'rotate-180' : ''}`}>
               <ChevronDown className="w-5 h-5 text-gray-500" />
@@ -951,12 +923,54 @@ function DashboardTab({ dashboard, expandedKpi, setExpandedKpi, formatCurrency, 
           )}
         </div>
       )}
+
+      {/* DEBUG PANEL */}
+      <div className="bg-gray-900 text-gray-100 rounded-xl p-4 mt-6 text-sm">
+        <h3 className="font-semibold mb-2">Debug · Meta vs Dashboard</h3>
+        <p>Store: <span className="font-mono">{store.id}</span></p>
+        <p>
+          Date range (API):{" "}
+          <span className="font-mono">
+            {dashboard?.dateRange?.startDate} → {dashboard?.dateRange?.endDate}
+          </span>
+        </p>
+
+        <div className="grid grid-cols-2 gap-4 mt-3">
+          <div>
+            <p className="text-xs text-gray-400 uppercase mb-1">Campaigns</p>
+            <p>Total rows: <span className="font-mono">{campaigns.length}</span></p>
+            <p>
+              Spend (sum of campaigns):{" "}
+              <span className="font-mono">
+                {formatCurrency(campaigns.reduce((s, c) => s + (c.spend || 0), 0))}
+              </span>
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-400 uppercase mb-1">Overview</p>
+            <p>
+              Overview spend:{" "}
+              <span className="font-mono">{formatCurrency(overview.spend || 0)}</span>
+            </p>
+            <p>
+              Overview revenue:{" "}
+              <span className="font-mono">{formatCurrency(overview.revenue || 0)}</span>
+            </p>
+          </div>
+        </div>
+
+        <p className="mt-3 text-xs text-gray-400">
+          If campaign spend is far below Ads Manager, suspect: pagination, date filters, or currency conversion.
+        </p>
+      </div>
     </div>
   );
 }
 
-function KPICard({ kpi, trends, expanded, onClick, formatCurrency }) {
-  const trendData = trends && trends.length > 0 ? trends.slice(-7).map(t => ({ value: t[kpi.key] || 0 })) : [];
+function KPICard({ kpi, trends, expanded, onToggle, formatCurrency }) {
+  const trendData = trends && trends.length > 0
+    ? trends.slice(-7).map(t => ({ value: t[kpi.key] || 0 }))
+    : [];
   
   // Calculate percentage change (compare last half to first half of period)
   const calculateChange = () => {
@@ -994,7 +1008,7 @@ function KPICard({ kpi, trends, expanded, onClick, formatCurrency }) {
 
   return (
     <div 
-      onClick={onClick}
+      onClick={onToggle}
       className={`bg-white rounded-xl p-5 shadow-sm cursor-pointer card-hover ${expanded ? 'ring-2 ring-indigo-500' : ''}`}
     >
       <div className="flex items-start justify-between mb-2">
@@ -1028,7 +1042,9 @@ function KPICard({ kpi, trends, expanded, onClick, formatCurrency }) {
           </ResponsiveContainer>
         </div>
       )}
-      <div className="text-xs text-gray-400 mt-1 text-center">Click to expand</div>
+      <div className="text-xs text-gray-400 mt-1 text-center">
+        {expanded ? 'Click to hide chart' : 'Click to expand'}
+      </div>
     </div>
   );
 }
