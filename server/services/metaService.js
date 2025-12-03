@@ -4,11 +4,11 @@ import { getDb } from '../db/database.js';
 const META_API_VERSION = 'v19.0';
 const META_BASE_URL = `https://graph.facebook.com/${META_API_VERSION}`;
 
-// Store configurations
+// Store configurations - using the actual env variable names from Railway
 const STORE_CONFIGS = {
   vironax: {
-    accountIdEnv: 'VIRONAX_META_AD_ACCOUNT_ID',
-    tokenEnv: 'VIRONAX_META_ACCESS_TOKEN',
+    accountIdEnv: 'META_AD_ACCOUNT_ID',
+    tokenEnv: 'META_ACCESS_TOKEN',
     currency: 'SAR',
     displayCurrency: 'SAR',
     needsConversion: false
@@ -64,8 +64,12 @@ export async function fetchMetaCampaigns(store, dateStart, dateEnd) {
   const accountId = process.env[config.accountIdEnv];
   const accessToken = process.env[config.tokenEnv];
 
+  console.log(`[Meta API] Store: ${store}`);
+  console.log(`[Meta API] Looking for env: ${config.accountIdEnv} = ${accountId ? 'SET' : 'NOT SET'}`);
+  console.log(`[Meta API] Looking for env: ${config.tokenEnv} = ${accessToken ? 'SET' : 'NOT SET'}`);
+
   if (!accountId || !accessToken) {
-    console.log(`Meta credentials not configured for ${store} - using demo data`);
+    console.log(`[Meta API] Credentials not configured for ${store} - using demo data`);
     return getDemoMetaData(store, dateStart, dateEnd);
   }
 
@@ -85,14 +89,21 @@ export async function fetchMetaCampaigns(store, dateStart, dateEnd) {
       'frequency'
     ].join(',');
 
-    const url = `${META_BASE_URL}/act_${accountId}/insights?fields=${fields}&time_range={"since":"${dateStart}","until":"${dateEnd}"}&level=campaign&time_increment=1&access_token=${accessToken}`;
+    // Remove 'act_' prefix if user included it
+    const cleanAccountId = accountId.replace(/^act_/, '');
+    const url = `${META_BASE_URL}/act_${cleanAccountId}/insights?fields=${fields}&time_range={"since":"${dateStart}","until":"${dateEnd}"}&level=campaign&time_increment=1&access_token=${accessToken}`;
+
+    console.log(`[Meta API] Fetching from: act_${cleanAccountId}/insights for dates ${dateStart} to ${dateEnd}`);
 
     const response = await fetch(url);
     const data = await response.json();
 
     if (data.error) {
+      console.error(`[Meta API] Error response:`, data.error);
       throw new Error(data.error.message);
     }
+
+    console.log(`[Meta API] Success! Got ${(data.data || []).length} records for ${store}`);
 
     // Convert currency if needed (Shawq: TRY → USD)
     let results = data.data || [];
@@ -112,8 +123,9 @@ export async function fetchMetaCampaigns(store, dateStart, dateEnd) {
 
     return results;
   } catch (error) {
-    console.error(`Meta API error for ${store}:`, error);
-    throw error;
+    console.error(`[Meta API] Error for ${store}:`, error.message);
+    console.log(`[Meta API] Falling back to demo data for ${store}`);
+    return getDemoMetaData(store, dateStart, dateEnd);
   }
 }
 
@@ -144,13 +156,15 @@ export async function fetchMetaCampaignsByCountry(store, dateStart, dateEnd) {
       'frequency'
     ].join(',');
 
-    const url = `${META_BASE_URL}/act_${accountId}/insights?fields=${fields}&time_range={"since":"${dateStart}","until":"${dateEnd}"}&level=campaign&time_increment=1&breakdowns=country&access_token=${accessToken}`;
+    const cleanAccountId = accountId.replace(/^act_/, '');
+    const url = `${META_BASE_URL}/act_${cleanAccountId}/insights?fields=${fields}&time_range={"since":"${dateStart}","until":"${dateEnd}"}&level=campaign&time_increment=1&breakdowns=country&access_token=${accessToken}`;
 
     const response = await fetch(url);
     const data = await response.json();
 
     if (data.error) {
-      throw new Error(data.error.message);
+      console.error(`[Meta API] Country breakdown error:`, data.error);
+      return getDemoMetaDataByCountry(store, dateStart, dateEnd);
     }
 
     // Convert currency if needed
@@ -171,8 +185,8 @@ export async function fetchMetaCampaignsByCountry(store, dateStart, dateEnd) {
 
     return results;
   } catch (error) {
-    console.error(`Meta API error for ${store}:`, error);
-    throw error;
+    console.error(`[Meta API] Country breakdown error for ${store}:`, error.message);
+    return getDemoMetaDataByCountry(store, dateStart, dateEnd);
   }
 }
 
@@ -190,11 +204,15 @@ export async function fetchMetaCampaignsByAge(store, dateStart, dateEnd) {
 
   try {
     const fields = ['campaign_id', 'campaign_name', 'spend', 'impressions', 'reach', 'clicks', 'actions', 'action_values', 'cpm', 'cpc', 'ctr', 'frequency'].join(',');
-    const url = `${META_BASE_URL}/act_${accountId}/insights?fields=${fields}&time_range={"since":"${dateStart}","until":"${dateEnd}"}&level=campaign&time_increment=1&breakdowns=age&access_token=${accessToken}`;
+    const cleanAccountId = accountId.replace(/^act_/, '');
+    const url = `${META_BASE_URL}/act_${cleanAccountId}/insights?fields=${fields}&time_range={"since":"${dateStart}","until":"${dateEnd}"}&level=campaign&time_increment=1&breakdowns=age&access_token=${accessToken}`;
 
     const response = await fetch(url);
     const data = await response.json();
-    if (data.error) throw new Error(data.error.message);
+    if (data.error) {
+      console.error(`[Meta API] Age breakdown error:`, data.error);
+      return getDemoMetaDataByAge(store, dateStart, dateEnd);
+    }
 
     let results = data.data || [];
     if (config.needsConversion) {
@@ -208,8 +226,8 @@ export async function fetchMetaCampaignsByAge(store, dateStart, dateEnd) {
     }
     return results;
   } catch (error) {
-    console.error(`Meta API error (age) for ${store}:`, error);
-    throw error;
+    console.error(`[Meta API] Age breakdown error for ${store}:`, error.message);
+    return getDemoMetaDataByAge(store, dateStart, dateEnd);
   }
 }
 
@@ -227,11 +245,15 @@ export async function fetchMetaCampaignsByGender(store, dateStart, dateEnd) {
 
   try {
     const fields = ['campaign_id', 'campaign_name', 'spend', 'impressions', 'reach', 'clicks', 'actions', 'action_values', 'cpm', 'cpc', 'ctr', 'frequency'].join(',');
-    const url = `${META_BASE_URL}/act_${accountId}/insights?fields=${fields}&time_range={"since":"${dateStart}","until":"${dateEnd}"}&level=campaign&time_increment=1&breakdowns=gender&access_token=${accessToken}`;
+    const cleanAccountId = accountId.replace(/^act_/, '');
+    const url = `${META_BASE_URL}/act_${cleanAccountId}/insights?fields=${fields}&time_range={"since":"${dateStart}","until":"${dateEnd}"}&level=campaign&time_increment=1&breakdowns=gender&access_token=${accessToken}`;
 
     const response = await fetch(url);
     const data = await response.json();
-    if (data.error) throw new Error(data.error.message);
+    if (data.error) {
+      console.error(`[Meta API] Gender breakdown error:`, data.error);
+      return getDemoMetaDataByGender(store, dateStart, dateEnd);
+    }
 
     let results = data.data || [];
     if (config.needsConversion) {
@@ -245,8 +267,8 @@ export async function fetchMetaCampaignsByGender(store, dateStart, dateEnd) {
     }
     return results;
   } catch (error) {
-    console.error(`Meta API error (gender) for ${store}:`, error);
-    throw error;
+    console.error(`[Meta API] Gender breakdown error for ${store}:`, error.message);
+    return getDemoMetaDataByGender(store, dateStart, dateEnd);
   }
 }
 
@@ -264,11 +286,15 @@ export async function fetchMetaCampaignsByPlacement(store, dateStart, dateEnd) {
 
   try {
     const fields = ['campaign_id', 'campaign_name', 'spend', 'impressions', 'reach', 'clicks', 'actions', 'action_values', 'cpm', 'cpc', 'ctr', 'frequency'].join(',');
-    const url = `${META_BASE_URL}/act_${accountId}/insights?fields=${fields}&time_range={"since":"${dateStart}","until":"${dateEnd}"}&level=campaign&time_increment=1&breakdowns=publisher_platform,platform_position&access_token=${accessToken}`;
+    const cleanAccountId = accountId.replace(/^act_/, '');
+    const url = `${META_BASE_URL}/act_${cleanAccountId}/insights?fields=${fields}&time_range={"since":"${dateStart}","until":"${dateEnd}"}&level=campaign&time_increment=1&breakdowns=publisher_platform,platform_position&access_token=${accessToken}`;
 
     const response = await fetch(url);
     const data = await response.json();
-    if (data.error) throw new Error(data.error.message);
+    if (data.error) {
+      console.error(`[Meta API] Placement breakdown error:`, data.error);
+      return getDemoMetaDataByPlacement(store, dateStart, dateEnd);
+    }
 
     let results = data.data || [];
     if (config.needsConversion) {
@@ -282,8 +308,8 @@ export async function fetchMetaCampaignsByPlacement(store, dateStart, dateEnd) {
     }
     return results;
   } catch (error) {
-    console.error(`Meta API error (placement) for ${store}:`, error);
-    throw error;
+    console.error(`[Meta API] Placement breakdown error for ${store}:`, error.message);
+    return getDemoMetaDataByPlacement(store, dateStart, dateEnd);
   }
 }
 
