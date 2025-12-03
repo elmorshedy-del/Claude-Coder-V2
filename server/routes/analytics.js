@@ -1,5 +1,5 @@
 import express from 'express';
-import { getDashboard, getEfficiency, getEfficiencyTrends, getRecommendations, getAvailableCountries, getCampaignsByCountry } from '../services/analyticsService.js';
+import { getDashboard, getEfficiency, getEfficiencyTrends, getRecommendations, getAvailableCountries, getCampaignsByCountry, getCampaignsByAge, getCampaignsByGender, getCampaignsByPlacement } from '../services/analyticsService.js';
 
 const router = express.Router();
 
@@ -23,6 +23,42 @@ router.get('/campaigns/by-country', (req, res) => {
     res.json(data);
   } catch (error) {
     console.error('Campaigns by country error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Campaigns by age breakdown
+router.get('/campaigns/by-age', (req, res) => {
+  try {
+    const store = req.query.store || 'vironax';
+    const data = getCampaignsByAge(store, req.query);
+    res.json(data);
+  } catch (error) {
+    console.error('Campaigns by age error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Campaigns by gender breakdown
+router.get('/campaigns/by-gender', (req, res) => {
+  try {
+    const store = req.query.store || 'vironax';
+    const data = getCampaignsByGender(store, req.query);
+    res.json(data);
+  } catch (error) {
+    console.error('Campaigns by gender error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Campaigns by placement breakdown
+router.get('/campaigns/by-placement', (req, res) => {
+  try {
+    const store = req.query.store || 'vironax';
+    const data = getCampaignsByPlacement(store, req.query);
+    res.json(data);
+  } catch (error) {
+    console.error('Campaigns by placement error:', error);
     res.status(500).json({ error: error.message });
   }
 });
