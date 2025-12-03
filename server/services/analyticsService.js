@@ -122,7 +122,7 @@ export function getDashboard(store, params) {
       SELECT 
         country_code as countryCode,
         COUNT(*) as orders,
-        SUM(order_total) as revenue
+        SUM(subtotal) as revenue
       FROM shopify_orders
       WHERE store = ? AND date BETWEEN ? AND ?
       GROUP BY country_code
@@ -155,7 +155,7 @@ export function getDashboard(store, params) {
   // Build dynamic countries list from actual data
   const countryMap = new Map();
   
-  // Add Meta spend countries
+  // Add Meta spend countries (spend only, NOT revenue - to avoid double counting)
   for (const m of metaByCountry) {
     const info = getCountryInfo(m.countryCode);
     countryMap.set(m.countryCode, {
@@ -164,13 +164,14 @@ export function getDashboard(store, params) {
       flag: info.flag,
       spend: m.spend || 0,
       metaOrders: m.conversions || 0,
+      metaRevenue: m.conversionValue || 0, // Keep for reference but don't add to total
       ecomOrders: 0,
       manualOrders: 0,
-      revenue: m.conversionValue || 0
+      revenue: 0 // Revenue comes from ecom + manual only
     });
   }
 
-  // Add e-commerce orders
+  // Add e-commerce orders (this is the source of truth for revenue)
   for (const e of ecomOrders) {
     if (countryMap.has(e.countryCode)) {
       countryMap.get(e.countryCode).ecomOrders = e.orders || 0;
@@ -183,6 +184,7 @@ export function getDashboard(store, params) {
         flag: info.flag,
         spend: 0,
         metaOrders: 0,
+        metaRevenue: 0,
         ecomOrders: e.orders || 0,
         manualOrders: 0,
         revenue: e.revenue || 0
@@ -203,6 +205,7 @@ export function getDashboard(store, params) {
         flag: info.flag,
         spend: 0,
         metaOrders: 0,
+        metaRevenue: 0,
         ecomOrders: 0,
         manualOrders: m.orders || 0,
         revenue: m.revenue || 0
@@ -288,7 +291,7 @@ function getTrends(store, startDate, endDate) {
     `).all(store, startDate, endDate);
   } else {
     ecomDaily = db.prepare(`
-      SELECT date, COUNT(*) as orders, SUM(order_total) as revenue
+      SELECT date, COUNT(*) as orders, SUM(subtotal) as revenue
       FROM shopify_orders WHERE store = ? AND date BETWEEN ? AND ?
       GROUP BY date
     `).all(store, startDate, endDate);
@@ -307,14 +310,14 @@ function getTrends(store, startDate, endDate) {
     dateMap.set(date, { date, spend: 0, orders: 0, revenue: 0 });
   }
   
-  // Add Meta data
+  // Add Meta spend only (NOT revenue to avoid double counting with ecom)
   for (const m of metaDaily) {
     if (dateMap.has(m.date)) {
       dateMap.get(m.date).spend = m.spend || 0;
     }
   }
 
-  // Add e-commerce orders
+  // Add e-commerce orders (source of truth for revenue)
   for (const e of ecomDaily) {
     if (dateMap.has(e.date)) {
       dateMap.get(e.date).orders += e.orders || 0;
@@ -786,7 +789,7 @@ export function getCountryTrends(store, params) {
     `);
   } else {
     ecomQuery = db.prepare(`
-      SELECT date, country_code as country, COUNT(*) as orders, SUM(order_total) as revenue
+      SELECT date, country_code as country, COUNT(*) as orders, SUM(subtotal) as revenue
       FROM shopify_orders 
       WHERE store = ? AND date BETWEEN ? AND ?
       GROUP BY date, country_code
