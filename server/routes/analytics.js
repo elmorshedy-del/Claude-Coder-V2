@@ -1,5 +1,20 @@
+// server/routes/analytics.js
 import express from 'express';
-import { getDashboard, getEfficiency, getEfficiencyTrends, getRecommendations, getAvailableCountries, getCampaignsByCountry, getCampaignsByAge, getCampaignsByGender, getCampaignsByPlacement, getCountryTrends, getCampaignsByAgeGender, getShopifyTimeOfDay } from '../services/analyticsService.js';
+import {
+  getDashboard,
+  getEfficiency,
+  getEfficiencyTrends,
+  getRecommendations,
+  getAvailableCountries,
+  getCampaignsByCountry,
+  getCampaignsByAge,
+  getCampaignsByGender,
+  getCampaignsByPlacement,
+  getCountryTrends,
+  getCampaignsByAgeGender,
+  getShopifyTimeOfDay
+} from '../services/analyticsService.js';
+import { importMetaDailyRows } from '../services/metaImportService.js';
 
 const router = express.Router();
 
@@ -144,6 +159,33 @@ router.get('/shopify/time-of-day', (req, res) => {
   } catch (error) {
     console.error('Shopify time-of-day error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// *** NEW: Manual Meta CSV import (temporary replacement for token sync) ***
+router.post('/meta/import', (req, res) => {
+  try {
+    const store = req.query.store || req.body.store || 'vironax';
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+
+    if (!store) {
+      return res.status(400).json({ error: 'store is required' });
+    }
+    if (rows.length === 0) {
+      return res.json({
+        ok: true,
+        inserted: 0,
+        updated: 0,
+        skipped: 0,
+        reason: 'No rows provided'
+      });
+    }
+
+    const result = importMetaDailyRows(store, rows);
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    console.error('Meta import error:', error);
+    res.status(500).json({ error: error.message || 'Meta import failed' });
   }
 });
 
