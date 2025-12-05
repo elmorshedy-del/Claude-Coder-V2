@@ -1,5 +1,5 @@
 // server/services/metaImportService.js
-import { getDb } from '../database.js';
+import { getDb } from '../db/database.js';
 
 function pick(obj, keys) {
   for (const k of keys) {
