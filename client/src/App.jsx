@@ -526,6 +526,8 @@ export default function App() {
               store={store}
               countryTrends={countryTrends}
               shopifyTimeOfDay={shopifyTimeOfDay}
+              selectedShopifyTz={selectedShopifyTz}
+              setSelectedShopifyTz={setSelectedShopifyTz}
             />
           )}
         
@@ -590,19 +592,21 @@ function SortableHeader({ label, field, sortConfig, onSort, className = '' }) {
 }
 
 function DashboardTab({
-  dashboard,
-  expandedKpis,
-  setExpandedKpis,
-  formatCurrency,
-  formatNumber,
-  metaBreakdown,
-  setMetaBreakdown,
-  metaBreakdownData,
-  store,
-  countryTrends,
-  shopifyTimeOfDay
+  dashboard = {},
+  expandedKpis = [],
+  setExpandedKpis = () => {},
+  formatCurrency = () => 0,
+  formatNumber = () => 0,
+  metaBreakdown = 'none',
+  setMetaBreakdown = () => {},
+  metaBreakdownData = [],
+  store = {},
+  countryTrends = [],
+  shopifyTimeOfDay = { data: [], timezone: null, sampleTimestamps: [] },
+  selectedShopifyTz = 'America/New_York',
+  setSelectedShopifyTz = () => {}
 }) {
-  const { overview, trends, campaigns, countries, diagnostics } = dashboard;
+  const { overview = {}, trends = {}, campaigns = [], countries = [], diagnostics = {} } = dashboard || {};
 
   const [countrySortConfig, setCountrySortConfig] = useState({ field: 'totalOrders', direction: 'desc' });
   const [campaignSortConfig, setCampaignSortConfig] = useState({ field: 'spend', direction: 'desc' });
