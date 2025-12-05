@@ -58,6 +58,7 @@ export default function App() {
   const [availableCountries, setAvailableCountries] = useState([]);
   const [metaBreakdownData, setMetaBreakdownData] = useState([]);
   const [shopifyTimeOfDay, setShopifyTimeOfDay] = useState([]);
+  const [shopifyTimeZone, setShopifyTimeZone] = useState(null);
   
   // KPI charts
   const [expandedKpis, setExpandedKpis] = useState([]);
@@ -158,7 +159,10 @@ export default function App() {
       setManualOrders(orders);
       setAvailableCountries(countries);
       setCountryTrends(cTrends);
-      setShopifyTimeOfDay(timeOfDay);
+      const timeOfDayData = Array.isArray(timeOfDay) ? timeOfDay : timeOfDay?.data || [];
+      const timeOfDayZone = Array.isArray(timeOfDay) ? null : timeOfDay?.timezone || null;
+      setShopifyTimeZone(timeOfDayZone);
+      setShopifyTimeOfDay(timeOfDayData);
     } catch (error) {
       console.error('Error loading data:', error);
     }
@@ -1396,6 +1400,12 @@ function DashboardTab({
               <h2 className="text-lg font-semibold">Orders by Time of Day (Last 7 Days)</h2>
               <p className="text-sm text-gray-500">
                 Shopify orders grouped by hour. Use this to spot when customers are most active.
+              </p>
+              <p className="text-xs text-gray-600 mt-2">
+                Time Zone:{' '}
+                <span className="inline-flex items-center px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 font-medium">
+                  {shopifyTimeZone || 'Probably Istanbul Zone'}
+                </span>
               </p>
             </div>
             <div className="text-right">
