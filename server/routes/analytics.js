@@ -1,5 +1,5 @@
 import express from 'express';
-import { getDashboard, getEfficiency, getEfficiencyTrends, getRecommendations, getAvailableCountries, getCampaignsByCountry, getCampaignsByAge, getCampaignsByGender, getCampaignsByPlacement, getCountryTrends } from '../services/analyticsService.js';
+import { getDashboard, getEfficiency, getEfficiencyTrends, getRecommendations, getAvailableCountries, getCampaignsByCountry, getCampaignsByAge, getCampaignsByGender, getCampaignsByPlacement, getCountryTrends, getCampaignsByAgeGender } from '../services/analyticsService.js';
 
 const router = express.Router();
 
@@ -59,6 +59,18 @@ router.get('/campaigns/by-placement', (req, res) => {
     res.json(data);
   } catch (error) {
     console.error('Campaigns by placement error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Campaigns by combined age and gender breakdown
+router.get('/campaigns/by-age-gender', (req, res) => {
+  try {
+    const store = req.query.store || 'vironax';
+    const data = getCampaignsByAgeGender(store, req.query);
+    res.json(data);
+  } catch (error) {
+    console.error('Campaigns by age_gender error:', error);
     res.status(500).json({ error: error.message });
   }
 });

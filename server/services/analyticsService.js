@@ -105,6 +105,41 @@ export function getDashboard(store, params) {
     metaCac: c.conversions > 0 ? c.spend / c.conversions : 0
   }));
 
+  const metaTotals = db.prepare(`
+    SELECT
+      SUM(spend) as metaSpendTotal,
+      SUM(conversion_value) as metaRevenueTotal,
+      SUM(impressions) as impressions_total,
+      SUM(reach) as reach_total,
+      SUM(clicks) as clicks_total,
+      SUM(landing_page_views) as lpv_total,
+      SUM(add_to_cart) as atc_total,
+      SUM(checkouts_initiated) as checkout_total,
+      SUM(conversions) as conversions_total
+    FROM meta_daily_metrics
+    WHERE store = ? AND date BETWEEN ? AND ?
+  `).get(store, startDate, endDate) || {};
+
+  const metaCampaignCount = db.prepare(`
+    SELECT COUNT(DISTINCT campaign_id) as count
+    FROM meta_daily_metrics
+    WHERE store = ? AND date BETWEEN ? AND ? AND spend > 0
+  `).get(store, startDate, endDate)?.count || 0;
+
+  const metaSpendTotal = metaTotals.metaSpendTotal || 0;
+  const metaRevenueTotal = metaTotals.metaRevenueTotal || 0;
+  const impressions_total = metaTotals.impressions_total || 0;
+  const reach_total = metaTotals.reach_total || 0;
+  const clicks_total = metaTotals.clicks_total || 0;
+  const lpv_total = metaTotals.lpv_total || 0;
+  const atc_total = metaTotals.atc_total || 0;
+  const checkout_total = metaTotals.checkout_total || 0;
+  const conversions_total = metaTotals.conversions_total || 0;
+
+  const metaRoasTotal = metaSpendTotal > 0 ? metaRevenueTotal / metaSpendTotal : null;
+  const ctr_total = impressions_total > 0 ? clicks_total / impressions_total : null;
+  const meta_cac_total = conversions_total > 0 ? metaSpendTotal / conversions_total : null;
+
   // Get e-commerce orders (Salla for vironax, Shopify for shawq)
   let ecomOrders;
   if (store === 'vironax') {
@@ -253,7 +288,20 @@ export function getDashboard(store, params) {
     countries,
     trends,
     diagnostics,
-    dateRange: { startDate, endDate }
+    dateRange: { startDate, endDate },
+    metaCampaignCount,
+    metaSpendTotal,
+    metaRevenueTotal,
+    metaRoasTotal,
+    metaImpressionsTotal: impressions_total,
+    metaReachTotal: reach_total,
+    metaClicksTotal: clicks_total,
+    metaCtrTotal: ctr_total,
+    metaLpvTotal: lpv_total,
+    metaAtcTotal: atc_total,
+    metaCheckoutTotal: checkout_total,
+    metaConversionsTotal: conversions_total,
+    metaCacTotal: meta_cac_total
   };
 }
 
@@ -705,6 +753,43 @@ export function getCampaignsByGender(store, params) {
     FROM meta_daily_metrics
     WHERE store = ? AND date BETWEEN ? AND ? AND gender IS NOT NULL AND gender != ''
     GROUP BY campaign_id, campaign_name, gender
+    ORDER BY campaign_name, spend DESC
+  `).all(store, startDate, endDate);
+
+  return data.map(c => ({
+    ...c,
+    genderLabel: c.gender === 'male' ? '👨 Male' : c.gender === 'female' ? '👩 Female' : '❓ Unknown',
+    cpc: c.clicks > 0 ? c.spend / c.clicks : 0,
+    ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
+    cr: c.clicks > 0 ? (c.conversions / c.clicks) * 100 : 0,
+    metaRoas: c.spend > 0 ? c.conversionValue / c.spend : 0,
+    metaAov: c.conversions > 0 ? c.conversionValue / c.conversions : 0,
+    metaCac: c.conversions > 0 ? c.spend / c.conversions : 0
+  }));
+}
+
+// Get campaigns broken down by combined age and gender
+export function getCampaignsByAgeGender(store, params) {
+  const db = getDb();
+  const { startDate, endDate } = getDateRange(params);
+
+  const data = db.prepare(`
+    SELECT
+      campaign_id as campaignId,
+      campaign_name as campaignName,
+      age,
+      gender,
+      SUM(spend) as spend,
+      SUM(impressions) as impressions,
+      SUM(reach) as reach,
+      SUM(clicks) as clicks,
+      SUM(conversions) as conversions,
+      SUM(conversion_value) as conversionValue,
+      AVG(cpm) as cpm,
+      AVG(frequency) as frequency
+    FROM meta_daily_metrics
+    WHERE store = ? AND date BETWEEN ? AND ? AND age IS NOT NULL AND age != '' AND gender IS NOT NULL AND gender != ''
+    GROUP BY campaign_id, campaign_name, age, gender
     ORDER BY campaign_name, spend DESC
   `).all(store, startDate, endDate);
 
