@@ -35,10 +35,13 @@ export async function fetchShopifyOrders(dateStart, dateEnd) {
           const createdAtUtc = createdAtDate && !isNaN(createdAtDate.getTime())
             ? createdAtDate.toISOString()
             : null;
+          const dateGmt3 = createdAtDate && !isNaN(createdAtDate.getTime())
+            ? formatLocalDate(createdAtDate)
+            : (createdAtIso?.split('T')[0] || null);
 
           orders.push({
             order_id: order.id.toString(),
-            date: createdAtUtc ? createdAtUtc.split('T')[0] : (createdAtIso?.split('T')[0] || null),
+            date: dateGmt3,
             country: getCountryName(countryCode),
             country_code: countryCode,
             city: order.shipping_address?.city || order.billing_address?.city || null,
