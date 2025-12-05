@@ -1,5 +1,5 @@
 // client/src/App.jsx
-import { useState, useEffect, useCallback } from 'react';
+import { Fragment, useState, useEffect, useCallback } from 'react';
 import { 
   LineChart, Line, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
@@ -574,12 +574,13 @@ function DashboardTab({
   countryTrends
 }) {
   const { overview, trends, campaigns, countries, diagnostics } = dashboard;
-  
+
   const [countrySortConfig, setCountrySortConfig] = useState({ field: 'totalOrders', direction: 'desc' });
   const [campaignSortConfig, setCampaignSortConfig] = useState({ field: 'spend', direction: 'desc' });
   const [showCountryTrends, setShowCountryTrends] = useState(false);
   const [metaView, setMetaView] = useState('campaign'); // 'campaign' | 'country'
   const [showMetaBreakdown, setShowMetaBreakdown] = useState(false); // Section 2 collapse
+  const [expandedCountries, setExpandedCountries] = useState(new Set());
   
   const ecomLabel = store.ecommerce;
   
@@ -605,6 +606,8 @@ function DashboardTab({
     return countrySortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
   });
 
+  const totalCountrySpend = countries.reduce((s, x) => s + (x.spend || 0), 0);
+
   const sortedCampaigns = [...campaigns].sort((a, b) => {
     const aVal = a[campaignSortConfig.field] || 0;
     const bVal = b[campaignSortConfig.field] || 0;
@@ -617,11 +620,25 @@ function DashboardTab({
     return campaignSortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
   });
 
+  const orderedCountryTrends = [...countryTrends].sort((a, b) => (b.totalOrders || 0) - (a.totalOrders || 0));
+
   const handleCountrySort = (field) => {
     setCountrySortConfig(prev => ({
       field,
       direction: prev.field === field && prev.direction === 'desc' ? 'asc' : 'desc'
     }));
+  };
+
+  const toggleCountryRow = (code) => {
+    setExpandedCountries(prev => {
+      const next = new Set(prev);
+      if (next.has(code)) {
+        next.delete(code);
+      } else {
+        next.add(code);
+      }
+      return next;
+    });
   };
 
   const handleCampaignSort = (field) => {
@@ -1124,104 +1141,6 @@ function DashboardTab({
         </div>
       </div>
 
-      {/* Countries Performance (true world, same as before) */}
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-gray-100">
-          <h2 className="text-lg font-semibold">Countries Performance</h2>
-          <p className="text-sm text-gray-500">
-            Combined: Meta Spend + {store.ecommerce} Orders + Manual Orders • Click
-            headers to sort
-          </p>
-        </div>
-        <div className="overflow-x-auto">
-          <table>
-            <thead>
-              <tr>
-                <th>Country</th>
-                <SortableHeader
-                  label="Spend"
-                  field="spend"
-                  sortConfig={countrySortConfig}
-                  onSort={handleCountrySort}
-                />
-                <SortableHeader
-                  label="Revenue"
-                  field="revenue"
-                  sortConfig={countrySortConfig}
-                  onSort={handleCountrySort}
-                />
-                <SortableHeader
-                  label="Share"
-                  field="spend"
-                  sortConfig={countrySortConfig}
-                  onSort={handleCountrySort}
-                />
-                <SortableHeader
-                  label="Orders"
-                  field="totalOrders"
-                  sortConfig={countrySortConfig}
-                  onSort={handleCountrySort}
-                />
-                <SortableHeader
-                  label="AOV"
-                  field="aov"
-                  sortConfig={countrySortConfig}
-                  onSort={handleCountrySort}
-                />
-                <SortableHeader
-                  label="CAC"
-                  field="cac"
-                  sortConfig={countrySortConfig}
-                  onSort={handleCountrySort}
-                />
-                <SortableHeader
-                  label="ROAS"
-                  field="roas"
-                  sortConfig={countrySortConfig}
-                  onSort={handleCountrySort}
-                />
-              </tr>
-            </thead>
-            <tbody>
-              {sortedCountries.map((c) => {
-                const totalSpend = countries.reduce((s, x) => s + (x.spend || 0), 0);
-                const share = totalSpend > 0 ? (c.spend / totalSpend) * 100 : 0;
-                return (
-                  <tr key={c.code}>
-                    <td>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xl">{c.flag}</span>
-                        <div>
-                          <div className="font-medium">{c.name}</div>
-                          <div className="text-xs text-gray-400">{c.code}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="text-indigo-600 font-semibold">
-                      {formatCurrency(c.spend)}
-                    </td>
-                    <td className="text-green-600 font-semibold">
-                      {formatCurrency(c.revenue || 0)}
-                    </td>
-                    <td>{share.toFixed(0)}%</td>
-                    <td>
-                      <span className="badge badge-green">{c.totalOrders}</span>
-                    </td>
-                    <td>{formatCurrency(c.aov)}</td>
-                    <td className={c.cac > 80 ? 'text-amber-600 font-medium' : ''}>
-                      {formatCurrency(c.cac, 2)}
-                    </td>
-                    <td className="text-green-600 font-semibold">
-                      {c.roas.toFixed(2)}×
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
       {/* SECTION 2 — PURE META BREAKDOWN WORLD */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <button
@@ -1422,8 +1341,143 @@ function DashboardTab({
         </div>
       )}
 
+      {/* Countries Performance (ecommerce-driven with cities) */}
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-gray-100">
+          <h2 className="text-lg font-semibold">Countries Performance</h2>
+          <p className="text-sm text-gray-500">
+            Combined: Meta Spend + {store.ecommerce} Orders + Manual Orders • Click headers to sort
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table>
+            <thead>
+              <tr>
+                <th className="text-left">Country</th>
+                <SortableHeader
+                  label="Spend"
+                  field="spend"
+                  sortConfig={countrySortConfig}
+                  onSort={handleCountrySort}
+                />
+                <SortableHeader
+                  label="Revenue"
+                  field="revenue"
+                  sortConfig={countrySortConfig}
+                  onSort={handleCountrySort}
+                />
+                <SortableHeader
+                  label="Share"
+                  field="spend"
+                  sortConfig={countrySortConfig}
+                  onSort={handleCountrySort}
+                />
+                <SortableHeader
+                  label="Orders"
+                  field="totalOrders"
+                  sortConfig={countrySortConfig}
+                  onSort={handleCountrySort}
+                />
+                <SortableHeader
+                  label="AOV"
+                  field="aov"
+                  sortConfig={countrySortConfig}
+                  onSort={handleCountrySort}
+                />
+                <SortableHeader
+                  label="CAC"
+                  field="cac"
+                  sortConfig={countrySortConfig}
+                  onSort={handleCountrySort}
+                />
+                <SortableHeader
+                  label="ROAS"
+                  field="roas"
+                  sortConfig={countrySortConfig}
+                  onSort={handleCountrySort}
+                />
+              </tr>
+            </thead>
+            <tbody>
+              {sortedCountries.map((c) => {
+                const share = totalCountrySpend > 0 ? (c.spend / totalCountrySpend) * 100 : 0;
+                const isExpanded = expandedCountries.has(c.code);
+                const hasCities = Array.isArray(c.cities) && c.cities.length > 0;
+                return (
+                  <Fragment key={c.code}>
+                    <tr
+                      className={hasCities ? 'cursor-pointer hover:bg-gray-50' : ''}
+                      onClick={() => hasCities && toggleCountryRow(c.code)}
+                    >
+                      <td>
+                        <div className="flex items-center gap-3">
+                          {hasCities && (
+                            <span className="text-gray-400">
+                              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                            </span>
+                          )}
+                          <span className="text-xl">{c.flag}</span>
+                          <div>
+                            <div className="font-medium">{c.name}</div>
+                            <div className="text-xs text-gray-400">{c.code}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="text-indigo-600 font-semibold">{formatCurrency(c.spend)}</td>
+                      <td className="text-green-600 font-semibold">{formatCurrency(c.revenue || 0)}</td>
+                      <td>{share.toFixed(0)}%</td>
+                      <td>
+                        <span className="badge badge-green">{c.totalOrders}</span>
+                      </td>
+                      <td>{formatCurrency(c.aov)}</td>
+                      <td className={c.cac > 80 ? 'text-amber-600 font-medium' : ''}>{formatCurrency(c.cac, 2)}</td>
+                      <td className="text-green-600 font-semibold">{c.roas.toFixed(2)}×</td>
+                    </tr>
+                    {isExpanded && hasCities && (
+                      <tr key={`${c.code}-cities`}>
+                        <td colSpan={8} className="bg-gray-50">
+                          <div className="p-4">
+                            <div className="text-sm font-semibold mb-2">Cities</div>
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="text-left text-gray-500">
+                                  <th>City</th>
+                                  <th>Orders</th>
+                                  <th>Revenue</th>
+                                  <th>AOV</th>
+                                  <th>Spend</th>
+                                  <th>CAC</th>
+                                  <th>ROAS</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {c.cities.map((city, idx) => (
+                                  <tr key={`${c.code}-${city.city || 'unknown'}-${idx}`}>
+                                    <td>{city.city || 'Unknown'}</td>
+                                    <td>{city.orders || 0}</td>
+                                    <td className="text-green-600 font-semibold">{formatCurrency(city.revenue || 0)}</td>
+                                    <td>{formatCurrency(city.aov || 0)}</td>
+                                    <td>—</td>
+                                    <td>—</td>
+                                    <td>—</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* Country order trends (collapsible) */}
-      {countryTrends && countryTrends.length > 0 && (
+      {orderedCountryTrends && orderedCountryTrends.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <button
             onClick={() => setShowCountryTrends(!showCountryTrends)}
@@ -1447,7 +1501,7 @@ function DashboardTab({
           
           {showCountryTrends && (
             <div className="p-6 pt-0 space-y-6">
-              {countryTrends.slice(0, 5).map((country) => (
+              {orderedCountryTrends.map((country) => (
                 <div
                   key={country.countryCode}
                   className="border-t border-gray-100 pt-4 first:border-0 first:pt-0"
@@ -1499,12 +1553,6 @@ function DashboardTab({
                   </div>
                 </div>
               ))}
-              {countryTrends.length > 5 && (
-                <p className="text-sm text-gray-500 text-center pt-2">
-                  Showing top 5 countries by orders. {countryTrends.length - 5} more
-                  countries available.
-                </p>
-              )}
             </div>
           )}
         </div>
