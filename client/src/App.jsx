@@ -55,12 +55,12 @@ export default function App() {
   const [recommendations, setRecommendations] = useState([]);
   const [manualOrders, setManualOrders] = useState([]);
   const [availableCountries, setAvailableCountries] = useState([]);
-  const [breakdownData, setBreakdownData] = useState([]);
+  const [metaBreakdownData, setMetaBreakdownData] = useState([]);
   
   // KPI charts
   const [expandedKpis, setExpandedKpis] = useState([]);
   // Section 2 breakdown (pure meta)
-  const [breakdown, setBreakdown] = useState('none');
+  const [metaBreakdown, setMetaBreakdown] = useState('none');
   // Country trends
   const [countryTrends, setCountryTrends] = useState([]);
   
@@ -161,13 +161,13 @@ export default function App() {
   // Load breakdown data for Section 2 (pure meta)
   useEffect(() => {
     if (!storeLoaded) return;
-    
+
     async function loadBreakdown() {
-      if (breakdown === 'none') {
-        setBreakdownData([]);
+      if (metaBreakdown === 'none') {
+        setMetaBreakdownData([]);
         return;
       }
-      
+
       try {
         const params = new URLSearchParams({ store: currentStore });
 
@@ -179,18 +179,20 @@ export default function App() {
         } else {
           params.set(dateRange.type, dateRange.value);
         }
-        
-        const endpoint = `${API_BASE}/analytics/campaigns/by-${breakdown}?${params}`;
+
+        const endpoint = metaBreakdown === 'age_gender'
+          ? `${API_BASE}/analytics/campaigns/by-age-gender?${params}`
+          : `${API_BASE}/analytics/campaigns/by-${metaBreakdown}?${params}`;
         const data = await fetch(endpoint).then(r => r.json());
-        setBreakdownData(data);
+        setMetaBreakdownData(data);
       } catch (error) {
         console.error('Error loading breakdown:', error);
-        setBreakdownData([]);
+        setMetaBreakdownData([]);
       }
     }
-    
+
     loadBreakdown();
-  }, [breakdown, currentStore, dateRange, storeLoaded]);
+  }, [metaBreakdown, currentStore, dateRange, storeLoaded]);
 
   async function handleSync() {
     setSyncing(true);
@@ -493,15 +495,15 @@ export default function App() {
         </div>
 
         {activeTab === 0 && dashboard && (
-          <DashboardTab 
-            dashboard={dashboard} 
+          <DashboardTab
+            dashboard={dashboard}
             expandedKpis={expandedKpis}
             setExpandedKpis={setExpandedKpis}
             formatCurrency={formatCurrency}
             formatNumber={formatNumber}
-            breakdown={breakdown}
-            setBreakdown={setBreakdown}
-            breakdownData={breakdownData}
+            metaBreakdown={metaBreakdown}
+            setMetaBreakdown={setMetaBreakdown}
+            metaBreakdownData={metaBreakdownData}
             store={store}
             countryTrends={countryTrends}
           />
@@ -565,9 +567,9 @@ function DashboardTab({
   setExpandedKpis,
   formatCurrency,
   formatNumber,
-  breakdown,
-  setBreakdown,
-  breakdownData,
+  metaBreakdown,
+  setMetaBreakdown,
+  metaBreakdownData,
   store,
   countryTrends
 }) {
@@ -609,7 +611,7 @@ function DashboardTab({
     return campaignSortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
   });
 
-  const sortedBreakdownData = [...breakdownData].sort((a, b) => {
+  const sortedBreakdownData = [...metaBreakdownData].sort((a, b) => {
     const aVal = a[campaignSortConfig.field] || 0;
     const bVal = b[campaignSortConfig.field] || 0;
     return campaignSortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
@@ -645,6 +647,13 @@ function DashboardTab({
         );
       case 'gender':
         return <span>{row.genderLabel || row.gender}</span>;
+      case 'age_gender':
+        return (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded font-medium">{row.age}</span>
+            <span className="px-2 py-1 bg-pink-100 text-pink-700 rounded font-medium">{row.genderLabel || row.gender}</span>
+          </div>
+        );
       case 'placement':
         return (
           <span className="text-xs">
@@ -664,17 +673,74 @@ function DashboardTab({
     );
   };
 
-  // SECTION 2 meta rows depending on breakdown
-  const metaRows =
-    breakdown === 'none' ? sortedCampaigns : sortedBreakdownData;
+  const metaTotals = {
+    spend: dashboard.metaSpendTotal || 0,
+    revenue: dashboard.metaRevenueTotal || 0,
+    roas: dashboard.metaRoasTotal,
+    campaigns: dashboard.metaCampaignCount || 0,
+    impressions: dashboard.metaImpressionsTotal || 0,
+    reach: dashboard.metaReachTotal || 0,
+    clicks: dashboard.metaClicksTotal || 0,
+    ctr: dashboard.metaCtrTotal,
+    lpv: dashboard.metaLpvTotal || 0,
+    atc: dashboard.metaAtcTotal || 0,
+    checkout: dashboard.metaCheckoutTotal || 0,
+    conversions: dashboard.metaConversionsTotal || 0,
+    cac: dashboard.metaCacTotal
+  };
 
-  const metaSpendTotal = metaRows.reduce((s, r) => s + (r.spend || 0), 0);
-  const metaRevenueTotal = metaRows.reduce((s, r) => s + (r.conversionValue || 0), 0);
-  const metaRoasTotal = metaSpendTotal > 0 ? metaRevenueTotal / metaSpendTotal : 0;
-  const metaCampaignCount =
-    breakdown === 'none'
-      ? campaigns.length
-      : new Set(metaRows.map(r => r.campaignId)).size;
+  const metaOverallRow = {
+    campaignName: 'All Campaigns',
+    dimension: 'Overall',
+    spend: metaTotals.spend,
+    conversionValue: metaTotals.revenue,
+    conversions: metaTotals.conversions,
+    impressions: metaTotals.impressions,
+    clicks: metaTotals.clicks,
+    ctr: metaTotals.impressions > 0 ? (metaTotals.clicks / metaTotals.impressions) * 100 : null,
+    cpc: metaTotals.clicks > 0 ? metaTotals.spend / metaTotals.clicks : null,
+    metaRoas: metaTotals.roas ?? null,
+    metaAov: metaTotals.conversions > 0 ? metaTotals.revenue / metaTotals.conversions : null,
+    metaCac: metaTotals.conversions > 0 ? metaTotals.spend / metaTotals.conversions : null,
+    cr: metaTotals.clicks > 0 ? (metaTotals.conversions / metaTotals.clicks) * 100 : null
+  };
+
+  const metaBreakdownRows =
+    metaBreakdown === 'none' ? [metaOverallRow] : sortedBreakdownData;
+
+  const metaCtrValue =
+    metaTotals.ctr != null
+      ? metaTotals.ctr * 100
+      : (metaTotals.impressions > 0 ? (metaTotals.clicks / metaTotals.impressions) * 100 : null);
+
+  const breakdownLabels = {
+    none: 'Overall',
+    country: 'Country',
+    age: 'Age',
+    gender: 'Gender',
+    age_gender: 'Age + Gender',
+    placement: 'Placement'
+  };
+
+  const renderCurrency = (value, decimals = 0) =>
+    value === null || value === undefined || Number.isNaN(value)
+      ? '—'
+      : formatCurrency(value, decimals);
+
+  const renderNumber = (value) =>
+    value === null || value === undefined || Number.isNaN(value)
+      ? '—'
+      : formatNumber(value);
+
+  const renderPercent = (value) =>
+    value === null || value === undefined || Number.isNaN(value)
+      ? '—'
+      : `${value.toFixed(2)}%`;
+
+  const renderRoas = (value) =>
+    value === null || value === undefined || Number.isNaN(value)
+      ? '—'
+      : `${value.toFixed(2)}×`;
 
   // SECTION 1 rows based on metaView
   const section1Rows =
@@ -820,8 +886,12 @@ function DashboardTab({
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold">Section 1 — Meta Funnel (Shopify Data Included)</h2>
-            <p className="text-xs text-gray-400">manual data included as well</p>
+            <h2 className="text-lg font-semibold">
+              {store.id === 'shawq'
+                ? 'Section 1 — Meta Campaigns (Shopify Data Integrated)'
+                : 'Section 1 — Meta Campaigns (Salla Data Integrated)'}
+            </h2>
+            <p className="text-xs text-gray-400">+ any manual orders</p>
             <p className="text-sm text-gray-500">
               Meta funnel metrics with{" "}
               <span className="font-semibold">true revenue & orders</span> when
@@ -1158,18 +1228,17 @@ function DashboardTab({
           onClick={() => setShowMetaBreakdown(!showMetaBreakdown)}
           className="w-full px-6 pt-5 pb-4 flex items-center justify-between hover:bg-gray-50 transition-colors border-b border-gray-100"
         >
-          <div>
+          <div className="text-left">
             <h2 className="text-lg font-semibold">Section 2 — Pure Meta Breakdown World</h2>
             <p className="text-sm text-gray-500">
-              Detailed Meta campaign & breakdown metrics. Click to{" "}
-              {showMetaBreakdown ? 'collapse' : 'expand'}.
+              Raw Meta reporting (no Shopify/Salla/manual integration). Use this to analyze countries, age, gender, placement, etc.
             </p>
           </div>
           <div className="flex items-center gap-4 text-sm text-gray-500">
-            <span>Campaigns: <strong>{metaCampaignCount}</strong></span>
-            <span>Spend: <strong>{formatCurrency(metaSpendTotal)}</strong></span>
-            <span>Meta Rev: <strong>{formatCurrency(metaRevenueTotal)}</strong></span>
-            <span>ROAS: <strong>{metaRoasTotal.toFixed(2)}×</strong></span>
+            <span>Campaigns: <strong>{metaTotals.campaigns}</strong></span>
+            <span>Spend: <strong>{renderCurrency(metaTotals.spend)}</strong></span>
+            <span>Meta Rev: <strong>{renderCurrency(metaTotals.revenue)}</strong></span>
+            <span>ROAS: <strong>{renderRoas(metaTotals.roas)}</strong></span>
             <ChevronDown
               className={`w-5 h-5 text-gray-500 transform transition-transform ${
                 showMetaBreakdown ? 'rotate-180' : ''
@@ -1178,21 +1247,74 @@ function DashboardTab({
           </div>
         </button>
 
+        <div className="px-6 pt-4 pb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+              <div className="text-xs uppercase text-gray-500">Meta Campaigns</div>
+              <div className="text-2xl font-semibold text-gray-900">{metaTotals.campaigns}</div>
+            </div>
+            <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+              <div className="text-xs uppercase text-gray-500">Meta Spend</div>
+              <div className="text-2xl font-semibold text-gray-900">{renderCurrency(metaTotals.spend)}</div>
+            </div>
+            <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+              <div className="text-xs uppercase text-gray-500">Meta Revenue</div>
+              <div className="text-2xl font-semibold text-gray-900">{renderCurrency(metaTotals.revenue)}</div>
+            </div>
+            <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+              <div className="text-xs uppercase text-gray-500">Meta ROAS</div>
+              <div className="text-2xl font-semibold text-gray-900">{renderRoas(metaTotals.roas)}</div>
+            </div>
+          </div>
+        </div>
+
         {showMetaBreakdown && (
           <>
-            <div className="px-6 pt-4 pb-2 flex items-center justify-between">
+            <div className="px-6 pb-4">
+              <div className="grid md:grid-cols-3 gap-4 bg-gray-50 rounded-lg p-4">
+                <div>
+                  <div className="text-xs uppercase text-gray-500">Upper Funnel</div>
+                  <div className="mt-2 space-y-1 text-sm text-gray-700">
+                    <div className="flex justify-between"><span>Impressions</span><span className="font-semibold">{renderNumber(metaTotals.impressions)}</span></div>
+                    <div className="flex justify-between"><span>Reach</span><span className="font-semibold">{renderNumber(metaTotals.reach)}</span></div>
+                    <div className="flex justify-between"><span>Clicks</span><span className="font-semibold">{renderNumber(metaTotals.clicks)}</span></div>
+                    <div className="flex justify-between"><span>CTR</span><span className="font-semibold">{renderPercent(metaCtrValue)}</span></div>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase text-gray-500">Mid Funnel</div>
+                  <div className="mt-2 space-y-1 text-sm text-gray-700">
+                    <div className="flex justify-between"><span>Landing Page Views</span><span className="font-semibold">{renderNumber(metaTotals.lpv)}</span></div>
+                    <div className="flex justify-between"><span>Add to Cart</span><span className="font-semibold">{renderNumber(metaTotals.atc)}</span></div>
+                    <div className="flex justify-between"><span>Checkout</span><span className="font-semibold">{renderNumber(metaTotals.checkout)}</span></div>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase text-gray-500">Lower Funnel</div>
+                  <div className="mt-2 space-y-1 text-sm text-gray-700">
+                    <div className="flex justify-between"><span>Conversions</span><span className="font-semibold">{renderNumber(metaTotals.conversions)}</span></div>
+                    <div className="flex justify-between"><span>Conversion Value</span><span className="font-semibold">{renderCurrency(metaTotals.revenue)}</span></div>
+                    <div className="flex justify-between"><span>Meta ROAS</span><span className="font-semibold">{renderRoas(metaTotals.roas)}</span></div>
+                    <div className="flex justify-between"><span>Meta CAC</span><span className="font-semibold">{renderCurrency(metaTotals.cac, 2)}</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 pt-2 pb-2 flex items-center justify-between">
               <div className="text-xs uppercase tracking-wide text-gray-400">
                 Meta Campaign Performance <span className="ml-2 text-gray-300">PURE META</span>
               </div>
-              <select 
-                value={breakdown}
-                onChange={(e) => setBreakdown(e.target.value)}
+              <select
+                value={metaBreakdown}
+                onChange={(e) => setMetaBreakdown(e.target.value)}
                 className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
               >
-                <option value="none">No Breakdown</option>
+                <option value="none">Overall</option>
                 <option value="country">By Country</option>
                 <option value="age">By Age</option>
                 <option value="gender">By Gender</option>
+                <option value="age_gender">By Age + Gender</option>
                 <option value="placement">By Placement</option>
               </select>
             </div>
@@ -1201,63 +1323,71 @@ function DashboardTab({
                 <thead>
                   <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
                     <th className="text-left px-4 py-2">Campaign</th>
-                    {breakdown !== 'none' && <th>{breakdown}</th>}
+                    {metaBreakdown !== 'none' && <th>{breakdownLabels[metaBreakdown]}</th>}
                     <th>Spend</th>
-                    <th className="bg-indigo-50 text-indigo-700">ROAS</th>
-                    <th className="bg-indigo-50 text-indigo-700">AOV</th>
-                    <th className="bg-indigo-50 text-indigo-700">CAC</th>
+                    <th>Meta Revenue</th>
+                    <th className="bg-indigo-50 text-indigo-700">Meta ROAS</th>
+                    <th className="bg-indigo-50 text-indigo-700">Meta AOV</th>
+                    <th className="bg-indigo-50 text-indigo-700">Meta CAC</th>
                     <th>Impr</th>
-                    <th>Reach</th>
-                    <th>CPM</th>
-                    <th>Freq</th>
                     <th>Clicks</th>
                     <th>CTR</th>
                     <th>CPC</th>
                     <th>Conv</th>
-                    <th>CR</th>
+                    <th>Conversion Rate</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {metaRows.map((c, idx) => (
-                    <tr key={`${c.campaignId}-${idx}`}>
-                      <td className="px-4 py-2 font-medium">{c.campaignName}</td>
-                      {breakdown !== 'none' && (
-                        <td>{getBreakdownLabel(c, breakdown)}</td>
-                      )}
-                      <td className="text-indigo-600 font-semibold">
-                        {formatCurrency(c.spend)}
-                      </td>
-                      <td className="text-green-600 font-semibold">
-                        {(c.metaRoas || 0).toFixed(2)}×
-                      </td>
-                      <td>{formatCurrency(c.metaAov || 0)}</td>
-                      <td className={(c.metaCac || 0) > 100 ? 'text-amber-600' : ''}>
-                        {formatCurrency(c.metaCac || 0)}
-                      </td>
-                      <td>{formatNumber(c.impressions || 0)}</td>
-                      <td>{formatNumber(c.reach || 0)}</td>
-                      <td>{formatCurrency(c.cpm || 0, 2)}</td>
-                      <td>{(c.frequency || 0).toFixed(2)}</td>
-                      <td>{formatNumber(c.clicks || 0)}</td>
-                      <td>{(c.ctr || 0).toFixed(2)}%</td>
-                      <td>{formatCurrency(c.cpc || 0, 2)}</td>
-                      <td>{c.conversions || 0}</td>
-                      <td>{(c.cr || 0).toFixed(2)}%</td>
+                  {metaBreakdownRows.map((c, idx) => {
+                    const spend = c.spend || 0;
+                    const revenue = c.conversionValue || 0;
+                    const impressions = c.impressions || 0;
+                    const clicks = c.clicks || 0;
+                    const conversions = c.conversions || 0;
+                    const rowRoas = spend > 0 ? revenue / spend : null;
+                    const rowAov = conversions > 0 ? revenue / conversions : null;
+                    const rowCac = conversions > 0 ? spend / conversions : null;
+                    const rowCtr = impressions > 0 ? (clicks / impressions) * 100 : null;
+                    const rowCpc = clicks > 0 ? spend / clicks : null;
+                    const rowCr = clicks > 0 ? (conversions / clicks) * 100 : null;
+
+                    return (
+                      <tr key={`${c.campaignId || 'overall'}-${idx}`}>
+                        <td className="px-4 py-2 font-medium">{c.campaignName}</td>
+                        {metaBreakdown !== 'none' && (
+                          <td>{getBreakdownLabel(c, metaBreakdown)}</td>
+                        )}
+                        <td className="text-indigo-600 font-semibold">{renderCurrency(spend)}</td>
+                        <td className="text-green-600 font-semibold">{renderCurrency(revenue)}</td>
+                        <td className="text-green-600 font-semibold">{renderRoas(rowRoas)}</td>
+                        <td>{renderCurrency(rowAov)}</td>
+                        <td className={rowCac && rowCac > 100 ? 'text-amber-600' : ''}>{renderCurrency(rowCac)}</td>
+                        <td>{renderNumber(impressions)}</td>
+                        <td>{renderNumber(clicks)}</td>
+                        <td>{renderPercent(rowCtr)}</td>
+                        <td>{renderCurrency(rowCpc, 2)}</td>
+                        <td>{renderNumber(conversions)}</td>
+                        <td>{renderPercent(rowCr)}</td>
+                      </tr>
+                    );
+                  })}
+                  {metaBreakdown !== 'none' && (
+                    <tr className="bg-gray-50 font-semibold">
+                      <td className="px-4 py-2">TOTAL</td>
+                      <td></td>
+                      <td className="text-indigo-600">{renderCurrency(metaTotals.spend)}</td>
+                      <td className="text-green-600">{renderCurrency(metaTotals.revenue)}</td>
+                      <td className="text-green-600">{renderRoas(metaTotals.roas)}</td>
+                      <td>{renderCurrency(metaOverallRow.metaAov)}</td>
+                      <td>{renderCurrency(metaTotals.cac, 2)}</td>
+                      <td>{renderNumber(metaTotals.impressions)}</td>
+                      <td>{renderNumber(metaTotals.clicks)}</td>
+                      <td>{renderPercent(metaOverallRow.ctr)}</td>
+                      <td>{renderCurrency(metaOverallRow.cpc, 2)}</td>
+                      <td>{renderNumber(metaTotals.conversions)}</td>
+                      <td>{renderPercent(metaOverallRow.cr)}</td>
                     </tr>
-                  ))}
-                  <tr className="bg-gray-50 font-semibold">
-                    <td className="px-4 py-2">
-                      TOTAL
-                    </td>
-                    {breakdown !== 'none' && <td></td>}
-                    <td className="text-indigo-600">
-                      {formatCurrency(metaSpendTotal)}
-                    </td>
-                    <td className="text-green-600">
-                      {metaRoasTotal.toFixed(2)}×
-                    </td>
-                    <td colSpan={11}></td>
-                  </tr>
+                  )}
                 </tbody>
               </table>
             </div>
