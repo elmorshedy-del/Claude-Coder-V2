@@ -1068,6 +1068,30 @@ export function getShopifyTimeOfDay(store, params) {
   const db = getDb();
   const { startDate, endDate } = getDateRange(params);
 
+  const timezoneSample = db.prepare(`
+    SELECT order_created_at, created_at
+    FROM shopify_orders
+    WHERE store = ? AND date BETWEEN ? AND ? AND (order_created_at IS NOT NULL OR created_at IS NOT NULL)
+    LIMIT 1
+  `).get(store, startDate, endDate);
+
+  const rawTimestamp = timezoneSample?.order_created_at || timezoneSample?.created_at;
+  let timezone = null;
+
+  if (rawTimestamp) {
+    const tzMatch = /([+-]\d{2}:?\d{2}|Z)$/i.exec(rawTimestamp);
+
+    if (tzMatch) {
+      const tz = tzMatch[1];
+      if (tz.toUpperCase() === 'Z') {
+        timezone = 'UTC';
+      } else {
+        const normalized = tz.includes(':') ? tz : `${tz.slice(0, 3)}:${tz.slice(3)}`;
+        timezone = `UTC${normalized}`;
+      }
+    }
+  }
+
   const rows = db.prepare(`
     SELECT
       strftime('%H', datetime(COALESCE(order_created_at, created_at))) as hour,
@@ -1094,5 +1118,8 @@ export function getShopifyTimeOfDay(store, params) {
     }
   }
 
-  return hourlyBuckets;
+  return {
+    data: hourlyBuckets,
+    timezone,
+  };
 }
