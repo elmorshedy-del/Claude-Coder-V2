@@ -254,15 +254,19 @@ export default function App() {
         revenue: STORES[currentStore].defaultAOV,
         notes: ''
       }));
-      const newNotification = {
-        id: Date.now(),
-        type: 'order',
-        message: `New order added: ${orderForm.orders_count} order(s) for ${formatCurrency(orderForm.revenue)}`,
-        timestamp: new Date().toISOString(),
-        country: orderForm.country,
-        source: orderForm.source
-      };
-      setNotifications(prev => [newNotification, ...prev].slice(0, 10));
+      try {
+        const newNotification = {
+          id: Date.now(),
+          type: 'order',
+          message: `New order added: ${orderForm.orders_count || 1} order(s) for ${formatCurrency(orderForm.revenue || 0)}`,
+          timestamp: new Date().toISOString(),
+          country: orderForm.country || '',
+          source: orderForm.source || ''
+        };
+        setNotifications(prev => Array.isArray(prev) ? [newNotification, ...prev].slice(0, 10) : [newNotification]);
+      } catch (e) {
+        console.error('Notification error:', e);
+      }
       loadData();
     } catch (error) {
       console.error('Error adding order:', error);
@@ -343,14 +347,18 @@ export default function App() {
   };
 
   const formatNotificationTime = (timestamp) => {
-    if (!timestamp) return '—';
-    return new Date(timestamp).toLocaleString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit'
-    });
+    if (!timestamp) return '';
+    try {
+      return new Date(timestamp).toLocaleString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+      });
+    } catch {
+      return '';
+    }
   };
 
   const getDateRangeLabel = () => {
@@ -444,7 +452,7 @@ export default function App() {
                   aria-label="Order notifications"
                 >
                   <Bell className="w-4 h-4" />
-                  {notifications.length > 0 && (
+                  {Array.isArray(notifications) && notifications.length > 0 && (
                     <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white ring-2 ring-white">
                       {notifications.length > 9 ? '9+' : notifications.length}
                     </span>
@@ -454,7 +462,7 @@ export default function App() {
                   <div className="absolute right-0 mt-2 w-80 rounded-xl border border-gray-200 bg-white shadow-lg z-50">
                     <div className="flex items-center justify-between p-3 border-b border-gray-100">
                       <span className="text-sm font-semibold text-gray-900">Notifications</span>
-                      {notifications.length > 0 && (
+                      {Array.isArray(notifications) && notifications.length > 0 && (
                         <button
                           onClick={() => setNotifications([])}
                           className="text-xs text-gray-500 hover:text-gray-700"
@@ -464,14 +472,14 @@ export default function App() {
                       )}
                     </div>
                     <div className="max-h-64 overflow-y-auto">
-                      {notifications.length > 0 ? (
+                      {Array.isArray(notifications) && notifications.length > 0 ? (
                         notifications.map((notif) => (
-                          <div key={notif.id} className="p-3 border-b border-gray-50 last:border-b-0 hover:bg-gray-50">
-                            <p className="text-sm text-gray-900">{notif.message}</p>
+                          <div key={notif?.id || Math.random()} className="p-3 border-b border-gray-50 last:border-b-0 hover:bg-gray-50">
+                            <p className="text-sm text-gray-900">{notif?.message || 'New order'}</p>
                             <p className="text-xs text-gray-500 mt-1">
-                              {notif.source && <span className="capitalize">{notif.source}</span>}
-                              {notif.country && <span> • {notif.country}</span>}
-                              <span> • {formatNotificationTime(notif.timestamp)}</span>
+                              {notif?.source && <span className="capitalize">{notif.source}</span>}
+                              {notif?.country && <span> • {notif.country}</span>}
+                              {notif?.timestamp && <span> • {formatNotificationTime(notif.timestamp)}</span>}
                             </p>
                           </div>
                         ))
