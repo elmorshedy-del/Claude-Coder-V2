@@ -57,6 +57,7 @@ export default function App() {
   const [manualOrders, setManualOrders] = useState([]);
   const [availableCountries, setAvailableCountries] = useState([]);
   const [metaBreakdownData, setMetaBreakdownData] = useState([]);
+  const [shopifyTimeOfDay, setShopifyTimeOfDay] = useState([]);
   
   // KPI charts
   const [expandedKpis, setExpandedKpis] = useState([]);
@@ -121,7 +122,9 @@ export default function App() {
       } else {
         params.set(dateRange.type, dateRange.value);
       }
-      
+
+      const timeOfDayParams = new URLSearchParams({ store: currentStore, days: 7 });
+
       const [
         dashData,
         effData,
@@ -130,7 +133,8 @@ export default function App() {
         intel,
         orders,
         countries,
-        cTrends
+        cTrends,
+        timeOfDay
       ] = await Promise.all([
         fetch(`${API_BASE}/analytics/dashboard?${params}`).then(r => r.json()),
         fetch(`${API_BASE}/analytics/efficiency?${params}`).then(r => r.json()),
@@ -139,9 +143,12 @@ export default function App() {
         fetch(`${API_BASE}/budget-intelligence?${params}`).then(r => r.json()),
         fetch(`${API_BASE}/manual?${params}`).then(r => r.json()),
         fetch(`${API_BASE}/analytics/countries?store=${currentStore}`).then(r => r.json()),
-        fetch(`${API_BASE}/analytics/countries/trends?${params}`).then(r => r.json())
+        fetch(`${API_BASE}/analytics/countries/trends?${params}`).then(r => r.json()),
+        currentStore === 'shawq'
+          ? fetch(`${API_BASE}/analytics/shopify/time-of-day?${timeOfDayParams}`).then(r => r.json())
+          : Promise.resolve([])
       ]);
-      
+
       setDashboard(dashData);
       setEfficiency(effData);
       setEfficiencyTrends(effTrends);
@@ -150,6 +157,7 @@ export default function App() {
       setManualOrders(orders);
       setAvailableCountries(countries);
       setCountryTrends(cTrends);
+      setShopifyTimeOfDay(timeOfDay);
     } catch (error) {
       console.error('Error loading data:', error);
     }
@@ -504,14 +512,15 @@ export default function App() {
             expandedKpis={expandedKpis}
             setExpandedKpis={setExpandedKpis}
             formatCurrency={formatCurrency}
-            formatNumber={formatNumber}
-            metaBreakdown={metaBreakdown}
-            setMetaBreakdown={setMetaBreakdown}
-            metaBreakdownData={metaBreakdownData}
-            store={store}
-            countryTrends={countryTrends}
-          />
-        )}
+              formatNumber={formatNumber}
+              metaBreakdown={metaBreakdown}
+              setMetaBreakdown={setMetaBreakdown}
+              metaBreakdownData={metaBreakdownData}
+              store={store}
+              countryTrends={countryTrends}
+              shopifyTimeOfDay={shopifyTimeOfDay}
+            />
+          )}
         
         {activeTab === 1 && efficiency && (
           <EfficiencyTab
@@ -583,7 +592,8 @@ function DashboardTab({
   setMetaBreakdown,
   metaBreakdownData,
   store,
-  countryTrends
+  countryTrends,
+  shopifyTimeOfDay
 }) {
   const { overview, trends, campaigns, countries, diagnostics } = dashboard;
 
@@ -634,6 +644,13 @@ function DashboardTab({
   });
 
   const orderedCountryTrends = [...countryTrends].sort((a, b) => (b.totalOrders || 0) - (a.totalOrders || 0));
+
+  const shopifyHourlyChartData = shopifyTimeOfDay.map((point) => ({
+    ...point,
+    hourLabel: `${point.hour}:00`
+  }));
+
+  const totalShopifyHourlyOrders = shopifyTimeOfDay.reduce((sum, point) => sum + (point.orders || 0), 0);
 
   const handleCountrySort = (field) => {
     setCountrySortConfig(prev => ({
@@ -1365,6 +1382,46 @@ function DashboardTab({
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Shopify time of day trends */}
+      {store.id === 'shawq' && shopifyHourlyChartData.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <h2 className="text-lg font-semibold">Orders by Time of Day (Last 7 Days)</h2>
+              <p className="text-sm text-gray-500">
+                Shopify orders grouped by hour. Use this to spot when customers are most active.
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-xs uppercase text-gray-400">Total orders</div>
+              <div className="text-2xl font-bold text-gray-900">{totalShopifyHourlyOrders}</div>
+            </div>
+          </div>
+
+          <div className="h-64 mt-4">
+            <ResponsiveContainer>
+              <LineChart data={shopifyHourlyChartData} margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="hourLabel" tick={{ fontSize: 10 }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                <Tooltip
+                  formatter={(value, name) => [value, name === 'orders' ? 'Orders' : 'Revenue']}
+                  labelFormatter={(label) => `${label}`}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="orders"
+                  stroke="#6366f1"
+                  strokeWidth={3}
+                  dot={{ r: 2 }}
+                  activeDot={{ r: 4 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         </div>
       )}
