@@ -1403,6 +1403,7 @@ function DashboardTab({
                 const share = totalCountrySpend > 0 ? (c.spend / totalCountrySpend) * 100 : 0;
                 const isExpanded = expandedCountries.has(c.code);
                 const hasCities = Array.isArray(c.cities) && c.cities.length > 0;
+                const isUsCountry = c.code === 'US';
                 return (
                   <Fragment key={c.code}>
                     <tr
@@ -1441,7 +1442,8 @@ function DashboardTab({
                             <table className="w-full text-sm">
                               <thead>
                                 <tr className="text-left text-gray-500">
-                                  <th>City</th>
+                                  {isUsCountry && <th className="w-28">Rank</th>}
+                                  <th>{isUsCountry ? 'State' : 'City'}</th>
                                   <th>Orders</th>
                                   <th>Revenue</th>
                                   <th>AOV</th>
@@ -1453,6 +1455,18 @@ function DashboardTab({
                               <tbody>
                                 {c.cities.map((city, idx) => (
                                   <tr key={`${c.code}-${city.city || 'unknown'}-${idx}`}>
+                                    {isUsCountry && (
+                                      <td>
+                                        {city.rank ? (
+                                          <div className="flex items-center gap-2">
+                                            <span>{city.medal}</span>
+                                            <span className="text-xs text-gray-500">#{city.rank}</span>
+                                          </div>
+                                        ) : (
+                                          '—'
+                                        )}
+                                      </td>
+                                    )}
                                     <td>{city.city || 'Unknown'}</td>
                                     <td>{city.orders || 0}</td>
                                     <td className="text-green-600 font-semibold">{formatCurrency(city.revenue || 0)}</td>
