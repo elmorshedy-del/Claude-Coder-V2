@@ -1,5 +1,5 @@
 import express from 'express';
-import { getDashboard, getEfficiency, getEfficiencyTrends, getRecommendations, getAvailableCountries, getCampaignsByCountry, getCampaignsByAge, getCampaignsByGender, getCampaignsByPlacement, getCountryTrends, getCampaignsByAgeGender } from '../services/analyticsService.js';
+import { getDashboard, getEfficiency, getEfficiencyTrends, getRecommendations, getAvailableCountries, getCampaignsByCountry, getCampaignsByAge, getCampaignsByGender, getCampaignsByPlacement, getCountryTrends, getCampaignsByAgeGender, getShopifyTimeOfDay } from '../services/analyticsService.js';
 
 const router = express.Router();
 
@@ -131,6 +131,18 @@ router.get('/countries/trends', (req, res) => {
     res.json(data);
   } catch (error) {
     console.error('Country trends error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Shopify time-of-day trends (last 7 days by default)
+router.get('/shopify/time-of-day', (req, res) => {
+  try {
+    const store = req.query.store || 'vironax';
+    const data = getShopifyTimeOfDay(store, req.query);
+    res.json(data);
+  } catch (error) {
+    console.error('Shopify time-of-day error:', error);
     res.status(500).json({ error: error.message });
   }
 });

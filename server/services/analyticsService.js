@@ -1058,3 +1058,41 @@ export function getCountryTrends(store, params) {
   // Sort by total orders descending
   return result.sort((a, b) => b.totalOrders - a.totalOrders);
 }
+
+// Shopify hourly orders for the selected range (defaults to last 7 days)
+export function getShopifyTimeOfDay(store, params) {
+  if (store !== 'shawq') {
+    return [];
+  }
+
+  const db = getDb();
+  const { startDate, endDate } = getDateRange(params);
+
+  const rows = db.prepare(`
+    SELECT
+      strftime('%H', datetime(COALESCE(order_created_at, created_at))) as hour,
+      COUNT(*) as orders,
+      SUM(subtotal) as revenue
+    FROM shopify_orders
+    WHERE store = ? AND date BETWEEN ? AND ?
+    GROUP BY hour
+    ORDER BY hour
+  `).all(store, startDate, endDate);
+
+  const hourlyBuckets = Array.from({ length: 24 }, (_, idx) => ({
+    hour: idx.toString().padStart(2, '0'),
+    orders: 0,
+    revenue: 0
+  }));
+
+  for (const row of rows) {
+    if (!row.hour) continue;
+    const hourIdx = parseInt(row.hour, 10);
+    if (hourIdx >= 0 && hourIdx < 24) {
+      hourlyBuckets[hourIdx].orders = row.orders || 0;
+      hourlyBuckets[hourIdx].revenue = row.revenue || 0;
+    }
+  }
+
+  return hourlyBuckets;
+}

@@ -73,6 +73,9 @@ export function initDb() {
   try {
     db.exec(`ALTER TABLE shopify_orders ADD COLUMN state TEXT`);
   } catch (e) { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE shopify_orders ADD COLUMN order_created_at TEXT`);
+  } catch (e) { /* column exists */ }
 
   // Salla orders (VironaX only)
   db.exec(`
@@ -120,6 +123,7 @@ export function initDb() {
       fulfillment_status TEXT,
       payment_method TEXT,
       currency TEXT DEFAULT 'USD',
+      order_created_at TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(store, order_id)
     )

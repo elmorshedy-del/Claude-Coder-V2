@@ -41,14 +41,15 @@ export async function fetchShopifyOrders(dateStart, dateEnd) {
             shipping: parseFloat(order.total_shipping_price_set?.shop_money?.amount) || 0,
             tax: parseFloat(order.total_tax) || 0,
             discount: parseFloat(order.total_discounts) || 0,
-            items_count: order.line_items?.length || 1,
-            status: order.fulfillment_status || 'unfulfilled',
-            financial_status: order.financial_status || 'pending',
-            fulfillment_status: order.fulfillment_status || null,
-            payment_method: order.payment_gateway_names?.[0] || 'unknown',
-            currency: order.currency || 'USD'
-          });
-        }
+          items_count: order.line_items?.length || 1,
+          status: order.fulfillment_status || 'unfulfilled',
+          financial_status: order.financial_status || 'pending',
+          fulfillment_status: order.fulfillment_status || null,
+          payment_method: order.payment_gateway_names?.[0] || 'unknown',
+          currency: order.currency || 'USD',
+          order_created_at: order.created_at
+        });
+      }
       }
 
       // Handle pagination via Link header
@@ -80,8 +81,8 @@ export async function syncShopifyOrders() {
     const insertStmt = db.prepare(`
       INSERT OR REPLACE INTO shopify_orders
       (store, order_id, date, country, country_code, city, state, order_total, subtotal, shipping, tax, discount,
-       items_count, status, financial_status, fulfillment_status, payment_method, currency)
-      VALUES ('shawq', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       items_count, status, financial_status, fulfillment_status, payment_method, currency, order_created_at)
+      VALUES ('shawq', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     let recordsInserted = 0;
@@ -103,7 +104,8 @@ export async function syncShopifyOrders() {
         order.financial_status,
         order.fulfillment_status,
         order.payment_method,
-        order.currency
+        order.currency,
+        order.order_created_at
       );
       recordsInserted++;
     }
@@ -186,8 +188,11 @@ function getDemoShopifyOrders(dateStart, dateEnd) {
       const variance = 0.6 + Math.random() * 0.8;
       const orderTotal = selectedCountry.avgOrder * variance;
       // US gets free shipping over $75
-      const shipping = selectedCountry.code === 'US' && orderTotal > 75 ? 0 : 
+      const shipping = selectedCountry.code === 'US' && orderTotal > 75 ? 0 :
                       selectedCountry.code === 'US' ? 8 : 15;
+      const hour = Math.floor(Math.random() * 24).toString().padStart(2, '0');
+      const minute = Math.floor(Math.random() * 60).toString().padStart(2, '0');
+      const orderCreatedAt = `${dateStr}T${hour}:${minute}:00Z`;
 
       orders.push({
         order_id: (orderId++).toString(),
@@ -206,7 +211,8 @@ function getDemoShopifyOrders(dateStart, dateEnd) {
         financial_status: 'paid',
         fulfillment_status: Math.random() > 0.1 ? 'fulfilled' : null,
         payment_method: Math.random() > 0.4 ? 'shopify_payments' : 'paypal',
-        currency: 'USD'
+        currency: 'USD',
+        order_created_at: orderCreatedAt
       });
     }
   }
