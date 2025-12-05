@@ -1046,11 +1046,12 @@ export function getCountryTrends(store, params) {
 
 // Shopify hourly orders for the selected range (defaults to last 7 days)
 export function getShopifyTimeOfDay(store, params) {
-  const allowedRegions = new Set(['us', 'europe']);
+  const allowedRegions = new Set(['us', 'europe', 'all']);
   const requestedRegion = typeof params.region === 'string' ? params.region.toLowerCase() : '';
   const region = allowedRegions.has(requestedRegion) ? requestedRegion : 'us';
 
-  const timezone = region === 'europe' ? 'Europe/London' : 'America/Chicago';
+  // For 'all' region, use UTC to show orders in a neutral timezone
+  const timezone = region === 'europe' ? 'Europe/London' : region === 'all' ? 'UTC' : 'America/Chicago';
 
   if (store !== 'shawq') {
     return { data: [], timezone, sampleTimestamps: [] };
@@ -1112,6 +1113,9 @@ export function getShopifyTimeOfDay(store, params) {
   ]);
 
   const isRegionMatch = (countryValue) => {
+    // 'all' region includes all orders regardless of country
+    if (region === 'all') return true;
+
     if (!countryColumn) return true;
 
     const normalized = normalizeCountryValue(countryValue);

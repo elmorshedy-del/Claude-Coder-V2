@@ -162,7 +162,7 @@ export default function App() {
         fetch(`${API_BASE}/analytics/countries/trends?${params}`).then(r => r.json()),
         currentStore === 'shawq'
           ? fetch(`${API_BASE}/analytics/shopify/time-of-day?${timeOfDayParams}`).then(r => r.json())
-          : Promise.resolve({ data: [], timezone: shopifyRegion === 'us' ? 'America/Chicago' : 'Europe/London', sampleTimestamps: [] })
+          : Promise.resolve({ data: [], timezone: shopifyRegion === 'europe' ? 'Europe/London' : shopifyRegion === 'all' ? 'UTC' : 'America/Chicago', sampleTimestamps: [] })
       ]);
 
       setDashboard(dashData);
@@ -177,7 +177,7 @@ export default function App() {
       const timeOfDayData = Array.isArray(timeOfDay?.data) ? timeOfDay.data : [];
       const timeOfDayZone = typeof timeOfDay?.timezone === 'string' ? timeOfDay.timezone : null;
       const timeOfDaySamples = Array.isArray(timeOfDay?.sampleTimestamps) ? timeOfDay.sampleTimestamps.slice(0, 5) : [];
-      const fallbackTimezone = shopifyRegion === 'us' ? 'America/Chicago' : 'Europe/London';
+      const fallbackTimezone = shopifyRegion === 'europe' ? 'Europe/London' : shopifyRegion === 'all' ? 'UTC' : 'America/Chicago';
       const safeTimezone = timeOfDayZone || fallbackTimezone;
       setShopifyTimeOfDay({ data: timeOfDayData, timezone: safeTimezone, sampleTimestamps: timeOfDaySamples });
     } catch (error) {
@@ -775,7 +775,7 @@ function DashboardTab({
   const orderedCountryTrends = [...countryTrends].sort((a, b) => (b.totalOrders || 0) - (a.totalOrders || 0));
 
   const shopifyRegion = selectedShopifyRegion ?? 'us';
-  const shopifyTimeZone = shopifyTimeOfDay?.timezone ?? (shopifyRegion === 'us' ? 'America/Chicago' : 'Europe/London');
+  const shopifyTimeZone = shopifyTimeOfDay?.timezone ?? (shopifyRegion === 'europe' ? 'Europe/London' : shopifyRegion === 'all' ? 'UTC' : 'America/Chicago');
   const shopifyTimeOfDayData = Array.isArray(shopifyTimeOfDay?.data) ? shopifyTimeOfDay.data : [];
   const shopifyHourlyChartData = shopifyTimeOfDayData.map((point) => ({
     ...point,
@@ -1536,6 +1536,12 @@ function DashboardTab({
               <div className="flex items-center gap-2 mt-2 text-xs text-gray-600 flex-wrap">
                 <span>Region:</span>
                 <div className="flex items-center gap-1">
+                  <button
+                    className={`px-2 py-1 rounded ${shopifyRegion === 'all' ? 'bg-gray-200 text-gray-900' : 'bg-white text-gray-600 border'}`}
+                    onClick={() => setSelectedShopifyRegion('all')}
+                  >
+                    All Orders
+                  </button>
                   <button
                     className={`px-2 py-1 rounded ${shopifyRegion === 'us' ? 'bg-gray-200 text-gray-900' : 'bg-white text-gray-600 border'}`}
                     onClick={() => setSelectedShopifyRegion('us')}
