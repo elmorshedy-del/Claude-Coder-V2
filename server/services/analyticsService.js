@@ -142,25 +142,48 @@ export function getDashboard(store, params) {
 
   // Get e-commerce orders (Salla for vironax, Shopify for shawq)
   let ecomOrders;
+  let ecomCityOrders;
   if (store === 'vironax') {
     ecomOrders = db.prepare(`
-      SELECT 
+      SELECT
         country_code as countryCode,
         COUNT(*) as orders,
         SUM(order_total) as revenue
       FROM salla_orders
-      WHERE store = ? AND date BETWEEN ? AND ?
+      WHERE store = ? AND date BETWEEN ? AND ? AND country_code IS NOT NULL AND country_code != ''
       GROUP BY country_code
+    `).all(store, startDate, endDate);
+
+    ecomCityOrders = db.prepare(`
+      SELECT
+        country_code as countryCode,
+        COALESCE(NULLIF(city, ''), 'Unknown') as city,
+        COUNT(*) as orders,
+        SUM(order_total) as revenue
+      FROM salla_orders
+      WHERE store = ? AND date BETWEEN ? AND ? AND country_code IS NOT NULL AND country_code != '' AND city IS NOT NULL
+      GROUP BY country_code, city
     `).all(store, startDate, endDate);
   } else {
     ecomOrders = db.prepare(`
-      SELECT 
+      SELECT
         country_code as countryCode,
         COUNT(*) as orders,
         SUM(subtotal) as revenue
       FROM shopify_orders
-      WHERE store = ? AND date BETWEEN ? AND ?
+      WHERE store = ? AND date BETWEEN ? AND ? AND country_code IS NOT NULL AND country_code != ''
       GROUP BY country_code
+    `).all(store, startDate, endDate);
+
+    ecomCityOrders = db.prepare(`
+      SELECT
+        country_code as countryCode,
+        COALESCE(NULLIF(city, ''), 'Unknown') as city,
+        COUNT(*) as orders,
+        SUM(subtotal) as revenue
+      FROM shopify_orders
+      WHERE store = ? AND date BETWEEN ? AND ? AND country_code IS NOT NULL AND country_code != '' AND city IS NOT NULL
+      GROUP BY country_code, city
     `).all(store, startDate, endDate);
   }
 
@@ -189,73 +212,73 @@ export function getDashboard(store, params) {
 
   // Build dynamic countries list from actual data
   const countryMap = new Map();
-  
-  // Add Meta spend countries (spend only, NOT revenue - to avoid double counting)
-  for (const m of metaByCountry) {
-    const info = getCountryInfo(m.countryCode);
-    countryMap.set(m.countryCode, {
-      code: m.countryCode,
+
+  // Seed map with ecommerce countries only (source of truth for inclusion)
+  for (const e of ecomOrders) {
+    const info = getCountryInfo(e.countryCode);
+    countryMap.set(e.countryCode, {
+      code: e.countryCode,
       name: info.name,
       flag: info.flag,
-      spend: m.spend || 0,
-      metaOrders: m.conversions || 0,
-      metaRevenue: m.conversionValue || 0, // Keep for reference but don't add to total
-      ecomOrders: 0,
+      spend: 0,
+      metaOrders: 0,
+      metaRevenue: 0,
+      ecomOrders: e.orders || 0,
       manualOrders: 0,
-      revenue: 0 // Revenue comes from ecom + manual only
+      revenue: e.revenue || 0,
+      cities: []
     });
   }
 
-  // Add e-commerce orders (this is the source of truth for revenue)
-  for (const e of ecomOrders) {
-    if (countryMap.has(e.countryCode)) {
-      countryMap.get(e.countryCode).ecomOrders = e.orders || 0;
-      countryMap.get(e.countryCode).revenue += e.revenue || 0;
-    } else {
-      const info = getCountryInfo(e.countryCode);
-      countryMap.set(e.countryCode, {
-        code: e.countryCode,
-        name: info.name,
-        flag: info.flag,
-        spend: 0,
-        metaOrders: 0,
-        metaRevenue: 0,
-        ecomOrders: e.orders || 0,
-        manualOrders: 0,
-        revenue: e.revenue || 0
-      });
-    }
+  // Attach ecommerce cities (Shopify/Salla)
+  for (const cityRow of ecomCityOrders || []) {
+    const country = countryMap.get(cityRow.countryCode);
+    if (!country) continue;
+    if (!cityRow.orders && !cityRow.revenue) continue;
+    const cityName = cityRow.city?.trim() || 'Unknown';
+    country.cities.push({
+      city: cityName,
+      orders: cityRow.orders || 0,
+      revenue: cityRow.revenue || 0
+    });
   }
 
-  // Add manual orders
+  // Add Meta spend countries (spend only, NOT revenue - to avoid double counting)
+  for (const m of metaByCountry) {
+    if (!countryMap.has(m.countryCode)) continue;
+    const country = countryMap.get(m.countryCode);
+    country.spend = (country.spend || 0) + (m.spend || 0);
+    country.metaOrders = (country.metaOrders || 0) + (m.conversions || 0);
+    country.metaRevenue = (country.metaRevenue || 0) + (m.conversionValue || 0);
+  }
+
+  // Add manual orders only for ecommerce countries
   for (const m of manualOrders) {
-    if (countryMap.has(m.countryCode)) {
-      countryMap.get(m.countryCode).manualOrders = m.orders || 0;
-      countryMap.get(m.countryCode).revenue += m.revenue || 0;
-    } else {
-      const info = getCountryInfo(m.countryCode);
-      countryMap.set(m.countryCode, {
-        code: m.countryCode,
-        name: info.name,
-        flag: info.flag,
-        spend: 0,
-        metaOrders: 0,
-        metaRevenue: 0,
-        ecomOrders: 0,
-        manualOrders: m.orders || 0,
-        revenue: m.revenue || 0
-      });
-    }
+    if (!countryMap.has(m.countryCode)) continue;
+    const country = countryMap.get(m.countryCode);
+    country.manualOrders = (country.manualOrders || 0) + (m.orders || 0);
+    country.revenue += m.revenue || 0;
   }
 
   // Calculate country metrics
-  const countries = Array.from(countryMap.values()).map(c => ({
-    ...c,
-    totalOrders: c.ecomOrders + c.manualOrders,
-    aov: (c.ecomOrders + c.manualOrders) > 0 ? c.revenue / (c.ecomOrders + c.manualOrders) : 0,
-    cac: (c.ecomOrders + c.manualOrders) > 0 ? c.spend / (c.ecomOrders + c.manualOrders) : 0,
-    roas: c.spend > 0 ? c.revenue / c.spend : 0
-  })).sort((a, b) => b.spend - a.spend);
+  const countries = Array.from(countryMap.values())
+    .map(c => {
+      const totalOrders = c.ecomOrders + c.manualOrders;
+      const citiesWithAov = (c.cities || []).map(city => ({
+        ...city,
+        aov: city.orders > 0 ? city.revenue / city.orders : 0
+      }));
+      return {
+        ...c,
+        cities: citiesWithAov,
+        totalOrders,
+        aov: totalOrders > 0 ? c.revenue / totalOrders : 0,
+        cac: totalOrders > 0 ? c.spend / totalOrders : 0,
+        roas: c.spend > 0 ? c.revenue / c.spend : 0
+      };
+    })
+    .filter(c => (c.ecomOrders || 0) > 0 || (c.revenue || 0) > 0)
+    .sort((a, b) => b.spend - a.spend);
 
   // Calculate overview
   const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0);
@@ -892,9 +915,13 @@ export function getCountryTrends(store, params) {
   
   // Combine data by country
   const countryDataMap = new Map();
-  
+
+  const ecomCountrySet = new Set();
+
   // Process ecom orders
   for (const row of ecomData) {
+    if (!row.country) continue;
+    ecomCountrySet.add(row.country);
     if (!countryDataMap.has(row.country)) {
       countryDataMap.set(row.country, new Map());
     }
@@ -906,9 +933,10 @@ export function getCountryTrends(store, params) {
     dateData.orders += row.orders || 0;
     dateData.revenue += row.revenue || 0;
   }
-  
-  // Process manual orders
+
+  // Process manual orders (only for ecommerce countries)
   for (const row of manualData) {
+    if (!ecomCountrySet.has(row.country)) continue;
     if (!countryDataMap.has(row.country)) {
       countryDataMap.set(row.country, new Map());
     }
@@ -919,6 +947,10 @@ export function getCountryTrends(store, params) {
     const dateData = countryDates.get(row.date);
     dateData.orders += row.orders || 0;
     dateData.revenue += row.revenue || 0;
+  }
+
+  if (countryDataMap.size === 0) {
+    return [];
   }
   
   // Format output: array of countries with their daily trends

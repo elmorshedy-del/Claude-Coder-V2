@@ -34,6 +34,7 @@ export async function fetchSallaOrders(dateStart, dateEnd) {
               date: orderDate,
               country: order.shipping?.country?.name || 'Saudi Arabia',
               country_code: order.shipping?.country?.code || 'SA',
+              city: order.shipping?.city?.name || order.shipping?.address?.city || null,
               order_total: parseFloat(order.amounts?.total?.amount) || 0,
               subtotal: parseFloat(order.amounts?.sub_total?.amount) || 0,
               shipping: parseFloat(order.amounts?.shipping_cost?.amount) || 0,
@@ -70,9 +71,9 @@ export async function syncSallaOrders() {
     const orders = await fetchSallaOrders(startDate, endDate);
 
     const insertStmt = db.prepare(`
-      INSERT OR REPLACE INTO salla_orders 
-      (store, order_id, date, country, country_code, order_total, subtotal, shipping, tax, discount, items_count, status, payment_method, currency)
-      VALUES ('vironax', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO salla_orders
+      (store, order_id, date, country, country_code, city, order_total, subtotal, shipping, tax, discount, items_count, status, payment_method, currency)
+      VALUES ('vironax', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     let recordsInserted = 0;
@@ -82,6 +83,7 @@ export async function syncSallaOrders() {
         order.date,
         order.country,
         order.country_code,
+        order.city,
         order.order_total,
         order.subtotal,
         order.shipping,
@@ -154,6 +156,7 @@ function getDemoSallaOrders(dateStart, dateEnd) {
         date: dateStr,
         country: selectedCountry.name,
         country_code: selectedCountry.code,
+        city: null,
         order_total: orderTotal,
         subtotal: orderTotal - shipping,
         shipping: shipping,

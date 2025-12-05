@@ -64,6 +64,12 @@ export function initDb() {
   try {
     db.exec(`ALTER TABLE meta_daily_metrics ADD COLUMN platform_position TEXT DEFAULT ''`);
   } catch (e) { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE salla_orders ADD COLUMN city TEXT`);
+  } catch (e) { /* column exists */ }
+  try {
+    db.exec(`ALTER TABLE shopify_orders ADD COLUMN city TEXT`);
+  } catch (e) { /* column exists */ }
 
   // Salla orders (VironaX only)
   db.exec(`
@@ -74,6 +80,7 @@ export function initDb() {
       date TEXT NOT NULL,
       country TEXT,
       country_code TEXT,
+      city TEXT,
       order_total REAL DEFAULT 0,
       subtotal REAL DEFAULT 0,
       shipping REAL DEFAULT 0,
@@ -96,6 +103,7 @@ export function initDb() {
       date TEXT NOT NULL,
       country TEXT,
       country_code TEXT,
+      city TEXT,
       order_total REAL DEFAULT 0,
       subtotal REAL DEFAULT 0,
       shipping REAL DEFAULT 0,
