@@ -61,7 +61,11 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   
-  const [dateRange, setDateRange] = useState({ type: 'days', value: 7 });
+  const [dateRange, setDateRange] = useState(() => {
+    const end = getLocalDateString();
+    const start = getLocalDateString(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000));
+    return { start, end };
+  });
   const [customRange, setCustomRange] = useState({
     start: getLocalDateString(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)),
     end: getLocalDateString()
@@ -140,20 +144,24 @@ export default function App() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ store: currentStore });
-      const countryTrendParams = new URLSearchParams({ store: currentStore, days: 7 });
-      
-      if (dateRange.type === 'custom') {
-        params.set('startDate', dateRange.start);
-        params.set('endDate', dateRange.end);
-      } else if (dateRange.type === 'yesterday') {
-        params.set('yesterday', '1');
-      } else {
-        params.set(dateRange.type, dateRange.value);
-      }
+      const params = new URLSearchParams({
+        store: currentStore,
+        startDate: dateRange.start,
+        endDate: dateRange.end
+      });
+      const countryTrendParams = new URLSearchParams({
+        store: currentStore,
+        startDate: dateRange.start,
+        endDate: dateRange.end
+      });
 
       const shopifyRegion = selectedShopifyRegion ?? 'us';
-      const timeOfDayParams = new URLSearchParams({ store: currentStore, days: 7, region: shopifyRegion });
+      const timeOfDayParams = new URLSearchParams({
+        store: currentStore,
+        startDate: dateRange.start,
+        endDate: dateRange.end,
+        region: shopifyRegion
+      });
 
       const [
         dashData,
@@ -485,9 +493,13 @@ export default function App() {
           
           {/* Today */}
           <button
-            onClick={() => { setDateRange({ type: 'days', value: 1 }); setShowCustomPicker(false); }}
+            onClick={() => {
+              const today = getLocalDateString();
+              setDateRange({ start: today, end: today });
+              setShowCustomPicker(false);
+            }}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              dateRange.type === 'days' && dateRange.value === 1
+              dateRange.start === getLocalDateString() && dateRange.end === getLocalDateString()
                 ? 'bg-indigo-600 text-white'
                 : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
             }`}
@@ -497,9 +509,13 @@ export default function App() {
           
           {/* Yesterday */}
           <button
-            onClick={() => { setDateRange({ type: 'yesterday', value: 1 }); setShowCustomPicker(false); }}
+            onClick={() => {
+              const yesterday = getLocalDateString(new Date(Date.now() - 24 * 60 * 60 * 1000));
+              setDateRange({ start: yesterday, end: yesterday });
+              setShowCustomPicker(false);
+            }}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              dateRange.type === 'yesterday'
+              dateRange.start === getLocalDateString(new Date(Date.now() - 24 * 60 * 60 * 1000)) && dateRange.end === dateRange.start
                 ? 'bg-indigo-600 text-white'
                 : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
             }`}
@@ -510,9 +526,14 @@ export default function App() {
           {[3, 7, 14, 30].map(d => (
             <button
               key={d}
-              onClick={() => { setDateRange({ type: 'days', value: d }); setShowCustomPicker(false); }}
+              onClick={() => {
+                const end = getLocalDateString();
+                const start = getLocalDateString(new Date(Date.now() - (d - 1) * 24 * 60 * 60 * 1000));
+                setDateRange({ start, end });
+                setShowCustomPicker(false);
+              }}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                dateRange.type === 'days' && dateRange.value === d
+                dateRange.start === getLocalDateString(new Date(Date.now() - (d - 1) * 24 * 60 * 60 * 1000)) && dateRange.end === getLocalDateString()
                   ? 'bg-indigo-600 text-white'
                   : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
               }`}
