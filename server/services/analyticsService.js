@@ -34,8 +34,7 @@ export function getDashboard(store, params) {
   const db = getDb();
   const { startDate, endDate } = getDateRange(params);
 
-  // 1. CAMPAIGN DATA (Aggregated by Campaign Name)
-  // Explicitly grabbing the full funnel metrics here
+  // 1. CAMPAIGN DATA
   const campaignData = db.prepare(`
     SELECT 
       campaign_id as campaignId,
@@ -67,7 +66,7 @@ export function getDashboard(store, params) {
     frequency: c.reach > 0 ? c.impressions / c.reach : 0
   }));
 
-  // 2. TOTALS (Sum of everything)
+  // 2. TOTALS
   const metaTotals = db.prepare(`
     SELECT
       SUM(spend) as metaSpendTotal,
@@ -83,7 +82,13 @@ export function getDashboard(store, params) {
     WHERE store = ? AND date BETWEEN ? AND ?
   `).get(store, startDate, endDate) || {};
 
-  // Calculate derived totals
+  // *** FIX: Define metaCampaignCount ***
+  const metaCampaignCount = db.prepare(`
+    SELECT COUNT(DISTINCT campaign_name) as count
+    FROM meta_daily_metrics
+    WHERE store = ? AND date BETWEEN ? AND ? AND spend > 0
+  `).get(store, startDate, endDate)?.count || 0;
+
   const metaSpendTotal = metaTotals.metaSpendTotal || 0;
   const metaRevenueTotal = metaTotals.metaRevenueTotal || 0;
   const impressions_total = metaTotals.impressions_total || 0;
@@ -97,7 +102,7 @@ export function getDashboard(store, params) {
   const ctr_total = impressions_total > 0 ? clicks_total / impressions_total : null;
   const meta_cac_total = conversions_total > 0 ? metaSpendTotal / conversions_total : null;
 
-  // 3. E-COMMERCE ORDERS (Shopify/Salla)
+  // 3. E-COMMERCE DATA
   let ecomOrders;
   let ecomCityOrders;
 
@@ -141,7 +146,6 @@ export function getDashboard(store, params) {
     FROM manual_spend_overrides WHERE store = ? AND date BETWEEN ? AND ? GROUP BY country
   `).all(store, startDate, endDate);
 
-  // 4. META BY COUNTRY (For the Country Table)
   const metaByCountry = db.prepare(`
     SELECT 
       country as countryCode, 
@@ -155,7 +159,7 @@ export function getDashboard(store, params) {
     GROUP BY country
   `).all(store, startDate, endDate);
 
-  // 5. MERGE DATA INTO COUNTRY MAP
+  // 4. MERGE DATA
   const countryMap = new Map();
   for (const e of ecomOrders) {
     const info = getCountryInfo(e.countryCode);
@@ -167,7 +171,6 @@ export function getDashboard(store, params) {
     });
   }
 
-  // ... (City aggregation logic remains the same)
   const usStateAggregates = new Map();
   for (const cityRow of ecomCityOrders || []) {
     const country = countryMap.get(cityRow.countryCode);
@@ -207,7 +210,6 @@ export function getDashboard(store, params) {
     countryMap.get('US').cities = rankedStates;
   }
 
-  // Merge Meta Data
   for (const m of metaByCountry) {
     if (!countryMap.has(m.countryCode)) {
       const info = getCountryInfo(m.countryCode);
@@ -226,7 +228,6 @@ export function getDashboard(store, params) {
     country.clicks = (country.clicks || 0) + (m.clicks || 0);
   }
 
-  // Merge Manual Orders
   for (const m of manualOrders) {
     if (!countryMap.has(m.countryCode)) {
       const info = getCountryInfo(m.countryCode);
@@ -297,7 +298,7 @@ export function getDashboard(store, params) {
     trends,
     diagnostics,
     dateRange: { startDate, endDate },
-    metaCampaignCount,
+    metaCampaignCount, // No longer undefined!
     metaSpendTotal,
     metaRevenueTotal,
     metaRoasTotal,
