@@ -584,4 +584,8 @@ export function getAvailableCountries(store) {
   return rows.map(r => getCountryInfo(r.code)).filter(c => c && c.name);
 }
 
+export function getCampaignsByAge(store, params) { return []; }
+export function getCampaignsByGender(store, params) { return []; }
+export function getCampaignsByPlacement(store, params) { return []; }
+export function getCampaignsByAgeGender(store, params) { return []; }
 export function getMetaBreakdowns(store, params) { return []; }
