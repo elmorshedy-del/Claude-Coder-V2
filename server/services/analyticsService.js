@@ -3,77 +3,8 @@ import { getDb } from '../db/database.js';
 import { formatDateAsGmt3 } from '../utils/dateUtils.js';
 
 // ============================================================================
-// SALLA DETECTION (NEW)
+// DATE HELPERS
 // ============================================================================
-function isSallaActive() {
-  const sallaToken = process.env.SALLA_ACCESS_TOKEN;
-  const sallaMerchantId = process.env.SALLA_MERCHANT_ID;
-  
-  if (!sallaToken || !sallaMerchantId) {
-    return false;
-  }
-  
-  const db = getDb();
-  try {
-    const recentSync = db.prepare(`
-      SELECT COUNT(*) as count FROM salla_orders 
-      WHERE store = 'vironax' 
-      AND created_at > datetime('now', '-24 hours')
-    `).get();
-    
-    return recentSync.count > 0;
-  } catch (error) {
-    console.warn('[Analytics] Error checking Salla active status:', error);
-    return false;
-  }
-}
-
-// ============================================================================
-// GET CITIES BY COUNTRY (NEW)
-// ============================================================================
-function getCitiesByCountry(store, countryCode, params) {
-  if (store !== 'shawq') {
-    return [];
-  }
-
-  const db = getDb();
-  const { startDate, endDate } = getDateRange(params);
-
-  try {
-    const citiesData = db.prepare(`
-      SELECT 
-        city,
-        state,
-        COUNT(*) as orders,
-        SUM(subtotal) as revenue,
-        COUNT(DISTINCT DATE(created_at)) as days_active
-      FROM shopify_orders
-      WHERE store = ? AND country_code = ? AND date BETWEEN ? AND ?
-      AND city IS NOT NULL
-      GROUP BY city, state
-      ORDER BY orders DESC
-    `).all(store, countryCode, startDate, endDate);
-
-    return citiesData.map((city, index) => ({
-      ...city,
-      city: city.city || 'Unknown',
-      state: city.state || null,
-      orders: city.orders || 0,
-      revenue: city.revenue || 0,
-      days_active: city.days_active || 0,
-      rank: index + 1,
-      medal: (countryCode === 'US' && index === 0) ? '🥇' 
-           : (countryCode === 'US' && index === 1) ? '🥈'
-           : (countryCode === 'US' && index === 2) ? '🥉'
-           : null
-    }));
-  } catch (error) {
-    console.error(`[Analytics] Error getting cities for ${countryCode}:`, error);
-    return [];
-  }
-}
-
-// 1. Date Helper
 function getDateRange(params) {
   const now = new Date();
   const today = formatDateAsGmt3(now);
@@ -102,15 +33,16 @@ function getDateRange(params) {
   return { startDate, endDate, days };
 }
 
-// 2. Calculate Previous Period (For Arrows) - FIXED
+// FIXED: Compare same-length previous period
 function getPreviousDateRange(startDate, endDate) {
   const start = new Date(startDate);
   const end = new Date(endDate);
   const durationMs = end.getTime() - start.getTime();
+  const durationDays = Math.ceil(durationMs / (24 * 60 * 60 * 1000)) + 1;
   
-  // Go back exactly one period from the start date
-  const prevEnd = new Date(start.getTime() - (24 * 60 * 60 * 1000)); 
-  const prevStart = new Date(prevEnd.getTime() - durationMs);
+  // Go back exactly one period
+  const prevEnd = new Date(start.getTime() - 24 * 60 * 60 * 1000);
+  const prevStart = new Date(prevEnd.getTime() - (durationDays - 1) * 24 * 60 * 60 * 1000);
   
   return {
     startDate: formatDateAsGmt3(prevStart),
@@ -118,9 +50,78 @@ function getPreviousDateRange(startDate, endDate) {
   };
 }
 
-// 3. Get Totals for Any Range (The "Engine")
+// ============================================================================
+// SALLA DETECTION
+// ============================================================================
+function isSallaActive() {
+  const sallaToken = process.env.SALLA_ACCESS_TOKEN;
+  const sallaMerchantId = process.env.SALLA_MERCHANT_ID;
+  
+  if (!sallaToken || !sallaMerchantId) {
+    return false;
+  }
+  
+  const db = getDb();
+  try {
+    const recentSync = db.prepare(`
+      SELECT COUNT(*) as count FROM salla_orders 
+      WHERE store = 'vironax' 
+      AND created_at > datetime('now', '-24 hours')
+    `).get();
+    
+    return recentSync.count > 0;
+  } catch (error) {
+    console.warn('[Analytics] Error checking Salla active status:', error);
+    return false;
+  }
+}
+
+// ============================================================================
+// CITIES BY COUNTRY
+// ============================================================================
+function getCitiesByCountry(store, countryCode, params) {
+  if (store !== 'shawq') {
+    return [];
+  }
+
+  const db = getDb();
+  const { startDate, endDate } = getDateRange(params);
+
+  try {
+    const citiesData = db.prepare(`
+      SELECT 
+        city,
+        state,
+        COUNT(*) as orders,
+        SUM(subtotal) as revenue
+      FROM shopify_orders
+      WHERE store = ? AND country_code = ? AND date BETWEEN ? AND ?
+      AND city IS NOT NULL
+      GROUP BY city, state
+      ORDER BY orders DESC
+    `).all(store, countryCode, startDate, endDate);
+
+    return citiesData.map((city, index) => ({
+      city: city.city || 'Unknown',
+      state: city.state || null,
+      orders: city.orders || 0,
+      revenue: city.revenue || 0,
+      rank: index + 1,
+      medal: (countryCode === 'US' && index === 0) ? '🥇' 
+           : (countryCode === 'US' && index === 1) ? '🥈'
+           : (countryCode === 'US' && index === 2) ? '🥉'
+           : null
+    }));
+  } catch (error) {
+    console.error(`[Analytics] Error getting cities for ${countryCode}:`, error);
+    return [];
+  }
+}
+
+// ============================================================================
+// GET TOTALS FOR RANGE
+// ============================================================================
 function getTotalsForRange(db, store, startDate, endDate) {
-  // Meta Totals
   const metaTotals = db.prepare(`
     SELECT SUM(spend) as spend, SUM(conversion_value) as revenue, SUM(conversions) as orders
     FROM meta_daily_metrics WHERE store = ? AND date BETWEEN ? AND ?
@@ -130,17 +131,15 @@ function getTotalsForRange(db, store, startDate, endDate) {
   let totalRevenue = metaTotals.revenue || 0;
   let totalOrders = metaTotals.orders || 0;
 
-  // Shopify Data (Shawq Only)
   if (store === 'shawq') {
     const ecomData = db.prepare(`
       SELECT COUNT(*) as orders, SUM(subtotal) as revenue
       FROM shopify_orders WHERE store = ? AND date BETWEEN ? AND ?
     `).get(store, startDate, endDate) || {};
-    totalOrders = ecomData.orders || 0; // Use Real Shopify Orders
-    totalRevenue = ecomData.revenue || 0; // Use Real Shopify Revenue
+    totalOrders = ecomData.orders || 0;
+    totalRevenue = ecomData.revenue || 0;
   }
 
-  // Manual Data (Always Added)
   const manualData = db.prepare(`
     SELECT SUM(spend) as spend, SUM(orders_count) as orders, SUM(revenue) as revenue
     FROM manual_orders WHERE store = ? AND date BETWEEN ? AND ?
@@ -148,10 +147,8 @@ function getTotalsForRange(db, store, startDate, endDate) {
 
   totalSpend += manualData.spend || 0;
   totalRevenue += manualData.revenue || 0;
-  // For Virona, manual orders add to Meta orders. For Shawq, they add to Shopify orders.
   totalOrders += manualData.orders || 0;
 
-  // Overrides
   const override = db.prepare(`
     SELECT SUM(amount) as amount FROM manual_spend_overrides WHERE store = ? AND date BETWEEN ? AND ?
   `).get(store, startDate, endDate);
@@ -167,13 +164,14 @@ function getTotalsForRange(db, store, startDate, endDate) {
   };
 }
 
-// 4. Main Dashboard Function
+// ============================================================================
+// DASHBOARD
+// ============================================================================
 export function getDashboard(store, params) {
   const db = getDb();
   const { startDate, endDate } = getDateRange(params);
   const prevRange = getPreviousDateRange(startDate, endDate);
 
-  // A. Calculate Current vs Previous (For Arrows)
   const current = getTotalsForRange(db, store, startDate, endDate);
   const previous = getTotalsForRange(db, store, prevRange.startDate, prevRange.endDate);
 
@@ -187,10 +185,11 @@ export function getDashboard(store, params) {
     aovChange: calcChange(current.aov, previous.aov),
     cacChange: calcChange(current.cac, previous.cac),
     roasChange: calcChange(current.roas, previous.roas),
-    manualOrders: 0, sallaOrders: 0, shopifyOrders: 0 // Placeholders
+    manualOrders: 0,
+    sallaOrders: 0,
+    shopifyOrders: 0
   };
 
-  // B. Campaign List (Aggregated from Meta)
   const campaignData = db.prepare(`
     SELECT 
       campaign_id as campaignId, campaign_name as campaignName,
@@ -215,7 +214,6 @@ export function getDashboard(store, params) {
     frequency: c.reach > 0 ? c.impressions / c.reach : 0
   }));
 
-  // C. Meta Raw Totals (Section 2)
   const metaTotals = db.prepare(`
     SELECT
       SUM(impressions) as impressions_total, SUM(reach) as reach_total,
@@ -226,13 +224,10 @@ export function getDashboard(store, params) {
     WHERE store = ? AND date BETWEEN ? AND ?
   `).get(store, startDate, endDate) || {};
 
-  // *** CRASH FIX: Defined metaCampaignCount ***
   const metaCampaignCount = metaTotals.campaign_count || 0;
-  
   const metaImpressionsTotal = metaTotals.impressions_total || 0;
   const metaClicksTotal = metaTotals.clicks_total || 0;
 
-  // D. Dynamic Countries
   const countries = getDynamicCountries(db, store, startDate, endDate);
 
   return {
@@ -240,12 +235,12 @@ export function getDashboard(store, params) {
     campaigns,
     countries,
     trends: getTrends(store, startDate, endDate),
-    diagnostics: generateDiagnostics(campaigns, overview),
+    diagnostics: [],
     dateRange: { startDate, endDate },
     
-    metaCampaignCount, // Variable is now safe to use
-    metaSpendTotal: current.spend, 
-    metaRevenueTotal: current.revenue, 
+    metaCampaignCount,
+    metaSpendTotal: current.spend,
+    metaRevenueTotal: current.revenue,
     metaRoasTotal: current.roas,
     metaImpressionsTotal,
     metaReachTotal: metaTotals.reach_total || 0,
@@ -259,16 +254,16 @@ export function getDashboard(store, params) {
   };
 }
 
-// 5. Country Table Helper
+// ============================================================================
+// DYNAMIC COUNTRIES
+// ============================================================================
 function getDynamicCountries(db, store, startDate, endDate) {
-  // Get Meta
   const metaData = db.prepare(`
     SELECT country as countryCode, SUM(spend) as spend, SUM(conversions) as conversions, 
-           SUM(conversion_value) as conversionValue, SUM(impressions) as impressions, SUM(clicks) as clicks
+           SUM(conversion_value) as conversionValue
     FROM meta_daily_metrics WHERE store = ? AND date BETWEEN ? AND ? AND country != 'ALL' GROUP BY country
   `).all(store, startDate, endDate);
 
-  // Get Ecom (Shawq)
   let ecomData = [];
   if (store === 'shawq') {
     ecomData = db.prepare(`
@@ -279,7 +274,6 @@ function getDynamicCountries(db, store, startDate, endDate) {
 
   const map = new Map();
   
-  // Load Ecom
   ecomData.forEach(e => {
     const info = getCountryInfo(e.countryCode);
     map.set(e.countryCode, { 
@@ -289,7 +283,6 @@ function getDynamicCountries(db, store, startDate, endDate) {
     });
   });
 
-  // Load Meta
   metaData.forEach(m => {
     if(!m.spend && !m.conversions) return;
     if(!map.has(m.countryCode)) {
@@ -301,10 +294,8 @@ function getDynamicCountries(db, store, startDate, endDate) {
     }
     const c = map.get(m.countryCode);
     c.spend += m.spend || 0;
-    c.impressions += m.impressions || 0;
-    c.clicks += m.clicks || 0;
     
-    if (store === 'vironax') { // Virona uses Meta for sales
+    if (store === 'vironax') {
       c.revenue = m.conversionValue || 0;
       c.totalOrders = m.conversions || 0;
     }
@@ -313,7 +304,9 @@ function getDynamicCountries(db, store, startDate, endDate) {
   return Array.from(map.values()).sort((a, b) => b.spend - a.spend);
 }
 
-// 6. Trends Helper (Fixed for Both Stores)
+// ============================================================================
+// TRENDS
+// ============================================================================
 function getTrends(store, startDate, endDate) {
   const db = getDb();
   const allDates = [];
@@ -346,30 +339,9 @@ function getTrends(store, startDate, endDate) {
   }));
 }
 
-function generateDiagnostics(campaigns, overview) { return []; }
-
-export function getAvailableCountries(store) {
-  const db = getDb();
-  const rows = db.prepare(`
-    SELECT DISTINCT country as code FROM meta_daily_metrics WHERE store = ? AND country != 'ALL' AND (spend > 0 OR conversions > 0)
-    UNION SELECT DISTINCT country_code as code FROM shopify_orders WHERE store = ?
-    UNION SELECT DISTINCT country_code as code FROM salla_orders WHERE store = ?
-  `).all(store, store, store);
-  return rows.map(r => getCountryInfo(r.code)).filter(c => c && c.name);
-}
-
-export function getEfficiency(store, params) { return { status: 'green', campaigns: [], countries: [] }; }
-export function getEfficiencyTrends(store, params) { return []; }
-export function getRecommendations(store, params) { return []; }
-export function getCampaignsByCountry(store, params) {
-  const db = getDb();
-  const { startDate, endDate } = getDateRange(params);
-  return db.prepare(`SELECT * FROM meta_daily_metrics WHERE store = ? AND date BETWEEN ? AND ? AND country != 'ALL'`).all(store, startDate, endDate);
-}
-export function getCampaignsByAge(store, params) { return []; }
-export function getCampaignsByGender(store, params) { return []; }
-export function getCampaignsByPlacement(store, params) { return []; }
-export function getCampaignsByAgeGender(store, params) { return []; }
+// ============================================================================
+// COUNTRY TRENDS (with nested cities)
+// ============================================================================
 export function getCountryTrends(store, params) { 
   const db = getDb();
   const { startDate, endDate } = getDateRange(params);
@@ -378,7 +350,6 @@ export function getCountryTrends(store, params) {
     let rawData = [];
 
     if (store === 'shawq') {
-      // SHAWQ: Get Shopify data only
       rawData = db.prepare(`
         SELECT 
           date, 
@@ -391,14 +362,10 @@ export function getCountryTrends(store, params) {
         ORDER BY date ASC, country_code ASC
       `).all(store, startDate, endDate);
 
-      console.log(`[Analytics] Country trends for Shawq (Shopify): ${rawData.length} rows`);
-
     } else if (store === 'vironax') {
-      // VIRONAX: Get Meta data, but check if Salla is active to mute Meta
       const sallaActive = isSallaActive();
       
       if (sallaActive) {
-        // Salla is active: use Salla orders instead of Meta
         rawData = db.prepare(`
           SELECT 
             date, 
@@ -410,10 +377,7 @@ export function getCountryTrends(store, params) {
           GROUP BY date, country_code
           ORDER BY date ASC, country_code ASC
         `).all(store, startDate, endDate);
-
-        console.log(`[Analytics] Country trends for Vironax (Salla active): ${rawData.length} rows`);
       } else {
-        // Salla not active: use Meta data
         rawData = db.prepare(`
           SELECT 
             date, 
@@ -425,15 +389,11 @@ export function getCountryTrends(store, params) {
           GROUP BY date, country
           ORDER BY date ASC, country ASC
         `).all(store, startDate, endDate);
-
-        console.log(`[Analytics] Country trends for Vironax (Meta): ${rawData.length} rows`);
       }
     } else {
-      console.log(`[Analytics] Store ${store} not supported for country trends`);
       return [];
     }
 
-    // Group by country and build structure
     const countriesMap = new Map();
 
     for (const row of rawData) {
@@ -445,7 +405,7 @@ export function getCountryTrends(store, params) {
           flag: countryInfo?.flag || '🏳️',
           totalOrders: 0,
           totalRevenue: 0,
-          trends: []  // Daily breakdown for chart
+          trends: []
         });
       }
 
@@ -459,27 +419,27 @@ export function getCountryTrends(store, params) {
       countryData.totalRevenue += row.revenue || 0;
     }
 
-    // Add cities data for each country (only for Shawq)
     if (store === 'shawq') {
       for (const countryData of countriesMap.values()) {
         countryData.cities = getCitiesByCountry(store, countryData.countryCode, params);
       }
     }
 
-    // Sort by total orders descending
     const result = Array.from(countriesMap.values()).sort((a, b) => b.totalOrders - a.totalOrders);
-
-    console.log(`[Analytics] Processed ${countriesMap.size} countries for trends`);
 
     return result;
   } catch (error) {
-    console.error(`[Analytics] Error getting country trends for ${store}:`, error);
+    console.error(`[Analytics] Error getting country trends:`, error);
     return [];
   }
 }
+
+// ============================================================================
+// TIME OF DAY (with timezone logic)
+// ============================================================================
 export function getShopifyTimeOfDay(store, params) { 
   if (store !== 'shawq') {
-    return { data: [], timezone: 'UTC', sampleTimestamps: [] };
+    return { data: [], timezone: 'UTC', region: 'all', sampleTimestamps: [] };
   }
 
   const db = getDb();
@@ -487,7 +447,6 @@ export function getShopifyTimeOfDay(store, params) {
   const region = params.region || 'all';
 
   try {
-    // Get timezone mapping based on region
     const timezoneMap = {
       'us': 'America/Chicago',
       'europe': 'Europe/London',
@@ -495,7 +454,6 @@ export function getShopifyTimeOfDay(store, params) {
     };
     const timezone = timezoneMap[region] || 'UTC';
 
-    // Query Shopify orders
     let query = `
       SELECT 
         CAST(strftime('%H', datetime(created_at)) AS INTEGER) as hour,
@@ -507,7 +465,6 @@ export function getShopifyTimeOfDay(store, params) {
 
     const params_list = [store, startDate, endDate];
 
-    // Filter by country for regions
     if (region === 'us') {
       query += ` AND country_code IN ('US', 'CA')`;
     } else if (region === 'europe') {
@@ -518,7 +475,6 @@ export function getShopifyTimeOfDay(store, params) {
 
     const data = db.prepare(query).all(...params_list);
 
-    // Map hours to 0-23 format with labels
     const hourLabels = {
       0: '12 AM', 1: '1 AM', 2: '2 AM', 3: '3 AM', 4: '4 AM', 5: '5 AM',
       6: '6 AM', 7: '7 AM', 8: '8 AM', 9: '9 AM', 10: '10 AM', 11: '11 AM',
@@ -542,269 +498,90 @@ export function getShopifyTimeOfDay(store, params) {
     };
   } catch (error) {
     console.error('[Analytics] Error getting time of day:', error);
-    return { data: [], timezone: 'UTC', sampleTimestamps: [] };
+    return { data: [], timezone: 'UTC', region: 'all', sampleTimestamps: [] };
   }
 }
 
 // ============================================================================
-// BUDGET EFFICIENCY FUNCTIONS (NEW)
+// BUDGET EFFICIENCY
 // ============================================================================
-
-function getOverviewKPIs(startDate, endDate) {
+export function getEfficiency(store, params) {
+  const { startDate, endDate } = getDateRange(params);
   const db = getDb();
+  const prevRange = getPreviousDateRange(startDate, endDate);
 
-  const metaSpend = db.prepare(`
-    SELECT COALESCE(SUM(spend), 0) as total
-    FROM meta_daily_metrics
-    WHERE date BETWEEN ? AND ? AND country = 'ALL'
-  `).get(startDate, endDate);
+  const current = getTotalsForRange(db, store, startDate, endDate);
+  const previous = getTotalsForRange(db, store, prevRange.startDate, prevRange.endDate);
 
-  const sallaData = db.prepare(`
-    SELECT 
-      COUNT(*) as orders,
-      COALESCE(SUM(order_total), 0) as revenue
-    FROM salla_orders
-    WHERE date BETWEEN ? AND ?
-  `).get(startDate, endDate);
+  const spendChange = previous.spend > 0 ? ((current.spend - previous.spend) / previous.spend) * 100 : 0;
+  const roasChange = previous.roas > 0 ? ((current.roas - previous.roas) / previous.roas) * 100 : 0;
+  const efficiencyRatio = spendChange !== 0 && roasChange !== 0 
+    ? (1 + roasChange/100) / (1 + spendChange/100) 
+    : 1;
 
-  const manualData = db.prepare(`
-    SELECT 
-      COALESCE(SUM(orders_count), 0) as orders,
-      COALESCE(SUM(revenue), 0) as revenue
-    FROM manual_orders
-    WHERE date BETWEEN ? AND ?
-  `).get(startDate, endDate);
+  const incrementalSpend = current.spend - previous.spend;
+  const incrementalOrders = current.orders - previous.orders;
+  const marginalCac = incrementalOrders > 0 ? incrementalSpend / incrementalOrders : current.cac;
 
-  const totalOrders = (sallaData?.orders || 0) + (manualData?.orders || 0);
-  const totalRevenue = (sallaData?.revenue || 0) + (manualData?.revenue || 0);
-  const spend = metaSpend?.total || 0;
+  let status = 'green';
+  if (efficiencyRatio < 0.85 || marginalCac > current.cac * 1.3) {
+    status = 'yellow';
+  }
+  if (efficiencyRatio < 0.7 || marginalCac > current.cac * 1.5) {
+    status = 'red';
+  }
 
   return {
-    spend,
-    orders: totalOrders,
-    sallaOrders: sallaData?.orders || 0,
-    manualOrders: manualData?.orders || 0,
-    revenue: totalRevenue,
-    aov: totalOrders > 0 ? totalRevenue / totalOrders : 0,
-    cac: totalOrders > 0 ? spend / totalOrders : 0,
-    roas: spend > 0 ? totalRevenue / spend : 0
+    status,
+    current,
+    previous,
+    spendChange,
+    roasChange,
+    efficiencyRatio,
+    averageCac: current.cac,
+    marginalCac,
+    marginalPremium: current.cac > 0 ? ((marginalCac - current.cac) / current.cac) * 100 : 0
   };
 }
 
-function getKPITrends(startDate, endDate) {
-  const db = getDb();
-
-  const spendByDay = db.prepare(`
-    SELECT date, SUM(spend) as spend
-    FROM meta_daily_metrics
-    WHERE date BETWEEN ? AND ? AND country = 'ALL'
-    GROUP BY date
-    ORDER BY date
-  `).all(startDate, endDate);
-
-  const sallaByDay = db.prepare(`
-    SELECT date, COUNT(*) as orders, SUM(order_total) as revenue
-    FROM salla_orders
-    WHERE date BETWEEN ? AND ?
-    GROUP BY date
-    ORDER BY date
-  `).all(startDate, endDate);
-
-  const manualByDay = db.prepare(`
-    SELECT date, SUM(orders_count) as orders, SUM(revenue) as revenue
-    FROM manual_orders
-    WHERE date BETWEEN ? AND ?
-    GROUP BY date
-    ORDER BY date
-  `).all(startDate, endDate);
-
-  const dateMap = {};
-
-  for (const row of spendByDay) {
-    if (!dateMap[row.date]) dateMap[row.date] = { date: row.date, spend: 0, orders: 0, revenue: 0 };
-    dateMap[row.date].spend = row.spend;
-  }
-
-  for (const row of sallaByDay) {
-    if (!dateMap[row.date]) dateMap[row.date] = { date: row.date, spend: 0, orders: 0, revenue: 0 };
-    dateMap[row.date].orders += row.orders;
-    dateMap[row.date].revenue += row.revenue;
-  }
-
-  for (const row of manualByDay) {
-    if (!dateMap[row.date]) dateMap[row.date] = { date: row.date, spend: 0, orders: 0, revenue: 0 };
-    dateMap[row.date].orders += row.orders || 0;
-    dateMap[row.date].revenue += row.revenue || 0;
-  }
-
-  const trends = Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
-
-  return trends.map(day => ({
-    ...day,
-    aov: day.orders > 0 ? day.revenue / day.orders : 0,
-    cac: day.orders > 0 ? day.spend / day.orders : 0,
-    roas: day.spend > 0 ? day.revenue / day.spend : 0
-  }));
-}
-
-function getCampaignMetrics(startDate, endDate) {
-  const db = getDb();
-
-  const campaigns = db.prepare(`
-    SELECT 
-      campaign_id,
-      campaign_name,
-      SUM(spend) as spend,
-      SUM(impressions) as impressions,
-      SUM(reach) as reach,
-      SUM(clicks) as clicks,
-      SUM(landing_page_views) as lpv,
-      SUM(add_to_cart) as atc,
-      SUM(checkouts_initiated) as checkout,
-      SUM(conversions) as conversions,
-      SUM(conversion_value) as conversion_value,
-      AVG(frequency) as frequency
-    FROM meta_daily_metrics
-    WHERE date BETWEEN ? AND ? AND country = 'ALL'
-    GROUP BY campaign_id, campaign_name
-    ORDER BY spend DESC
-  `).all(startDate, endDate);
-
-  return campaigns.map(c => {
-    const cpm = c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0;
-    const cpc = c.clicks > 0 ? c.spend / c.clicks : 0;
-    const ctr = c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0;
-    const cr = c.clicks > 0 ? (c.conversions / c.clicks) * 100 : 0;
-    const metaRoas = c.spend > 0 ? c.conversion_value / c.spend : 0;
-    const metaAov = c.conversions > 0 ? c.conversion_value / c.conversions : 0;
-    const metaCac = c.conversions > 0 ? c.spend / c.conversions : 0;
-
+export function getEfficiencyTrends(store, params) {
+  const { startDate, endDate } = getDateRange(params);
+  const trends = getTrends(store, startDate, endDate);
+  const windowSize = 3;
+  
+  return trends.map((day, i) => {
+    const start = Math.max(0, i - windowSize + 1);
+    const window = trends.slice(start, i + 1);
+    
+    const rollingSpend = window.reduce((s, d) => s + d.spend, 0);
+    const rollingOrders = window.reduce((s, d) => s + d.orders, 0);
+    const rollingRevenue = window.reduce((s, d) => s + d.revenue, 0);
+    
     return {
-      campaignId: c.campaign_id,
-      campaignName: c.campaign_name,
-      spend: c.spend,
-      impressions: c.impressions,
-      reach: c.reach,
-      clicks: c.clicks,
-      lpv: c.lpv,
-      atc: c.atc,
-      checkout: c.checkout,
-      conversions: c.conversions,
-      conversionValue: c.conversion_value,
-      cpm,
-      cpc,
-      ctr,
-      cr,
-      frequency: c.frequency,
-      metaRoas,
-      metaAov,
-      metaCac
+      date: day.date,
+      spend: day.spend,
+      orders: day.orders,
+      revenue: day.revenue,
+      cac: day.cac,
+      roas: day.roas,
+      rollingCac: rollingOrders > 0 ? rollingSpend / rollingOrders : 0,
+      rollingRoas: rollingSpend > 0 ? rollingRevenue / rollingSpend : 0
     };
   });
 }
 
-function getCountryMetrics(startDate, endDate) {
-  const db = getDb();
-
-  const metaByCountry = db.prepare(`
-    SELECT 
-      country,
-      SUM(spend) as spend
-    FROM meta_daily_metrics
-    WHERE date BETWEEN ? AND ? AND country != 'ALL'
-    GROUP BY country
-  `).all(startDate, endDate);
-
-  const sallaByCountry = db.prepare(`
-    SELECT 
-      country,
-      COUNT(*) as orders,
-      SUM(order_total) as revenue
-    FROM salla_orders
-    WHERE date BETWEEN ? AND ?
-    GROUP BY country
-  `).all(startDate, endDate);
-
-  const manualByCountry = db.prepare(`
-    SELECT 
-      country,
-      SUM(orders_count) as orders,
-      SUM(revenue) as revenue
-    FROM manual_orders
-    WHERE date BETWEEN ? AND ?
-    GROUP BY country
-  `).all(startDate, endDate);
-
-  const countryMap = {};
-
-  for (const row of metaByCountry) {
-    const code = row.country;
-    if (!countryMap[code]) {
-      countryMap[code] = {
-        code,
-        name: getCountryInfo(code)?.name || code,
-        flag: getCountryInfo(code)?.flag || '🏳️',
-        spend: 0,
-        sallaOrders: 0,
-        manualOrders: 0,
-        sallaRevenue: 0,
-        manualRevenue: 0
-      };
-    }
-    countryMap[code].spend = row.spend;
-  }
-
-  for (const row of sallaByCountry) {
-    const code = row.country;
-    if (!countryMap[code]) {
-      countryMap[code] = {
-        code,
-        name: getCountryInfo(code)?.name || code,
-        flag: getCountryInfo(code)?.flag || '🏳️',
-        spend: 0,
-        sallaOrders: 0,
-        manualOrders: 0,
-        sallaRevenue: 0,
-        manualRevenue: 0
-      };
-    }
-    countryMap[code].sallaOrders = row.orders;
-    countryMap[code].sallaRevenue = row.revenue;
-  }
-
-  for (const row of manualByCountry) {
-    const code = row.country;
-    if (!countryMap[code]) {
-      countryMap[code] = {
-        code,
-        name: getCountryInfo(code)?.name || code,
-        flag: getCountryInfo(code)?.flag || '🏳️',
-        spend: 0,
-        sallaOrders: 0,
-        manualOrders: 0,
-        sallaRevenue: 0,
-        manualRevenue: 0
-      };
-    }
-    countryMap[code].manualOrders = row.orders || 0;
-    countryMap[code].manualRevenue = row.revenue || 0;
-  }
-
-  return Object.values(countryMap).map(c => {
-    const totalOrders = c.sallaOrders + c.manualOrders;
-    const totalRevenue = c.sallaRevenue + c.manualRevenue;
-    return {
-      ...c,
-      totalOrders,
-      totalRevenue,
-      aov: totalOrders > 0 ? totalRevenue / totalOrders : 0,
-      cac: totalOrders > 0 ? c.spend / totalOrders : 0,
-      roas: c.spend > 0 ? totalRevenue / c.spend : 0
-    };
-  }).sort((a, b) => b.spend - a.spend);
+export function getRecommendations(store, params) {
+  return [];
 }
 
+export function getAvailableCountries(store) {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT DISTINCT country as code FROM meta_daily_metrics WHERE store = ? AND country != 'ALL' AND (spend > 0 OR conversions > 0)
+    UNION SELECT DISTINCT country_code as code FROM shopify_orders WHERE store = ?
+    UNION SELECT DISTINCT country_code as code FROM salla_orders WHERE store = ?
+  `).all(store, store, store);
+  return rows.map(r => getCountryInfo(r.code)).filter(c => c && c.name);
+}
 
-
-
-
+export function getMetaBreakdowns(store, params) { return []; }
