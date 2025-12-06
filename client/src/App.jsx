@@ -982,15 +982,15 @@ function DashboardTab({
       ? '—'
       : formatNumber(value);
 
-  const renderPercent = (value) =>
-    value === null || value === undefined || Number.isNaN(value)
-      ? '—'
-      : `${value.toFixed(2)}%`;
+  const renderPercent = (value, decimals = 2) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? `${num.toFixed(decimals)}%` : '—';
+  };
 
-  const renderRoas = (value) =>
-    value === null || value === undefined || Number.isNaN(value)
-      ? '—'
-      : `${value.toFixed(2)}×`;
+  const renderRoas = (value, decimals = 2) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? `${num.toFixed(decimals)}×` : '—';
+  };
 
   // SECTION 1 rows based on metaView
   const section1Rows =
@@ -1310,7 +1310,7 @@ function DashboardTab({
                     </td>
                     <td className="text-green-600 font-semibold">{revenueCell}</td>
                     <td className="text-green-600 font-semibold">
-                      {roas.toFixed(2)}×
+                      {renderRoas(roas)}
                     </td>
                     <td>{formatCurrency(aov || 0)}</td>
                     <td className={cac > 100 ? 'text-amber-600 font-medium' : ''}>
@@ -1320,10 +1320,10 @@ function DashboardTab({
                     <td>{formatNumber(row.impressions || 0)}</td>
                     <td>{formatNumber(row.reach || 0)}</td>
                     <td>{formatCurrency(row.cpm || 0, 2)}</td>
-                    <td>{(row.frequency || 0).toFixed(2)}</td>
+                    <td>{renderPercent(row.frequency, 2).replace('%', '')}</td>
 
                     <td>{formatNumber(row.clicks || 0)}</td>
-                    <td>{(row.ctr || 0).toFixed(2)}%</td>
+                    <td>{renderPercent(row.ctr)}</td>
                     <td>{formatCurrency(row.cpc || 0, 2)}</td>
                     <td>{formatNumber(row.lpv || 0)}</td>
 
@@ -1331,7 +1331,7 @@ function DashboardTab({
                     <td>{formatNumber(row.checkout || 0)}</td>
                     <td>{orders}</td>
                     <td>{metaConv}</td>
-                    <td>{cr.toFixed(2)}%</td>
+                    <td>{renderPercent(cr)}</td>
                   </tr>
                 );
               })}
@@ -1348,7 +1348,7 @@ function DashboardTab({
                   {formatCurrency(section1Totals.totalMetaRevenue)}
                 </td>
                 <td className="text-green-600">
-                  {section1Totals.roas.toFixed(2)}×
+                  {renderRoas(section1Totals.roas)}
                 </td>
                 <td>{formatCurrency(section1Totals.aov || 0)}</td>
                 <td>{formatCurrency(section1Totals.cac || 0)}</td>
@@ -1356,10 +1356,10 @@ function DashboardTab({
                 <td>{formatNumber(section1Totals.totalImpr)}</td>
                 <td>{formatNumber(section1Totals.totalReach)}</td>
                 <td>{formatCurrency(section1Totals.cpm || 0, 2)}</td>
-                <td>{section1Totals.freq.toFixed(2)}</td>
+                <td>{renderPercent(section1Totals.freq, 2).replace('%', '')}</td>
 
                 <td>{formatNumber(section1Totals.totalClicks)}</td>
-                <td>{section1Totals.ctr.toFixed(2)}%</td>
+                <td>{renderPercent(section1Totals.ctr)}</td>
                 <td>{formatCurrency(section1Totals.cpc || 0, 2)}</td>
                 <td>{formatNumber(section1Totals.totalLpv)}</td>
 
@@ -1367,7 +1367,7 @@ function DashboardTab({
                 <td>{formatNumber(section1Totals.totalCheckout)}</td>
                 <td>{section1Totals.totalOrders}</td>
                 <td>{section1Totals.totalMetaConversions}</td>
-                <td>{section1Totals.cr.toFixed(2)}%</td>
+                <td>{renderPercent(section1Totals.cr)}</td>
               </tr>
             </tbody>
           </table>
@@ -1737,13 +1737,13 @@ function DashboardTab({
                       </td>
                       <td className="text-indigo-600 font-semibold">{formatCurrency(c.spend)}</td>
                       <td className="text-green-600 font-semibold">{formatCurrency(c.revenue || 0)}</td>
-                      <td>{share.toFixed(0)}%</td>
+                      <td>{renderPercent(share, 0)}</td>
                       <td>
                         <span className="badge badge-green">{c.totalOrders}</span>
                       </td>
                       <td>{formatCurrency(c.aov)}</td>
                       <td className={c.cac > 80 ? 'text-amber-600 font-medium' : ''}>{formatCurrency(c.cac, 2)}</td>
-                      <td className="text-green-600 font-semibold">{c.roas.toFixed(2)}×</td>
+                      <td className="text-green-600 font-semibold">{renderRoas(c.roas)}</td>
                     </tr>
                     {isExpanded && hasCities && (
                       <tr key={`${c.code}-cities`}>
