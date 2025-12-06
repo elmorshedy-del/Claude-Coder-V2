@@ -1,10 +1,12 @@
 import fetch from 'node-fetch';
 import { getDb } from '../db/database.js';
+import { createOrderNotifications } from './notificationService.js';
 import { formatDateAsGmt3 } from '../utils/dateUtils.js';
 
 export async function fetchShopifyOrders(dateStart, dateEnd) {
   const shopifyStore = process.env.SHAWQ_SHOPIFY_STORE;
   const accessToken = process.env.SHAWQ_SHOPIFY_ACCESS_TOKEN;
+  
 
   if (!shopifyStore || !accessToken) {
     console.log('Shopify credentials not configured for Shawq - using demo data');
@@ -125,7 +127,12 @@ export async function syncShopifyOrders() {
       INSERT INTO sync_log (store, source, status, records_synced)
       VALUES ('shawq', 'shopify', 'success', ?)
     `).run(recordsInserted);
+').run(recordsInserted);
 
+const notificationCount = createOrderNotifications('shawq', 'shopify', orders);
+console.log(`[Shopify] Created ${notificationCount} notifications`);
+
+return { success: true, records: recordsInserted };
     return { success: true, records: recordsInserted };
   } catch (error) {
     db.prepare(`
