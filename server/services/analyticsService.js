@@ -34,7 +34,7 @@ export function getDashboard(store, params) {
   const db = getDb();
   const { startDate, endDate } = getDateRange(params);
 
-  // 1. META CAMPAIGN DATA (Always needed for Spend/Funnel)
+  // 1. CAMPAIGN DATA (Always from Meta)
   const campaignData = db.prepare(`
     SELECT 
       campaign_id as campaignId,
@@ -83,13 +83,17 @@ export function getDashboard(store, params) {
     WHERE store = ? AND date BETWEEN ? AND ?
   `).get(store, startDate, endDate) || {};
 
-  // 3. E-COMMERCE DATA (Only fetched for Shawq)
+  const metaCampaignCount = metaTotals.campaign_count || 0;
+  const metaSpendTotal = metaTotals.metaSpendTotal || 0;
+  const metaRevenueTotal = metaTotals.metaRevenueTotal || 0;
+  const conversions_total = metaTotals.conversions_total || 0;
+
+  // 3. E-COMMERCE DATA
   let ecomOrders = [];
   let ecomCityOrders = [];
 
-  // --- LOGIC SWITCH ---
-  // Shawq = Shopify Data
-  // Virona = Pure Meta (until Salla is ready)
+  // --- HYBRID LOGIC ---
+  // Shawq: Uses Shopify
   if (store === 'shawq') {
     ecomOrders = db.prepare(`
       SELECT country_code as countryCode, COUNT(*) as orders, SUM(subtotal) as revenue
@@ -105,7 +109,7 @@ export function getDashboard(store, params) {
       GROUP BY country_code, city, state
     `).all(store, startDate, endDate);
   }
-  // Virona stays empty for ecomOrders (uses Meta below)
+  // Virona: Uses Meta (Skip Salla fetch)
 
   const manualOrders = db.prepare(`
     SELECT country as countryCode, SUM(spend) as spend, SUM(orders_count) as orders, SUM(revenue) as revenue
@@ -131,10 +135,10 @@ export function getDashboard(store, params) {
     GROUP BY country
   `).all(store, startDate, endDate);
 
-  // 5. MERGE DATA INTO COUNTRY MAP
+  // 5. BUILD COUNTRY MAP
   const countryMap = new Map();
   
-  // A. Load Ecom Data (Shawq only)
+  // A. Load Ecom (Shawq)
   for (const e of ecomOrders) {
     const info = getCountryInfo(e.countryCode);
     countryMap.set(e.countryCode, {
@@ -145,9 +149,10 @@ export function getDashboard(store, params) {
     });
   }
 
-  // B. Load Meta Data
+  // B. Load Meta
   for (const m of metaByCountry) {
-    if (!m.spend && !m.conversions) continue; // Skip empty rows
+    // Skip if truly empty
+    if (!m.spend && !m.conversions) continue;
 
     if (!countryMap.has(m.countryCode)) {
       const info = getCountryInfo(m.countryCode);
@@ -164,19 +169,16 @@ export function getDashboard(store, params) {
     country.metaRevenue = (country.metaRevenue || 0) + (m.conversionValue || 0);
     country.impressions = (country.impressions || 0) + (m.impressions || 0);
     country.clicks = (country.clicks || 0) + (m.clicks || 0);
-
-    // --- HYBRID LOGIC FOR COUNTRY ROWS ---
+    
+    // --- HYBRID OVERWRITE ---
+    // Virona: Use Meta Pixel for Revenue/Orders
     if (store === 'vironax') {
-        // Virona: Revenue comes from Meta Pixel
         country.revenue = country.metaRevenue;
-        country.totalOrders = country.metaOrders; // Will be added to manual later
-    } else {
-        // Shawq: Revenue comes from Shopify (already in ecomOrders)
-        // We don't overwrite country.revenue here, it was set in Step A
+        country.totalOrders = country.metaOrders;
     }
   }
 
-  // C. Load Manual Orders
+  // C. Load Manual
   for (const m of manualOrders) {
     if (!countryMap.has(m.countryCode)) {
       const info = getCountryInfo(m.countryCode);
@@ -190,9 +192,9 @@ export function getDashboard(store, params) {
     const country = countryMap.get(m.countryCode);
     country.manualOrders = (country.manualOrders || 0) + (m.orders || 0);
     country.spend = (country.spend || 0) + (m.spend || 0);
-    
-    // Manual always ADDS to whatever source we used
-    country.revenue += m.revenue || 0;
+    country.revenue += m.revenue || 0; // Manual adds to revenue
+    // For Shawq, ecomOrders are already there. For Virona, metaOrders are already there.
+    // We just need to ensure totalOrders reflects manual additions.
   }
 
   // D. Apply Spend Overrides
@@ -206,28 +208,28 @@ export function getDashboard(store, params) {
 
   const countries = Array.from(countryMap.values())
     .map(c => {
-      // For Shawq: Orders = Shopify + Manual
-      // For Virona: Orders = Meta + Manual
-      const totalOrders = store === 'vironax' 
+      // Final Order Count Calculation
+      const finalOrders = store === 'vironax' 
         ? (c.metaOrders + c.manualOrders) 
         : (c.ecomOrders + c.manualOrders);
+      
+      c.totalOrders = finalOrders;
 
       return {
         ...c,
-        totalOrders,
-        aov: totalOrders > 0 ? c.revenue / totalOrders : 0,
-        cac: totalOrders > 0 ? c.spend / totalOrders : 0,
+        totalOrders: finalOrders,
+        aov: finalOrders > 0 ? c.revenue / finalOrders : 0,
+        cac: finalOrders > 0 ? c.spend / finalOrders : 0,
         roas: c.spend > 0 ? c.revenue / c.spend : 0
       };
     })
-    .filter(c => (c.ecomOrders > 0 || c.revenue > 0 || c.spend > 0 || c.metaOrders > 0))
+    .filter(c => (c.totalOrders > 0 || c.revenue > 0 || c.spend > 0)) // Hides empty countries
     .sort((a, b) => b.spend - a.spend);
 
-  // 6. CALCULATE FINAL OVERVIEW TOTALS
+  // 6. OVERVIEW TOTALS
   const overallOverride = overrideMap.get('ALL');
   const totalSpend = overallOverride != null ? overallOverride : countries.reduce((s, c) => s + (c.spend || 0), 0);
   
-  // Summing from the country list ensures logic consistency
   const totalRevenue = countries.reduce((s, c) => s + c.revenue, 0);
   const totalOrders = countries.reduce((s, c) => s + c.totalOrders, 0);
   const totalManualOrders = manualOrders.reduce((s, m) => s + m.orders, 0);
@@ -237,7 +239,7 @@ export function getDashboard(store, params) {
     revenue: totalRevenue,
     spend: totalSpend,
     orders: totalOrders,
-    sallaOrders: 0, // Not used for Virona yet
+    sallaOrders: 0,
     shopifyOrders: store === 'shawq' ? totalEcomOrders : 0,
     manualOrders: totalManualOrders,
     aov: totalOrders > 0 ? totalRevenue / totalOrders : 0,
@@ -248,6 +250,10 @@ export function getDashboard(store, params) {
   const trends = getTrends(store, startDate, endDate);
   const diagnostics = generateDiagnostics(campaigns, overview);
 
+  // Meta Totals (Raw)
+  const metaImpressionsTotal = metaTotals.impressions_total || 0;
+  const metaClicksTotal = metaTotals.clicks_total || 0;
+
   return {
     overview,
     campaigns,
@@ -255,23 +261,102 @@ export function getDashboard(store, params) {
     trends,
     diagnostics,
     dateRange: { startDate, endDate },
-    metaCampaignCount: metaTotals.campaign_count || 0,
-    metaSpendTotal: metaTotals.metaSpendTotal || 0,
+    metaCampaignCount,
+    metaSpendTotal,
     metaRevenueTotal: metaTotals.metaRevenueTotal || 0,
-    metaRoasTotal: metaTotals.metaSpendTotal > 0 ? metaTotals.metaRevenueTotal / metaTotals.metaSpendTotal : 0,
-    metaImpressionsTotal: metaTotals.impressions_total || 0,
+    metaRoasTotal: metaSpendTotal > 0 ? (metaTotals.metaRevenueTotal || 0) / metaSpendTotal : 0,
+    metaImpressionsTotal,
     metaReachTotal: metaTotals.reach_total || 0,
-    metaClicksTotal: metaTotals.clicks_total || 0,
-    metaCtrTotal: (metaTotals.impressions_total > 0 ? metaTotals.clicks_total / metaTotals.impressions_total : 0),
+    metaClicksTotal,
+    metaCtrTotal: (metaImpressionsTotal > 0 ? metaClicksTotal / metaImpressionsTotal : 0),
     metaLpvTotal: metaTotals.lpv_total || 0,
     metaAtcTotal: metaTotals.atc_total || 0,
     metaCheckoutTotal: metaTotals.checkout_total || 0,
-    metaConversionsTotal: metaTotals.conversions_total || 0,
-    metaCacTotal: metaTotals.conversions_total > 0 ? metaTotals.metaSpendTotal / metaTotals.conversions_total : 0
+    metaConversionsTotal: conversions_total,
+    metaCacTotal: (metaTotals.conversions_total > 0 ? metaSpendTotal / metaTotals.conversions_total : 0)
   };
 }
 
-// 7. TRENDS (Hybrid Logic)
+// 7. COUNTRY TRENDS (Fix for "Missing Trends")
+export function getCountryTrends(store, params) {
+  const db = getDb();
+  const { startDate, endDate } = getDateRange(params);
+  const allDates = [];
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    allDates.push(formatDateAsGmt3(d));
+  }
+
+  let data = [];
+
+  // === HYBRID LOGIC ===
+  // This ensures Shawq gets Shopify Trends, Virona gets Meta Trends
+  if (store === 'shawq') {
+    data = db.prepare(`
+      SELECT date, country_code as country, COUNT(*) as orders, SUM(subtotal) as revenue
+      FROM shopify_orders 
+      WHERE store = ? AND date BETWEEN ? AND ?
+      GROUP BY date, country_code
+    `).all(store, startDate, endDate);
+  } else {
+    data = db.prepare(`
+      SELECT date, country, SUM(conversions) as orders, SUM(conversion_value) as revenue
+      FROM meta_daily_metrics
+      WHERE store = ? AND date BETWEEN ? AND ? AND country != 'ALL'
+      GROUP BY date, country
+    `).all(store, startDate, endDate);
+  }
+
+  const manualData = db.prepare(`
+    SELECT date, country, SUM(orders_count) as orders, SUM(revenue) as revenue
+    FROM manual_orders
+    WHERE store = ? AND date BETWEEN ? AND ?
+    GROUP BY date, country
+  `).all(store, startDate, endDate);
+
+  const countryMap = new Map();
+  
+  const processRow = (row) => {
+    if (!row.country) return;
+    if (!countryMap.has(row.country)) {
+      countryMap.set(row.country, new Map());
+    }
+    const dates = countryMap.get(row.country);
+    const existing = dates.get(row.date) || { orders: 0, revenue: 0 };
+    dates.set(row.date, {
+      orders: existing.orders + (row.orders || 0),
+      revenue: existing.revenue + (row.revenue || 0)
+    });
+  };
+
+  data.forEach(processRow);
+  manualData.forEach(processRow);
+
+  const result = [];
+  for (const [country, datesMap] of countryMap) {
+    const countryInfo = getCountryInfo(country);
+    const trends = allDates.map(date => {
+      const d = datesMap.get(date) || { orders: 0, revenue: 0 };
+      return { date, ...d };
+    });
+    
+    const totalOrders = trends.reduce((s, t) => s + t.orders, 0);
+    if (totalOrders > 0) {
+        result.push({
+            country: countryInfo.name,
+            countryCode: country,
+            flag: countryInfo.flag,
+            totalOrders,
+            trends
+        });
+    }
+  }
+
+  return result.sort((a, b) => b.totalOrders - a.totalOrders);
+}
+
+// 8. GLOBAL TRENDS
 function getTrends(store, startDate, endDate) {
   const db = getDb();
   const allDates = [];
@@ -286,12 +371,14 @@ function getTrends(store, startDate, endDate) {
     FROM meta_daily_metrics WHERE store = ? AND date BETWEEN ? AND ? GROUP BY date
   `).all(store, startDate, endDate);
 
-  let ecomDaily = [];
+  let salesDaily = [];
   if (store === 'shawq') {
-    ecomDaily = db.prepare(`
+    salesDaily = db.prepare(`
       SELECT date, COUNT(*) as orders, SUM(subtotal) as revenue
       FROM shopify_orders WHERE store = ? AND date BETWEEN ? AND ? GROUP BY date
     `).all(store, startDate, endDate);
+  } else {
+    salesDaily = metaDaily.map(m => ({ date: m.date, orders: m.metaConversions, revenue: m.metaRevenue }));
   }
 
   const manualDaily = db.prepare(`
@@ -304,34 +391,24 @@ function getTrends(store, startDate, endDate) {
     dateMap.set(date, { date, spend: 0, orders: 0, revenue: 0 });
   }
   
-  // Fill Meta Spend (Always)
   for (const m of metaDaily) {
-    if (dateMap.has(m.date)) {
-      dateMap.get(m.date).spend = m.spend || 0;
-      // If Virona, use Meta for Revenue/Orders too
-      if (store === 'vironax') {
-        dateMap.get(m.date).orders = m.metaConversions || 0;
-        dateMap.get(m.date).revenue = m.metaRevenue || 0;
-      }
+    if (dateMap.has(m.date)) dateMap.get(m.date).spend = m.spend || 0;
+  }
+
+  for (const s of salesDaily) {
+    if (dateMap.has(s.date)) {
+      const d = dateMap.get(s.date);
+      d.orders += s.orders || 0;
+      d.revenue += s.revenue || 0;
     }
   }
 
-  // Fill Ecom Revenue (Shawq Only)
-  if (store === 'shawq') {
-    for (const e of ecomDaily) {
-      if (dateMap.has(e.date)) {
-        dateMap.get(e.date).orders += e.orders || 0;
-        dateMap.get(e.date).revenue += e.revenue || 0;
-      }
-    }
-  }
-
-  // Fill Manual
   for (const m of manualDaily) {
     if (dateMap.has(m.date)) {
-      dateMap.get(m.date).spend += m.spend || 0;
-      dateMap.get(m.date).orders += m.orders || 0;
-      dateMap.get(m.date).revenue += m.revenue || 0;
+      const d = dateMap.get(m.date);
+      d.spend += m.spend || 0;
+      d.orders += m.orders || 0;
+      d.revenue += m.revenue || 0;
     }
   }
 
@@ -352,17 +429,13 @@ function generateDiagnostics(campaigns, overview) {
   } else if (overview.roas > 4) {
     diagnostics.push({ type: 'success', icon: '✅', title: 'Strong ROAS', detail: `Overall ROAS is ${overview.roas.toFixed(2)}×`, action: 'Scale top performers' });
   }
-  const avgCAC = overview.cac;
-  if (avgCAC > 100) {
-    diagnostics.push({ type: 'warning', icon: '💰', title: 'High CAC', detail: `Average CAC is $${avgCAC.toFixed(0)}`, action: 'Check creative performance' });
-  }
   return diagnostics;
 }
 
 export function getAvailableCountries(store) {
   const db = getDb();
   const rows = db.prepare(`
-    SELECT DISTINCT country as code FROM meta_daily_metrics WHERE store = ? AND country != 'ALL' AND spend > 0
+    SELECT DISTINCT country as code FROM meta_daily_metrics WHERE store = ? AND country != 'ALL' AND (spend > 0 OR conversions > 0)
     UNION
     SELECT DISTINCT country_code as code FROM shopify_orders WHERE store = ?
     UNION
@@ -403,6 +476,5 @@ export function getCampaignsByAge(store, params) { return []; }
 export function getCampaignsByGender(store, params) { return []; }
 export function getCampaignsByPlacement(store, params) { return []; }
 export function getCampaignsByAgeGender(store, params) { return []; }
-export function getCountryTrends(store, params) { return []; }
 export function getShopifyTimeOfDay(store, params) { return { data: [], timezone: 'UTC', sampleTimestamps: [] }; }
 export function getMetaBreakdowns(store, params) { return []; }
