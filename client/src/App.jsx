@@ -288,7 +288,7 @@ export default function App() {
         revenue: STORES[currentStore].defaultAOV,
         notes: ''
       }));
-      loadData();
+      await loadData();
     } catch (error) {
       console.error('Error adding order:', error);
     }
