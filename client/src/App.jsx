@@ -1,6 +1,5 @@
 // client/src/App.jsx
-import { Fragment, useState, useEffect, useRef, useCallback, useMemo } from 'react';
-
+import { Fragment, useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   LineChart, Line, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
@@ -753,189 +752,1238 @@ function SortableHeader({ label, field, sortConfig, onSort, className = '' }) {
   );
 }
 
-function DashboardTab({ dashboard, expandedKpis, setExpandedKpis, formatCurrency, formatNumber, store, countryTrends }) {
-  const { overview, campaigns, countries } = dashboard;
-  const [metaView, setMetaView] = useState('campaign');
-  const [countrySortConfig, setCountrySortConfig] = useState({ field: 'spend', direction: 'desc' });
-  const [campaignSortConfig, setCampaignSortConfig] = useState({ field: 'spend', direction: 'desc' });
-  
-  // RESTORED: Collapsible States
-  const [expandedCountries, setExpandedCountries] = useState(new Set());
-  const [showCountryTrends, setShowCountryTrends] = useState(false);
+function DashboardTab({
+  dashboard = {},
+  expandedKpis = [],
+  setExpandedKpis = () => {},
+  formatCurrency = () => 0,
+  formatNumber = () => 0,
+  metaBreakdown = 'none',
+  setMetaBreakdown = () => {},
+  metaBreakdownData = [],
+  store = {},
+  countryTrends = [],
+  shopifyTimeOfDay = { data: [], timezone: 'America/Chicago', sampleTimestamps: [] },
+  selectedShopifyRegion = 'us',
+  setSelectedShopifyRegion = () => {}
+}) {
+  const { overview = {}, trends = {}, campaigns = [], countries = [], diagnostics = {} } = dashboard || {};
 
-  const kpis = [
-    { key: 'revenue', label: 'Revenue', value: overview.revenue, change: overview.revenueChange, format: 'currency', color: '#8b5cf6' },
-    { key: 'spend', label: 'Ad Spend', value: overview.spend, change: overview.spendChange, format: 'currency', color: '#6366f1' },
-    { key: 'orders', label: 'Orders', value: overview.orders, change: overview.ordersChange, format: 'number', color: '#22c55e' },
-    { key: 'aov', label: 'AOV', value: overview.aov, change: overview.aovChange, format: 'currency', color: '#f59e0b' },
-    { key: 'cac', label: 'CAC', value: overview.cac, change: overview.cacChange, format: 'currency', color: '#ef4444' },
-    { key: 'roas', label: 'ROAS', value: overview.roas, change: overview.roasChange, format: 'roas', color: '#10b981' },
-  ];
+  const [countrySortConfig, setCountrySortConfig] = useState({ field: 'totalOrders', direction: 'desc' });
+  const [campaignSortConfig, setCampaignSortConfig] = useState({ field: 'spend', direction: 'desc' });
+  const [showCountryTrends, setShowCountryTrends] = useState(false);
+  const [metaView, setMetaView] = useState('campaign'); // 'campaign' | 'country'
+  const [showMetaBreakdown, setShowMetaBreakdown] = useState(false); // Section 2 collapse
+  const [expandedCountries, setExpandedCountries] = useState(new Set());
+  const [expandedStates, setExpandedStates] = useState(new Set());
+  
+  const ecomLabel = store.ecommerce;
+  
+  const kpis = [
+    { key: 'revenue', label: 'Revenue', value: overview.revenue, change: overview.revenueChange, format: 'currency', color: '#8b5cf6' },
+    { key: 'spend', label: 'Ad Spend', value: overview.spend, change: overview.spendChange, format: 'currency', color: '#6366f1' },
+    { key: 'orders', label: 'Orders', value: overview.orders, change: overview.ordersChange, format: 'number', color: '#22c55e' },
+    { key: 'aov', label: 'AOV', value: overview.aov, change: overview.aovChange, format: 'currency', color: '#f59e0b' },
+    { key: 'cac', label: 'CAC', value: overview.cac, change: overview.cacChange, format: 'currency', color: '#ef4444' },
+    { key: 'roas', label: 'ROAS', value: overview.roas, change: overview.roasChange, format: 'roas', color: '#10b981' },
+  ];
 
-  const toggleKpi = (key) => setExpandedKpis(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  const sortedCountries = [...countries].sort((a, b) => {
+    const aVal = a[countrySortConfig.field] || 0;
+    const bVal = b[countrySortConfig.field] || 0;
+    return countrySortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
+  });
 
-  // RESTORED: Toggle Country Logic
-  const toggleCountryRow = (code) => {
-    setExpandedCountries(prev => {
-      const next = new Set(prev);
-      if (next.has(code)) next.delete(code);
-      else next.add(code);
-      return next;
-    });
+  const totalCountrySpend = countries.reduce((s, x) => s + (x.spend || 0), 0);
+
+  const sortedCampaigns = [...campaigns].sort((a, b) => {
+    const aVal = a[campaignSortConfig.field] || 0;
+    const bVal = b[campaignSortConfig.field] || 0;
+    return campaignSortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
+  });
+
+  const sortedBreakdownData = [...metaBreakdownData].sort((a, b) => {
+    const aVal = a[campaignSortConfig.field] || 0;
+    const bVal = b[campaignSortConfig.field] || 0;
+    return campaignSortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
+  });
+
+  const orderedCountryTrends = [...countryTrends].sort((a, b) => (b.totalOrders || 0) - (a.totalOrders || 0));
+
+  const parseLocalDate = useCallback((dateString) => {
+    if (!dateString) return null;
+    const safeDate = /^\d{4}-\d{2}-\d{2}$/.test(dateString) ? `${dateString}T00:00:00` : dateString;
+    const parsed = new Date(safeDate);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }, []);
+
+  const formatCountryTick = useCallback((dateString) => {
+    const date = parseLocalDate(dateString);
+    return date
+      ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : dateString;
+  }, [parseLocalDate]);
+
+  const formatCountryTooltip = useCallback((dateString) => {
+    const date = parseLocalDate(dateString);
+    return date
+      ? date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+      : dateString;
+  }, [parseLocalDate]);
+
+  const shopifyRegion = selectedShopifyRegion ?? 'us';
+  const shopifyTimeZone = shopifyTimeOfDay?.timezone ?? (shopifyRegion === 'europe' ? 'Europe/London' : shopifyRegion === 'all' ? 'UTC' : 'America/Chicago');
+  const shopifyTimeOfDayData = Array.isArray(shopifyTimeOfDay?.data) ? shopifyTimeOfDay.data : [];
+  const shopifyHourlyChartData = shopifyTimeOfDayData.map((point) => ({
+    ...point,
+    hourLabel: `${point.hour}:00`
+  }));
+
+  const totalShopifyHourlyOrders = shopifyTimeOfDayData.reduce((sum, point) => sum + (point.orders || 0), 0);
+
+  const handleCountrySort = (field) => {
+    setCountrySortConfig(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === 'desc' ? 'asc' : 'desc'
+    }));
+  };
+
+  const toggleCountryRow = (code) => {
+    setExpandedCountries(prev => {
+      const next = new Set(prev);
+      if (next.has(code)) {
+        next.delete(code);
+        if (code === 'US') {
+          setExpandedStates(prevStates => new Set([...prevStates].filter(key => !key.startsWith(`${code}-`))));
+        }
+      } else {
+        next.add(code);
+      }
+      return next;
+    });
+  };
+
+  const toggleStateRow = (stateKey) => {
+    setExpandedStates(prev => {
+      const next = new Set(prev);
+      if (next.has(stateKey)) {
+        next.delete(stateKey);
+      } else {
+        next.add(stateKey);
+      }
+      return next;
+    });
+  };
+
+  const handleCampaignSort = (field) => {
+    setCampaignSortConfig(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === 'desc' ? 'asc' : 'desc'
+    }));
+  };
+
+  const getBreakdownLabel = (row, currentBreakdown) => {
+    switch(currentBreakdown) {
+      case 'country':
+        return (
+          <span className="flex items-center gap-2">
+            <span>{row.countryFlag}</span> {row.countryName || row.country}
+          </span>
+        );
+      case 'age':
+        return (
+          <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+            {row.age}
+          </span>
+        );
+      case 'gender':
+        return <span>{row.genderLabel || row.gender}</span>;
+      case 'age_gender':
+        return (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded font-medium">{row.age}</span>
+            <span className="px-2 py-1 bg-pink-100 text-pink-700 rounded font-medium">{row.genderLabel || row.gender}</span>
+          </div>
+        );
+      case 'placement':
+        return (
+          <span className="text-xs">
+            {row.placementLabel || `${row.platform} - ${row.placement}`}
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const toggleKpi = (key) => {
+    setExpandedKpis(prev =>
+      prev.includes(key)
+        ? prev.filter(k => k !== key)
+        : [...prev, key]
+    );
+  };
+
+  const metaTotals = {
+    spend: dashboard.metaSpendTotal || 0,
+    revenue: dashboard.metaRevenueTotal || 0,
+    roas: dashboard.metaRoasTotal,
+    campaigns: dashboard.metaCampaignCount || 0,
+    impressions: dashboard.metaImpressionsTotal || 0,
+    reach: dashboard.metaReachTotal || 0,
+    clicks: dashboard.metaClicksTotal || 0,
+    ctr: dashboard.metaCtrTotal,
+    lpv: dashboard.metaLpvTotal || 0,
+    atc: dashboard.metaAtcTotal || 0,
+    checkout: dashboard.metaCheckoutTotal || 0,
+    conversions: dashboard.metaConversionsTotal || 0,
+    cac: dashboard.metaCacTotal
+  };
+
+  const metaOverallRow = {
+    campaignName: 'All Campaigns',
+    dimension: 'Overall',
+    spend: metaTotals.spend,
+    conversionValue: metaTotals.revenue,
+    conversions: metaTotals.conversions,
+    impressions: metaTotals.impressions,
+    clicks: metaTotals.clicks,
+    ctr: metaTotals.impressions > 0 ? (metaTotals.clicks / metaTotals.impressions) * 100 : null,
+    cpc: metaTotals.clicks > 0 ? metaTotals.spend / metaTotals.clicks : null,
+    metaRoas: metaTotals.roas ?? null,
+    metaAov: metaTotals.conversions > 0 ? metaTotals.revenue / metaTotals.conversions : null,
+    metaCac: metaTotals.conversions > 0 ? metaTotals.spend / metaTotals.conversions : null,
+    cr: metaTotals.clicks > 0 ? (metaTotals.conversions / metaTotals.clicks) * 100 : null
+  };
+
+  const metaBreakdownRows =
+    metaBreakdown === 'none' ? [metaOverallRow] : sortedBreakdownData;
+
+  const metaCtrValue =
+    metaTotals.ctr != null
+      ? metaTotals.ctr * 100
+      : (metaTotals.impressions > 0 ? (metaTotals.clicks / metaTotals.impressions) * 100 : null);
+
+  const breakdownLabels = {
+    none: 'Overall',
+    country: 'Country',
+    age: 'Age',
+    gender: 'Gender',
+    age_gender: 'Age + Gender',
+    placement: 'Placement'
+  };
+
+  const renderCurrency = (value, decimals = 0) =>
+    value === null || value === undefined || Number.isNaN(value)
+      ? '—'
+      : formatCurrency(value, decimals);
+
+  const renderNumber = (value) =>
+    value === null || value === undefined || Number.isNaN(value)
+      ? '—'
+      : formatNumber(value);
+
+  const renderPercent = (value, decimals = 2) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? `${num.toFixed(decimals)}%` : '—';
   };
 
-  const handleSort = (config, setConfig, field) => {
-    setConfig(prev => ({
-      field,
-      direction: prev.field === field && prev.direction === 'desc' ? 'asc' : 'desc'
-    }));
+  const renderRoas = (value, decimals = 2) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? `${num.toFixed(decimals)}×` : '—';
   };
 
-  const sortData = (data, config) => {
-    return [...data].sort((a, b) => {
-      const aVal = a[config.field] || 0;
-      const bVal = b[config.field] || 0;
-      return config.direction === 'asc' ? aVal - bVal : bVal - aVal;
-    });
-  };
+  // SECTION 1 rows based on metaView
+  const section1Rows =
+    metaView === 'campaign' ? sortedCampaigns : sortedCountries;
 
-  const sortedCampaigns = sortData(campaigns, campaignSortConfig);
-  const sortedCountries = sortData(countries, countrySortConfig);
+  const section1Totals = (() => {
+    const rows = section1Rows;
+    const totalSpend = rows.reduce((s, r) => s + (r.spend || 0), 0);
+    const totalMetaRevenue = rows.reduce(
+      (s, r) => s + (metaView === 'campaign'
+        ? (r.conversionValue || 0)
+        : (r.revenue || 0)),
+      0
+    );
+    const totalOrders = rows.reduce(
+      (s, r) => s + (metaView === 'campaign'
+        ? (r.conversions || 0)
+        : (r.totalOrders || 0)),
+      0
+    );
+    const totalImpr = rows.reduce((s, r) => s + (r.impressions || 0), 0);
+    const totalReach = rows.reduce((s, r) => s + (r.reach || 0), 0);
+    const totalClicks = rows.reduce((s, r) => s + (r.clicks || 0), 0);
+    const totalLpv = rows.reduce((s, r) => s + (r.lpv || 0), 0);
+    const totalAtc = rows.reduce((s, r) => s + (r.atc || 0), 0);
+    const totalCheckout = rows.reduce((s, r) => s + (r.checkout || 0), 0);
+    const totalMetaConversions = rows.reduce(
+      (s, r) => s + (metaView === 'campaign'
+        ? (r.conversions || 0)
+        : (r.metaOrders || 0)),
+      0
+    );
 
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-6 gap-4">
-        {kpis.map((kpi) => <KPICard key={kpi.key} kpi={kpi} expanded={expandedKpis.includes(kpi.key)} onToggle={() => toggleKpi(kpi.key)} formatCurrency={formatCurrency} />)}
-      </div>
-      
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
-          <h2 className="text-lg font-semibold">Campaign Performance</h2>
-          <div className="flex gap-2">
-             <button onClick={() => setMetaView('campaign')} className={`px-3 py-1 text-xs rounded ${metaView === 'campaign' ? 'bg-gray-900 text-white' : 'bg-gray-100'}`}>Campaigns</button>
-             <button onClick={() => setMetaView('country')} className={`px-3 py-1 text-xs rounded ${metaView === 'country' ? 'bg-gray-900 text-white' : 'bg-gray-100'}`}>By Country</button>
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-gray-50 text-gray-500">
-              <tr>
-                <SortableHeader label={metaView === 'campaign' ? 'Name' : 'Country'} field={metaView === 'campaign' ? 'campaignName' : 'name'} config={metaView === 'campaign' ? campaignSortConfig : countrySortConfig} onSort={(f) => handleSort(metaView === 'campaign' ? campaignSortConfig : countrySortConfig, metaView === 'campaign' ? setCampaignSortConfig : setCountrySortConfig, f)} />
-                <SortableHeader label="Spend" field="spend" config={metaView === 'campaign' ? campaignSortConfig : countrySortConfig} onSort={(f) => handleSort(metaView === 'campaign' ? campaignSortConfig : countrySortConfig, metaView === 'campaign' ? setCampaignSortConfig : setCountrySortConfig, f)} />
-                <th className="text-xs text-gray-400">Share</th>
-                <SortableHeader label="Revenue" field={metaView === 'campaign' ? 'conversionValue' : 'revenue'} config={metaView === 'campaign' ? campaignSortConfig : countrySortConfig} onSort={(f) => handleSort(metaView === 'campaign' ? campaignSortConfig : countrySortConfig, metaView === 'campaign' ? setCampaignSortConfig : setCountrySortConfig, f)} />
-                <th className="text-xs text-gray-400">Share</th>
-                <SortableHeader label="ROAS" field={metaView === 'campaign' ? 'metaRoas' : 'roas'} config={metaView === 'campaign' ? campaignSortConfig : countrySortConfig} onSort={(f) => handleSort(metaView === 'campaign' ? campaignSortConfig : countrySortConfig, metaView === 'campaign' ? setCampaignSortConfig : setCountrySortConfig, f)} />
-                <SortableHeader label="Orders" field={metaView === 'campaign' ? 'conversions' : 'totalOrders'} config={metaView === 'campaign' ? campaignSortConfig : countrySortConfig} onSort={(f) => handleSort(metaView === 'campaign' ? campaignSortConfig : countrySortConfig, metaView === 'campaign' ? setCampaignSortConfig : setCountrySortConfig, f)} />
-                <th>CAC</th>
-                <th>Impr</th>
-                <th>Clicks</th>
-                <th>CTR</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(metaView === 'campaign' ? sortedCampaigns : sortedCountries).map((row, i) => {
-                const shareSpend = overview.spend > 0 ? ((row.spend || 0) / overview.spend) * 100 : 0;
-                const shareRev = overview.revenue > 0 ? ((row.revenue || row.conversionValue || 0) / overview.revenue) * 100 : 0;
-                const isExpanded = expandedCountries.has(row.code);
-                // RESTORED: Check for nested cities
-                const hasCities = row.cities && row.cities.length > 0;
+    const roas = totalSpend > 0 ? totalMetaRevenue / totalSpend : 0;
+    const aov = totalOrders > 0 ? totalMetaRevenue / totalOrders : 0;
+    const cac = totalOrders > 0 ? totalSpend / totalOrders : 0;
+    const cpm = totalImpr > 0 ? (totalSpend / totalImpr) * 1000 : 0;
+    const freq = totalReach > 0 ? totalImpr / totalReach : 0;
+    const ctr = totalImpr > 0 ? (totalClicks / totalImpr) * 100 : 0;
+    const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
+    const cr =
+      totalClicks > 0
+        ? (metaView === 'campaign'
+            ? (totalMetaConversions / totalClicks) * 100
+            : (totalOrders / totalClicks) * 100)
+        : 0;
 
-                return (
-                  <Fragment key={i}>
-                  <tr 
-                    className={`border-t border-gray-50 hover:bg-gray-50 ${hasCities ? 'cursor-pointer' : ''}`} 
-                    onClick={() => hasCities && toggleCountryRow(row.code)}
-                  >
-                    <td className="px-4 py-2 font-medium flex items-center gap-2">
-                      {/* RESTORED: Chevron for expansion */}
-                      {hasCities && (isExpanded ? <ChevronUp size={14}/> : <ChevronDown size={14}/>)}
-                      {row.campaignName || row.name}
-                    </td>
-                    <td className="text-indigo-600 font-medium">{formatCurrency(row.spend)}</td>
-                    <td className="text-xs text-gray-400">{shareSpend.toFixed(1)}%</td>
-                    <td className="text-green-600 font-medium">{formatCurrency(row.revenue || row.conversionValue)}</td>
-                    <td className="text-xs text-gray-400">{shareRev.toFixed(1)}%</td>
-                    <td className="text-green-600">{(row.metaRoas || row.roas || 0).toFixed(2)}x</td>
-                    <td>{row.conversions || row.totalOrders || 0}</td>
-                    <td>{formatCurrency(row.metaCac || row.cac)}</td>
-                    <td>{formatNumber(row.impressions)}</td>
-                    <td>{formatNumber(row.clicks)}</td>
-                    <td>{(row.ctr || 0).toFixed(2)}%</td>
-                  </tr>
-                  
-                  {/* RESTORED: Nested City Table */}
-                  {isExpanded && hasCities && (
-                    <tr className="bg-gray-50 animate-fade-in">
-                      <td colSpan={11} className="p-4 shadow-inner">
-                        <div className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Top Cities / Regions</div>
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="text-gray-500 border-b border-gray-200">
-                              <th className="text-left py-1">City/State</th>
-                              <th className="text-left py-1">Orders</th>
-                              <th className="text-left py-1">Revenue</th>
-                              <th className="text-left py-1">AOV</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {row.cities.map((city, cIdx) => (
-                              <tr key={cIdx} className="hover:bg-gray-100">
-                                <td className="py-1 font-medium">{city.city}</td>
-                                <td className="py-1">{city.orders}</td>
-                                <td className="py-1 text-green-600">{formatCurrency(city.revenue)}</td>
-                                <td className="py-1">{formatCurrency(city.aov)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </td>
-                    </tr>
-                  )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+    return {
+      totalSpend,
+      totalMetaRevenue,
+      totalOrders,
+      totalImpr,
+      totalReach,
+      totalClicks,
+      totalLpv,
+      totalAtc,
+      totalCheckout,
+      totalMetaConversions,
+      roas,
+      aov,
+      cac,
+      cpm,
+      freq,
+      ctr,
+      cpc,
+      cr
+    };
+  })();
 
-      {/* RESTORED: Country Order Trends (Charts) */}
-      {countryTrends && countryTrends.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <button onClick={() => setShowCountryTrends(!showCountryTrends)} className="w-full p-6 flex justify-between hover:bg-gray-50 transition-colors">
-            <h2 className="text-lg font-semibold">Order Trends by Country</h2>
-            <ChevronDown className={`w-5 h-5 transition-transform ${showCountryTrends ? 'rotate-180' : ''}`} />
-          </button>
-          {showCountryTrends && (
-            <div className="p-6 pt-0 grid grid-cols-1 md:grid-cols-2 gap-4">
-              {countryTrends.map(c => (
-                <div key={c.countryCode} className="border p-4 rounded-lg hover:shadow-md transition-shadow">
-                  <div className="flex justify-between mb-2 items-center">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xl">{c.flag}</span>
-                      <span className="font-bold">{c.country}</span>
-                    </div>
-                    <span className="text-xs font-medium bg-green-100 text-green-800 px-2 py-1 rounded-full">{c.totalOrders} Orders</span>
-                  </div>
-                  <div className="h-32">
-                    <ResponsiveContainer>
-                      <AreaChart data={c.trends}>
-                        <XAxis dataKey="date" hide />
-                        <Tooltip formatter={(val) => [val, 'Orders']} />
-                        <Area type="monotone" dataKey="orders" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+  return (
+    <div className="space-y-6 animate-fade-in">
+      {/* KPI CARDS */}
+      <div className="grid grid-cols-6 gap-4">
+        {kpis.map((kpi) => (
+          <KPICard 
+            key={kpi.key}
+            kpi={kpi}
+            trends={trends}
+            expanded={expandedKpis.includes(kpi.key)}
+            onToggle={() => toggleKpi(kpi.key)}
+            formatCurrency={formatCurrency}
+          />
+        ))}
+      </div>
 
-    </div>
-  );
+      {/* Global Orders Trend */}
+      {trends && trends.length > 0 && (
+        <div className="bg-white rounded-xl p-6 shadow-sm">
+          <h3 className="text-lg font-semibold mb-4">Orders Trend</h3>
+          <div className="h-64">
+            <ResponsiveContainer>
+              <AreaChart data={trends}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Area 
+                  type="monotone" 
+                  dataKey="orders" 
+                  stroke="#22c55e"
+                  fill="#22c55e"
+                  fillOpacity={0.2}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Expanded KPI charts */}
+      {expandedKpis.length > 0 && trends && trends.length > 0 && (
+        <div className="space-y-6">
+          {expandedKpis.map((key) => {
+            const thisKpi = kpis.find(k => k.key === key);
+            if (!thisKpi) return null;
+            return (
+              <div key={key} className="bg-white rounded-xl p-6 shadow-sm animate-fade-in">
+                <h3 className="text-lg font-semibold mb-4">{thisKpi.label} Trend</h3>
+                <div className="h-64">
+                  <ResponsiveContainer>
+                    <AreaChart data={trends}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} />
+                      <Tooltip />
+                      <Area 
+                        type="monotone" 
+                        dataKey={key} 
+                        stroke={thisKpi.color}
+                        fill={thisKpi.color}
+                        fillOpacity={0.2}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* SECTION 1 — META FUNNEL (INTEGRATED) */}
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">
+              {store.id === 'shawq'
+                ? 'Section 1 — Meta Campaigns (Shopify Data Integrated)'
+                : 'Section 1 — Meta Campaigns (Salla Data Integrated)'}
+            </h2>
+            <p className="text-xs text-gray-400">+ any manual orders</p>
+            <p className="text-sm text-gray-500">
+              Meta funnel metrics with{" "}
+              <span className="font-semibold">true revenue & orders</span> when
+              you switch to By Country.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 mr-2">View:</span>
+            <button
+              onClick={() => setMetaView('campaign')}
+              className={`px-3 py-1.5 text-xs rounded-lg font-medium ${
+                metaView === 'campaign'
+                  ? 'bg-gray-900 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Campaigns
+            </button>
+            <button
+              onClick={() => setMetaView('country')}
+              className={`px-3 py-1.5 text-xs rounded-lg font-medium ${
+                metaView === 'country'
+                  ? 'bg-gray-900 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              By Country (True)
+            </button>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table>
+            <thead>
+              {/* Highlight header row */}
+              <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                <th className="text-left px-4 py-2">
+                  {metaView === 'campaign' ? 'Campaign' : 'Country'}
+                </th>
+                <th colSpan={5} className="text-center border-l border-gray-100">
+                  Meta Financials
+                </th>
+                <th colSpan={4} className="text-center border-l border-gray-100">
+                  Upper Funnel
+                </th>
+                <th colSpan={4} className="text-center border-l border-gray-100">
+                  Mid Funnel
+                </th>
+                <th colSpan={5} className="text-center border-l border-gray-100">
+                  Lower Funnel
+                </th>
+              </tr>
+              <tr className="bg-gray-50 text-xs text-gray-500">
+                <SortableHeader
+                  label="Name"
+                  field={metaView === 'campaign' ? 'campaignName' : 'name'}
+                  sortConfig={metaView === 'campaign' ? campaignSortConfig : countrySortConfig}
+                  onSort={metaView === 'campaign' ? handleCampaignSort : handleCountrySort}
+                  className="text-left px-4 py-2"
+                />
+                <SortableHeader
+                  label="Spend"
+                  field="spend"
+                  sortConfig={metaView === 'campaign' ? campaignSortConfig : countrySortConfig}
+                  onSort={metaView === 'campaign' ? handleCampaignSort : handleCountrySort}
+                />
+                <th>Revenue</th>
+                <SortableHeader
+                  label="ROAS"
+                  field={metaView === 'campaign' ? 'metaRoas' : 'roas'}
+                  sortConfig={metaView === 'campaign' ? campaignSortConfig : countrySortConfig}
+                  onSort={metaView === 'campaign' ? handleCampaignSort : handleCountrySort}
+                  className="bg-indigo-50 text-indigo-700"
+                />
+                <SortableHeader
+                  label="AOV"
+                  field={metaView === 'campaign' ? 'metaAov' : 'aov'}
+                  sortConfig={metaView === 'campaign' ? campaignSortConfig : countrySortConfig}
+                  onSort={metaView === 'campaign' ? handleCampaignSort : handleCountrySort}
+                  className="bg-indigo-50 text-indigo-700"
+                />
+                <SortableHeader
+                  label="CAC"
+                  field={metaView === 'campaign' ? 'metaCac' : 'cac'}
+                  sortConfig={metaView === 'campaign' ? campaignSortConfig : countrySortConfig}
+                  onSort={metaView === 'campaign' ? handleCampaignSort : handleCountrySort}
+                  className="bg-indigo-50 text-indigo-700"
+                />
+
+                <SortableHeader
+                  label="Impr"
+                  field="impressions"
+                  sortConfig={metaView === 'campaign' ? campaignSortConfig : countrySortConfig}
+                  onSort={metaView === 'campaign' ? handleCampaignSort : handleCountrySort}
+                />
+                <SortableHeader
+                  label="Reach"
+                  field="reach"
+                  sortConfig={metaView === 'campaign' ? campaignSortConfig : countrySortConfig}
+                  onSort={metaView === 'campaign' ? handleCampaignSort : handleCountrySort}
+                />
+                <th>CPM</th>
+                <th>Freq</th>
+
+                <SortableHeader
+                  label="Clicks"
+                  field="clicks"
+                  sortConfig={metaView === 'campaign' ? campaignSortConfig : countrySortConfig}
+                  onSort={metaView === 'campaign' ? handleCampaignSort : handleCountrySort}
+                />
+                <th>CTR</th>
+                <th>CPC</th>
+                <th>LPV</th>
+
+                <th>ATC</th>
+                <th>Checkout</th>
+                <th>Orders</th>
+                <SortableHeader
+                  label="Conv"
+                  field={metaView === 'campaign' ? 'conversions' : 'metaOrders'}
+                  sortConfig={metaView === 'campaign' ? campaignSortConfig : countrySortConfig}
+                  onSort={metaView === 'campaign' ? handleCampaignSort : handleCountrySort}
+                />
+                <th>CR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {section1Rows.map((row) => {
+                const isCampaign = metaView === 'campaign';
+                const nameCell = isCampaign ? (
+                  <span className="font-medium">{row.campaignName}</span>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">{row.flag}</span>
+                    <span className="font-medium">{row.name}</span>
+                  </div>
+                );
+
+                const revenueCell = isCampaign
+                  ? formatCurrency(row.conversionValue || 0)
+                  : formatCurrency(row.revenue || 0);
+
+                const roas = isCampaign ? row.metaRoas || 0 : row.roas || 0;
+                const aov = isCampaign ? row.metaAov || 0 : row.aov || 0;
+                const cac = isCampaign ? row.metaCac || 0 : row.cac || 0;
+
+                const orders = isCampaign
+                  ? row.conversions || 0
+                  : row.totalOrders || 0;
+
+                const metaConv = isCampaign
+                  ? row.conversions || 0
+                  : row.metaOrders || 0;
+
+                const cr =
+                  row.clicks > 0
+                    ? (isCampaign
+                        ? (metaConv / row.clicks) * 100
+                        : (orders / row.clicks) * 100)
+                    : 0;
+
+                return (
+                  <tr key={isCampaign ? row.campaignId : row.code}>
+                    <td className="px-4 py-2">{nameCell}</td>
+                    <td className="text-indigo-600 font-semibold">
+                      {formatCurrency(row.spend || 0)}
+                    </td>
+                    <td className="text-green-600 font-semibold">{revenueCell}</td>
+                    <td className="text-green-600 font-semibold">
+                      {renderRoas(roas)}
+                    </td>
+                    <td>{formatCurrency(aov || 0)}</td>
+                    <td className={cac > 100 ? 'text-amber-600 font-medium' : ''}>
+                      {formatCurrency(cac || 0)}
+                    </td>
+
+                    <td>{formatNumber(row.impressions || 0)}</td>
+                    <td>{formatNumber(row.reach || 0)}</td>
+                    <td>{formatCurrency(row.cpm || 0, 2)}</td>
+                    <td>{renderPercent(row.frequency, 2).replace('%', '')}</td>
+
+                    <td>{formatNumber(row.clicks || 0)}</td>
+                    <td>{renderPercent(row.ctr)}</td>
+                    <td>{formatCurrency(row.cpc || 0, 2)}</td>
+                    <td>{formatNumber(row.lpv || 0)}</td>
+
+                    <td>{formatNumber(row.atc || 0)}</td>
+                    <td>{formatNumber(row.checkout || 0)}</td>
+                    <td>{orders}</td>
+                    <td>{metaConv}</td>
+                    <td>{renderPercent(cr)}</td>
+                  </tr>
+                );
+              })}
+
+              {/* TOTAL ROW */}
+              <tr className="bg-gray-50 font-semibold">
+                <td className="px-4 py-2">
+                  {metaView === 'campaign' ? 'TOTAL (Campaigns)' : 'TOTAL (Countries)'}
+                </td>
+                <td className="text-indigo-600">
+                  {formatCurrency(section1Totals.totalSpend)}
+                </td>
+                <td className="text-green-600">
+                  {formatCurrency(section1Totals.totalMetaRevenue)}
+                </td>
+                <td className="text-green-600">
+                  {renderRoas(section1Totals.roas)}
+                </td>
+                <td>{formatCurrency(section1Totals.aov || 0)}</td>
+                <td>{formatCurrency(section1Totals.cac || 0)}</td>
+
+                <td>{formatNumber(section1Totals.totalImpr)}</td>
+                <td>{formatNumber(section1Totals.totalReach)}</td>
+                <td>{formatCurrency(section1Totals.cpm || 0, 2)}</td>
+                <td>{renderPercent(section1Totals.freq, 2).replace('%', '')}</td>
+
+                <td>{formatNumber(section1Totals.totalClicks)}</td>
+                <td>{renderPercent(section1Totals.ctr)}</td>
+                <td>{formatCurrency(section1Totals.cpc || 0, 2)}</td>
+                <td>{formatNumber(section1Totals.totalLpv)}</td>
+
+                <td>{formatNumber(section1Totals.totalAtc)}</td>
+                <td>{formatNumber(section1Totals.totalCheckout)}</td>
+                <td>{section1Totals.totalOrders}</td>
+                <td>{section1Totals.totalMetaConversions}</td>
+                <td>{renderPercent(section1Totals.cr)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* SECTION 2 — PURE META BREAKDOWN WORLD */}
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <button
+          onClick={() => setShowMetaBreakdown(!showMetaBreakdown)}
+          className="w-full px-6 pt-5 pb-4 flex items-center justify-between hover:bg-gray-50 transition-colors border-b border-gray-100"
+        >
+          <div className="text-left">
+            <h2 className="text-lg font-semibold">Section 2 — Pure Meta Breakdown World</h2>
+            <p className="text-sm text-gray-500">
+              Raw Meta reporting (no Shopify/Salla/manual integration). Use this to analyze countries, age, gender, placement, etc.
+            </p>
+          </div>
+          <div className="flex items-center gap-4 text-sm text-gray-500">
+            <span>Campaigns: <strong>{metaTotals.campaigns}</strong></span>
+            <span>Spend: <strong>{renderCurrency(metaTotals.spend)}</strong></span>
+            <span>Meta Rev: <strong>{renderCurrency(metaTotals.revenue)}</strong></span>
+            <span>ROAS: <strong>{renderRoas(metaTotals.roas)}</strong></span>
+            <ChevronDown
+              className={`w-5 h-5 text-gray-500 transform transition-transform ${
+                showMetaBreakdown ? 'rotate-180' : ''
+              }`}
+            />
+          </div>
+        </button>
+
+        <div className="px-6 pt-4 pb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+              <div className="text-xs uppercase text-gray-500">Meta Campaigns</div>
+              <div className="text-2xl font-semibold text-gray-900">{metaTotals.campaigns}</div>
+            </div>
+            <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+              <div className="text-xs uppercase text-gray-500">Meta Spend</div>
+              <div className="text-2xl font-semibold text-gray-900">{renderCurrency(metaTotals.spend)}</div>
+            </div>
+            <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+              <div className="text-xs uppercase text-gray-500">Meta Revenue</div>
+              <div className="text-2xl font-semibold text-gray-900">{renderCurrency(metaTotals.revenue)}</div>
+            </div>
+            <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+              <div className="text-xs uppercase text-gray-500">Meta ROAS</div>
+              <div className="text-2xl font-semibold text-gray-900">{renderRoas(metaTotals.roas)}</div>
+            </div>
+          </div>
+        </div>
+
+        {showMetaBreakdown && (
+          <>
+            <div className="px-6 pb-4">
+              <div className="grid md:grid-cols-3 gap-4 bg-gray-50 rounded-lg p-4">
+                <div>
+                  <div className="text-xs uppercase text-gray-500">Upper Funnel</div>
+                  <div className="mt-2 space-y-1 text-sm text-gray-700">
+                    <div className="flex justify-between"><span>Impressions</span><span className="font-semibold">{renderNumber(metaTotals.impressions)}</span></div>
+                    <div className="flex justify-between"><span>Reach</span><span className="font-semibold">{renderNumber(metaTotals.reach)}</span></div>
+                    <div className="flex justify-between"><span>Clicks</span><span className="font-semibold">{renderNumber(metaTotals.clicks)}</span></div>
+                    <div className="flex justify-between"><span>CTR</span><span className="font-semibold">{renderPercent(metaCtrValue)}</span></div>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase text-gray-500">Mid Funnel</div>
+                  <div className="mt-2 space-y-1 text-sm text-gray-700">
+                    <div className="flex justify-between"><span>Landing Page Views</span><span className="font-semibold">{renderNumber(metaTotals.lpv)}</span></div>
+                    <div className="flex justify-between"><span>Add to Cart</span><span className="font-semibold">{renderNumber(metaTotals.atc)}</span></div>
+                    <div className="flex justify-between"><span>Checkout</span><span className="font-semibold">{renderNumber(metaTotals.checkout)}</span></div>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase text-gray-500">Lower Funnel</div>
+                  <div className="mt-2 space-y-1 text-sm text-gray-700">
+                    <div className="flex justify-between"><span>Conversions</span><span className="font-semibold">{renderNumber(metaTotals.conversions)}</span></div>
+                    <div className="flex justify-between"><span>Conversion Value</span><span className="font-semibold">{renderCurrency(metaTotals.revenue)}</span></div>
+                    <div className="flex justify-between"><span>Meta ROAS</span><span className="font-semibold">{renderRoas(metaTotals.roas)}</span></div>
+                    <div className="flex justify-between"><span>Meta CAC</span><span className="font-semibold">{renderCurrency(metaTotals.cac, 2)}</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 pt-2 pb-2 flex items-center justify-between">
+              <div className="text-xs uppercase tracking-wide text-gray-400">
+                Meta Campaign Performance <span className="ml-2 text-gray-300">PURE META</span>
+              </div>
+              <select
+                value={metaBreakdown}
+                onChange={(e) => setMetaBreakdown(e.target.value)}
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+              >
+                <option value="none">Overall</option>
+                <option value="country">By Country</option>
+                <option value="age">By Age</option>
+                <option value="gender">By Gender</option>
+                <option value="age_gender">By Age + Gender</option>
+                <option value="placement">By Placement</option>
+              </select>
+            </div>
+            <div className="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                    <th className="text-left px-4 py-2">Campaign</th>
+                    {metaBreakdown !== 'none' && <th>{breakdownLabels[metaBreakdown]}</th>}
+                    <th>Spend</th>
+                    <th>Meta Revenue</th>
+                    <th className="bg-indigo-50 text-indigo-700">Meta ROAS</th>
+                    <th className="bg-indigo-50 text-indigo-700">Meta AOV</th>
+                    <th className="bg-indigo-50 text-indigo-700">Meta CAC</th>
+                    <th>Impr</th>
+                    <th>Clicks</th>
+                    <th>CTR</th>
+                    <th>CPC</th>
+                    <th>Conv</th>
+                    <th>Conversion Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {metaBreakdownRows.map((c, idx) => {
+                    const spend = c.spend || 0;
+                    const revenue = c.conversionValue || 0;
+                    const impressions = c.impressions || 0;
+                    const clicks = c.clicks || 0;
+                    const conversions = c.conversions || 0;
+                    const rowRoas = spend > 0 ? revenue / spend : null;
+                    const rowAov = conversions > 0 ? revenue / conversions : null;
+                    const rowCac = conversions > 0 ? spend / conversions : null;
+                    const rowCtr = impressions > 0 ? (clicks / impressions) * 100 : null;
+                    const rowCpc = clicks > 0 ? spend / clicks : null;
+                    const rowCr = clicks > 0 ? (conversions / clicks) * 100 : null;
+
+                    return (
+                      <tr key={`${c.campaignId || 'overall'}-${idx}`}>
+                        <td className="px-4 py-2 font-medium">{c.campaignName}</td>
+                        {metaBreakdown !== 'none' && (
+                          <td>{getBreakdownLabel(c, metaBreakdown)}</td>
+                        )}
+                        <td className="text-indigo-600 font-semibold">{renderCurrency(spend)}</td>
+                        <td className="text-green-600 font-semibold">{renderCurrency(revenue)}</td>
+                        <td className="text-green-600 font-semibold">{renderRoas(rowRoas)}</td>
+                        <td>{renderCurrency(rowAov)}</td>
+                        <td className={rowCac && rowCac > 100 ? 'text-amber-600' : ''}>{renderCurrency(rowCac)}</td>
+                        <td>{renderNumber(impressions)}</td>
+                        <td>{renderNumber(clicks)}</td>
+                        <td>{renderPercent(rowCtr)}</td>
+                        <td>{renderCurrency(rowCpc, 2)}</td>
+                        <td>{renderNumber(conversions)}</td>
+                        <td>{renderPercent(rowCr)}</td>
+                      </tr>
+                    );
+                  })}
+                  {metaBreakdown !== 'none' && (
+                    <tr className="bg-gray-50 font-semibold">
+                      <td className="px-4 py-2">TOTAL</td>
+                      <td></td>
+                      <td className="text-indigo-600">{renderCurrency(metaTotals.spend)}</td>
+                      <td className="text-green-600">{renderCurrency(metaTotals.revenue)}</td>
+                      <td className="text-green-600">{renderRoas(metaTotals.roas)}</td>
+                      <td>{renderCurrency(metaOverallRow.metaAov)}</td>
+                      <td>{renderCurrency(metaTotals.cac, 2)}</td>
+                      <td>{renderNumber(metaTotals.impressions)}</td>
+                      <td>{renderNumber(metaTotals.clicks)}</td>
+                      <td>{renderPercent(metaOverallRow.ctr)}</td>
+                      <td>{renderCurrency(metaOverallRow.cpc, 2)}</td>
+                      <td>{renderNumber(metaTotals.conversions)}</td>
+                      <td>{renderPercent(metaOverallRow.cr)}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Funnel Diagnostics */}
+      {diagnostics && diagnostics.length > 0 && (
+        <div
+          className={`rounded-xl p-6 ${
+            diagnostics.some(d => d.type === 'warning') 
+              ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200'
+              : 'bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200'
+          }`}
+        >
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            🔍 Funnel Diagnostics
+          </h3>
+          <div className="space-y-3">
+            {diagnostics.map((d, i) => (
+              <div key={i} className="flex gap-3 p-4 bg-white/70 rounded-lg">
+                <span className="text-xl">{d.icon}</span>
+                <div>
+                  <p className="font-medium">{d.title}</p>
+                  <p className="text-sm text-gray-600">{d.detail}</p>
+                  <p className="text-sm text-indigo-600 mt-1">{d.action}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Shopify time of day trends */}
+      {store.id === 'shawq' && (
+        <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <h2 className="text-lg font-semibold">Orders by Time of Day (Last 7 Days)</h2>
+              <p className="text-sm text-gray-500">
+                Shopify orders grouped by hour. Use this to spot when customers are most active.
+              </p>
+              <div className="flex items-center gap-2 mt-2 text-xs text-gray-600 flex-wrap">
+                <span>Time Zone:</span>
+                <span className="inline-flex items-center px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 font-medium">
+                  {shopifyTimeZone}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 mt-2 text-xs text-gray-600 flex-wrap">
+                <span>Region:</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    className={`px-2 py-1 rounded ${shopifyRegion === 'all' ? 'bg-gray-200 text-gray-900' : 'bg-white text-gray-600 border'}`}
+                    onClick={() => setSelectedShopifyRegion('all')}
+                  >
+                    All Orders
+                  </button>
+                  <button
+                    className={`px-2 py-1 rounded ${shopifyRegion === 'us' ? 'bg-gray-200 text-gray-900' : 'bg-white text-gray-600 border'}`}
+                    onClick={() => setSelectedShopifyRegion('us')}
+                  >
+                    US Orders
+                  </button>
+                  <button
+                    className={`px-2 py-1 rounded ${shopifyRegion === 'europe' ? 'bg-gray-200 text-gray-900' : 'bg-white text-gray-600 border'}`}
+                    onClick={() => setSelectedShopifyRegion('europe')}
+                  >
+                    Europe Orders
+                  </button>
+                </div>
+              </div>
+              {shopifyTimeOfDay?.sampleTimestamps?.length > 0 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Sample timestamps: {shopifyTimeOfDay.sampleTimestamps.join(', ')}
+                </p>
+              )}
+            </div>
+            <div className="text-right">
+              <div className="text-xs uppercase text-gray-400">Total orders</div>
+              <div className="text-2xl font-bold text-gray-900">{totalShopifyHourlyOrders}</div>
+            </div>
+          </div>
+
+          {shopifyHourlyChartData.length > 0 ? (
+            <div className="h-64 mt-4">
+              <ResponsiveContainer>
+                <LineChart data={shopifyHourlyChartData} margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="hourLabel" tick={{ fontSize: 10 }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                  <Tooltip
+                    formatter={(value, name) => [value, name === 'orders' ? 'Orders' : 'Revenue']}
+                    labelFormatter={(label) => `${label}`}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="orders"
+                    stroke="#6366f1"
+                    strokeWidth={3}
+                    dot={{ r: 2 }}
+                    activeDot={{ r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500 mt-4">No Shopify time-of-day data available for this range.</p>
+          )}
+        </div>
+      )}
+
+      {/* Countries Performance (ecommerce-driven with cities) */}
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-gray-100">
+          <h2 className="text-lg font-semibold">Countries Performance</h2>
+          <p className="text-sm text-gray-500">
+            Combined: Meta Spend + {store.ecommerce} Orders + Manual Orders • Click headers to sort
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table>
+            <thead>
+              <tr>
+                <th className="text-left">Country</th>
+                <SortableHeader
+                  label="Spend"
+                  field="spend"
+                  sortConfig={countrySortConfig}
+                  onSort={handleCountrySort}
+                />
+                <SortableHeader
+                  label="Revenue"
+                  field="revenue"
+                  sortConfig={countrySortConfig}
+                  onSort={handleCountrySort}
+                />
+                <SortableHeader
+                  label="Share"
+                  field="spend"
+                  sortConfig={countrySortConfig}
+                  onSort={handleCountrySort}
+                />
+                <SortableHeader
+                  label="Orders"
+                  field="totalOrders"
+                  sortConfig={countrySortConfig}
+                  onSort={handleCountrySort}
+                />
+                <SortableHeader
+                  label="AOV"
+                  field="aov"
+                  sortConfig={countrySortConfig}
+                  onSort={handleCountrySort}
+                />
+                <SortableHeader
+                  label="CAC"
+                  field="cac"
+                  sortConfig={countrySortConfig}
+                  onSort={handleCountrySort}
+                />
+                <SortableHeader
+                  label="ROAS"
+                  field="roas"
+                  sortConfig={countrySortConfig}
+                  onSort={handleCountrySort}
+                />
+              </tr>
+            </thead>
+            <tbody>
+              {sortedCountries.map((c) => {
+                const share = totalCountrySpend > 0 ? (c.spend / totalCountrySpend) * 100 : 0;
+                const isExpanded = expandedCountries.has(c.code);
+                const hasCities = Array.isArray(c.cities) && c.cities.length > 0;
+                const isUsCountry = c.code === 'US';
+                return (
+                  <Fragment key={c.code}>
+                    <tr
+                      className={hasCities ? 'cursor-pointer hover:bg-gray-50' : ''}
+                      onClick={() => hasCities && toggleCountryRow(c.code)}
+                    >
+                      <td>
+                        <div className="flex items-center gap-3">
+                          {hasCities && (
+                            <span className="text-gray-400">
+                              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                            </span>
+                          )}
+                          <span className="text-xl">{c.flag}</span>
+                          <div>
+                            <div className="font-medium">{c.name}</div>
+                            <div className="text-xs text-gray-400">{c.code}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="text-indigo-600 font-semibold">{formatCurrency(c.spend)}</td>
+                      <td className="text-green-600 font-semibold">{formatCurrency(c.revenue || 0)}</td>
+                      <td>{renderPercent(share, 0)}</td>
+                      <td>
+                        <span className="badge badge-green">{c.totalOrders}</span>
+                      </td>
+                      <td>{formatCurrency(c.aov)}</td>
+                      <td className={c.cac > 80 ? 'text-amber-600 font-medium' : ''}>{formatCurrency(c.cac, 2)}</td>
+                      <td className="text-green-600 font-semibold">{renderRoas(c.roas)}</td>
+                    </tr>
+                    {isExpanded && hasCities && (
+                      <tr key={`${c.code}-cities`}>
+                        <td colSpan={8} className="bg-gray-50">
+                          <div className="p-4">
+                            <div className="text-sm font-semibold mb-2">Cities</div>
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="text-left text-gray-500">
+                                  {isUsCountry && <th className="w-28">Rank</th>}
+                                  <th>{isUsCountry ? 'State' : 'City'}</th>
+                                  <th>Orders</th>
+                                  <th>Revenue</th>
+                                  <th>AOV</th>
+                                  <th>Spend</th>
+                                  <th>CAC</th>
+                                  <th>ROAS</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                {isUsCountry
+                  ? [...c.cities]
+                      .sort((a, b) => (b.orders || 0) - (a.orders || 0))
+                      .map((state, stateIdx) => {
+                        const stateKey = `${c.code}-${state.city || 'unknown'}`;
+                        const hasStateCities = Array.isArray(state.cities) && state.cities.length > 0;
+                        const stateExpanded = expandedStates.has(stateKey);
+                        const orderedStateCities = hasStateCities
+                          ? [...state.cities].sort((a, b) => (b.orders || 0) - (a.orders || 0))
+                          : [];
+
+                        const medal = stateIdx === 0 ? '🥇' : stateIdx === 1 ? '🥈' : stateIdx === 2 ? '🥉' : null;
+
+                        return (
+                          <Fragment key={stateKey}>
+                            <tr
+                              className={hasStateCities ? 'cursor-pointer hover:bg-gray-50' : ''}
+                              onClick={() => hasStateCities && toggleStateRow(stateKey)}
+                            >
+                              <td>
+                                <div className="flex items-center gap-2">
+                                  {medal && <span>{medal}</span>}
+                                  <span className="text-xs text-gray-500">#{stateIdx + 1}</span>
+                                  {hasStateCities && (
+                                    <span className="text-gray-400">
+                                      {stateExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td>{state.city || 'Unknown'}</td>
+                              <td>{state.orders || 0}</td>
+                              <td className="text-green-600 font-semibold">{formatCurrency(state.revenue || 0)}</td>
+                              <td>{formatCurrency(state.aov || 0)}</td>
+                              <td>—</td>
+                              <td>—</td>
+                              <td>—</td>
+                            </tr>
+
+                            {stateExpanded && hasStateCities && (
+                              <tr key={`${stateKey}-cities`}>
+                                <td colSpan={8} className="bg-gray-50">
+                                  <div className="pl-10 pr-4 py-3 space-y-2">
+                                    <div className="text-xs font-semibold text-gray-600">Cities</div>
+                                    <table className="w-full text-xs">
+                                      <thead>
+                                        <tr className="text-left text-gray-500">
+                                          <th>City</th>
+                                          <th>Orders</th>
+                                          <th>Revenue</th>
+                                          <th>AOV</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {orderedStateCities.map((innerCity, cityIdx) => (
+                                          <tr key={`${stateKey}-${innerCity.city || 'unknown'}-${cityIdx}`}>
+                                            <td>{innerCity.city || 'Unknown'}</td>
+                                            <td>{innerCity.orders || 0}</td>
+                                            <td className="text-green-600 font-semibold">{formatCurrency(innerCity.revenue || 0)}</td>
+                                            <td>{formatCurrency(innerCity.aov || 0)}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })
+                  : c.cities.map((city, idx) => (
+                      <tr key={`${c.code}-${city.city || 'unknown'}-${idx}`}>
+                        <td>{city.city || 'Unknown'}</td>
+                        <td>{city.orders || 0}</td>
+                        <td className="text-green-600 font-semibold">{formatCurrency(city.revenue || 0)}</td>
+                        <td>{formatCurrency(city.aov || 0)}</td>
+                        <td>—</td>
+                        <td>—</td>
+                        <td>—</td>
+                      </tr>
+                    ))}
+              </tbody>
+            </table>
+          </div>
+        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Country order trends (collapsible) */}
+      {orderedCountryTrends && orderedCountryTrends.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          <button
+            onClick={() => setShowCountryTrends(!showCountryTrends)}
+            className="w-full p-6 flex items-center justify-between hover:bg-gray-50 transition-colors"
+          >
+            <div>
+              <h2 className="text-lg font-semibold text-left">Order Trends by Country</h2>
+              <p className="text-sm text-gray-500 text-left">
+                Click to {showCountryTrends ? 'collapse' : 'expand'} daily order trends
+                per country
+              </p>
+            </div>
+            <div
+              className={`transform transition-transform ${
+                showCountryTrends ? 'rotate-180' : ''
+              }`}
+            >
+              <ChevronDown className="w-5 h-5 text-gray-500" />
+            </div>
+          </button>
+          
+          {showCountryTrends && (
+            <div className="p-6 pt-0 space-y-6">
+              {orderedCountryTrends.map((country) => (
+                <div
+                  key={country.countryCode}
+                  className="border-t border-gray-100 pt-4 first:border-0 first:pt-0"
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xl">{country.flag}</span>
+                    <span className="font-semibold">{country.country}</span>
+                    <span className="text-sm text-gray-500">
+                      ({country.totalOrders} orders)
+                    </span>
+                  </div>
+                  <div className="h-32">
+                    <ResponsiveContainer>
+                      <AreaChart data={country.trends}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 10 }}
+                          tickFormatter={formatCountryTick}
+                        />
+                        <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                        <Tooltip
+                          labelFormatter={formatCountryTooltip}
+                          formatter={(value, name) => [
+                            value,
+                            name === 'orders' ? 'Orders' : 'Revenue'
+                          ]}
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="orders" 
+                          stroke="#6366f1"
+                          fill="#6366f1"
+                          fillOpacity={0.2}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Debug panel */}
+      <div className="bg-gray-900 text-gray-100 rounded-xl p-4 mt-6 text-sm">
+        <h3 className="font-semibold mb-2">Debug · Meta vs Dashboard</h3>
+        <p>
+          Store: <span className="font-mono">{store.id}</span>
+        </p>
+        <p>
+          Date range (API):{' '}
+          <span className="font-mono">
+            {dashboard?.dateRange?.startDate} → {dashboard?.dateRange?.endDate}
+          </span>
+        </p>
+
+        <div className="grid grid-cols-2 gap-4 mt-3">
+          <div>
+            <p className="text-xs text-gray-400 uppercase mb-1">Campaigns</p>
+            <p>
+              Total rows: <span className="font-mono">{campaigns.length}</span>
+            </p>
+            <p>
+              Spend (sum of campaigns):{' '}
+              <span className="font-mono">
+                {formatCurrency(
+                  campaigns.reduce((s, c) => s + (c.spend || 0), 0)
+                )}
+              </span>
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-400 uppercase mb-1">Overview</p>
+            <p>
+              Overview spend:{' '}
+              <span className="font-mono">
+                {formatCurrency(overview.spend || 0)}
+              </span>
+            </p>
+            <p>
+              Overview revenue:{' '}
+              <span className="font-mono">
+                {formatCurrency(overview.revenue || 0)}
+              </span>
+            </p>
+          </div>
+        </div>
+
+        <p className="mt-3 text-xs text-gray-400">
+          If campaign spend is far below Ads Manager, suspect pagination, date
+          filters, or currency conversion.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function KPICard({ kpi, trends, expanded, onToggle, formatCurrency }) {
