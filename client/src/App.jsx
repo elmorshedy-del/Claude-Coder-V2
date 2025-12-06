@@ -1,4 +1,5 @@
 // client/src/App.jsx
+
 import { Fragment, useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   LineChart, Line, AreaChart, Area,
@@ -9,7 +10,7 @@ import {
   Store, ChevronDown, ChevronUp, ArrowUpDown, Calendar, Bell
 } from 'lucide-react';
 import { COUNTRIES as MASTER_COUNTRIES } from './data/countries';
-
+import NotificationCenter from './components/NotificationCenter';
 const API_BASE = '/api';
 
 const getLocalDateString = (date = new Date()) => {
@@ -477,52 +478,7 @@ export default function App() {
                 {dashboard?.dateRange &&
                   `${dashboard.dateRange.startDate} to ${dashboard.dateRange.endDate}`}
               </span>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowNotificationPanel(prev => !prev)}
-                  className={`relative p-2 rounded-lg border text-sm font-medium transition-colors ${
-                    showNotificationPanel ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-                  }`}
-                  aria-label="Order notifications"
-                >
-                  <Bell className="w-4 h-4" />
-                  {Array.isArray(notifications) && notifications.length > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white ring-2 ring-white">
-                      {notifications.length > 9 ? '9+' : notifications.length}
-                    </span>
-                  )}
-                </button>
-                {showNotificationPanel && (
-                  <div className="absolute right-0 mt-2 w-80 rounded-xl border border-gray-200 bg-white shadow-lg z-50">
-                    <div className="flex items-center justify-between p-3 border-b border-gray-100">
-                      <span className="text-sm font-semibold text-gray-900">Notifications</span>
-                      {Array.isArray(notifications) && notifications.length > 0 && (
-                        <button
-                          onClick={() => setNotifications([])}
-                          className="text-xs text-gray-500 hover:text-gray-700"
-                        >
-                          Clear all
-                        </button>
-                      )}
-                    </div>
-                    <div className="max-h-64 overflow-y-auto">
-                      {Array.isArray(notifications) && notifications.length > 0 ? (
-                        notifications.map((notif) => (
-                          <div key={notif?.id || Math.random()} className="p-3 border-b border-gray-50 last:border-b-0 hover:bg-gray-50">
-                            <p className="text-sm text-gray-900">{notif?.message || 'New order'}</p>
-                            <p className="text-xs text-gray-500 mt-1">
-                              {notif?.source && <span className="capitalize">{notif.source}</span>}
-                              {notif?.country && <span> • {notif.country}</span>}
-                              {notif?.timestamp && <span> • {formatNotificationTime(notif.timestamp)}</span>}
-                            </p>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="p-4 text-sm text-gray-500 text-center">No notifications yet</p>
-                      )}
-                    </div>
-                  </div>
+              <NotificationCenter currentStore={currentStore} />
                 )}
               </div>
               <button
