@@ -2,26 +2,7 @@ import { getDb } from '../db/database.js';
 
 // Check if Salla is active for VironaX
 function isSallaActive() {
-  const sallaToken = process.env.SALLA_ACCESS_TOKEN;
-  const sallaMerchantId = process.env.SALLA_MERCHANT_ID;
-  
-  if (!sallaToken || !sallaMerchantId) {
-    return false;
-  }
-  
-  // Check if we have recent Salla sync data (within last 24 hours)
-  const db = getDb();
-  try {
-    const recentSync = db.prepare(`
-      SELECT COUNT(*) as count FROM salla_orders 
-      WHERE store = 'vironax' 
-      AND created_at > datetime('now', '-24 hours')
-    `).get();
-    
-    return recentSync.count > 0;
-  } catch (error) {
-    return false;
-  }
+  return !!process.env.VIRONAX_SALLA_ACCESS_TOKEN;
 }
 
 // Determine if we should create a notification for this order
@@ -124,15 +105,16 @@ export function createOrderNotifications(store, source, orders) {
   const ordersByCountry = {};
   
   for (const order of orders) {
-    const orderDate = new Date(order.created_at || order.date || order.timestamp);
-    
+    // Shawq/Shopify uses order_created_at and order_total, others use created_at and total_price
+    const orderDate = new Date(order.order_created_at || order.created_at || order.date || order.timestamp);
+
     // Only notify for orders newer than last notification
     if (orderDate <= lastTimestamp) {
       continue;
     }
-    
+
     const country = order.country || order.shipping_country || 'Unknown';
-    const value = parseFloat(order.total_price || order.revenue || order.value || 0);
+    const value = parseFloat(order.order_total || order.total_price || order.revenue || order.value || 0);
     
     if (!ordersByCountry[country]) {
       ordersByCountry[country] = {

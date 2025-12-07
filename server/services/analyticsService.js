@@ -54,26 +54,7 @@ function getPreviousDateRange(startDate, endDate) {
 // SALLA DETECTION
 // ============================================================================
 function isSallaActive() {
-  // Use the same environment variable as sallaService.js
-  const sallaToken = process.env.VIRONAX_SALLA_ACCESS_TOKEN;
-
-  if (!sallaToken) {
-    return false;
-  }
-
-  const db = getDb();
-  try {
-    // Check if we have recent Salla orders
-    const recentOrders = db.prepare(`
-      SELECT COUNT(*) as count FROM salla_orders
-      WHERE store = 'vironax'
-    `).get();
-
-    return recentOrders.count > 0;
-  } catch (error) {
-    console.warn('[Analytics] Error checking Salla active status:', error);
-    return false;
-  }
+  return !!process.env.VIRONAX_SALLA_ACCESS_TOKEN;
 }
 
 // ============================================================================
@@ -311,16 +292,15 @@ function getDynamicCountries(db, store, startDate, endDate) {
     `).all(store, startDate, endDate);
     dataSource = 'Shopify';
   } else if (store === 'vironax') {
-    // Try to get Salla data for VironaX
-    ecomData = db.prepare(`
-      SELECT country_code as countryCode, COUNT(*) as orders, SUM(subtotal) as revenue
-      FROM salla_orders WHERE store = ? AND date BETWEEN ? AND ? AND country_code IS NOT NULL GROUP BY country_code
-    `).all(store, startDate, endDate);
-
-    // Check if we have Salla data
-    if (ecomData && ecomData.length > 0) {
+    // Check if Salla token exists (not database - avoids demo data issues)
+    if (isSallaActive()) {
+      ecomData = db.prepare(`
+        SELECT country_code as countryCode, COUNT(*) as orders, SUM(subtotal) as revenue
+        FROM salla_orders WHERE store = ? AND date BETWEEN ? AND ? AND country_code IS NOT NULL GROUP BY country_code
+      `).all(store, startDate, endDate);
       dataSource = 'Salla';
     } else {
+      // Salla NOT connected - Meta conversions will be used via fallback below
       dataSource = 'Meta';
     }
   }
@@ -446,13 +426,9 @@ export function getCountryTrends(store, params) {
       dataSource = 'Shopify';
 
     } else if (store === 'vironax') {
-      // First check if we have any Salla data
-      const sallaCount = db.prepare(`
-        SELECT COUNT(*) as count FROM salla_orders
-        WHERE store = ? AND date BETWEEN ? AND ?
-      `).get(store, startDate, endDate);
-
-      if (sallaCount && sallaCount.count > 0) {
+      // Check if Salla token exists (not database - avoids demo data issues)
+      if (isSallaActive()) {
+        // Salla connected - try to get Salla data
         rawData = db.prepare(`
           SELECT
             date,
@@ -466,7 +442,7 @@ export function getCountryTrends(store, params) {
         `).all(store, startDate, endDate);
         dataSource = 'Salla';
       } else {
-        // Fallback to Meta data
+        // Salla NOT connected - use Meta conversions (Meta sends intraday data)
         rawData = db.prepare(`
           SELECT
             date,
@@ -771,12 +747,12 @@ export function getOrdersByDayOfWeek(store, params) {
       orders = db.prepare(`SELECT date FROM shopify_orders WHERE store = ? AND date BETWEEN ? AND ?`).all(store, startDate, endDate);
       source = 'Shopify';
     } else if (store === 'vironax') {
-      // Try Salla first
-      orders = db.prepare(`SELECT date FROM salla_orders WHERE store = ? AND date BETWEEN ? AND ?`).all(store, startDate, endDate);
-      source = 'Salla';
-
-      // Fallback to Meta if no Salla orders
-      if (!orders || orders.length === 0) {
+      // Check if Salla token exists (not database - avoids demo data issues)
+      if (isSallaActive()) {
+        orders = db.prepare(`SELECT date FROM salla_orders WHERE store = ? AND date BETWEEN ? AND ?`).all(store, startDate, endDate);
+        source = 'Salla';
+      } else {
+        // Salla NOT connected - use Meta conversions
         orders = db.prepare(`SELECT date FROM meta_daily_metrics WHERE store = ? AND date BETWEEN ? AND ? AND conversions > 0`).all(store, startDate, endDate);
         source = 'Meta';
       }
