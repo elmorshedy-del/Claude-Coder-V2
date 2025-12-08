@@ -1,5 +1,5 @@
 import express from 'express';
-import { askAnalyticsQuestion } from '../services/openaiService.js';
+import { askAnalyticsQuestion, exploreData } from '../services/openaiService.js';
 
 const router = express.Router();
 
@@ -15,6 +15,34 @@ router.post('/ask', async (req, res) => {
     res.json({ success: true, answer });
   } catch (error) {
     console.error('[AI] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+router.post('/explore', async (req, res) => {
+  try {
+    const {
+      query,
+      dashboardData,
+      store,
+      model,
+      selectedMetrics,
+      selectedDimensions,
+      visualization,
+      dateFilter
+    } = req.body;
+
+    const result = await exploreData(
+      query,
+      dashboardData,
+      store,
+      model,
+      { selectedMetrics, selectedDimensions, visualization, dateFilter }
+    );
+
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error('[AI Explore] Error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
