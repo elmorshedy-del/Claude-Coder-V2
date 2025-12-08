@@ -18,12 +18,12 @@ const FALLBACK_MODELS = {
 };
 
 const TOKEN_LIMITS = {
-  nano: 170,
-  mini: 340,
-  instant: 320,
-  fast: 320,
-  balanced: 450,
-  deep: 560
+  nano: 500,
+  mini: 1000,
+  instant: 800,
+  fast: 1000,
+  balanced: 1500,
+  deep: 2500
 };
 
 const DEPTH_TO_EFFORT = {
