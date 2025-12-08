@@ -18,12 +18,12 @@ const FALLBACK_MODELS = {
 };
 
 const TOKEN_LIMITS = {
-  nano: 500,
-  mini: 1000,
-  instant: 800,
-  fast: 1000,
-  balanced: 1500,
-  deep: 2500
+  nano: 2000,
+  mini: 4000,
+  instant: 4000,
+  fast: 8000,
+  balanced: 16000,
+  deep: 32000
 };
 
 const DEPTH_TO_EFFORT = {
@@ -38,12 +38,16 @@ function getRelevantData(store, question) {
   const data = {};
   const q = question.toLowerCase();
 
+  // Normalize store name - handle case sensitivity
+  const storeNormalized = store.toLowerCase();
+
   const today = new Date().toISOString().split('T')[0];
   const last7Days = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const last30Days = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   try {
+    // Overview - try both exact and lowercase
     data.overview = db.prepare(`
       SELECT 
         SUM(spend) as totalSpend,
@@ -54,39 +58,36 @@ function getRelevantData(store, question) {
         ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas,
         ROUND(SUM(spend) / NULLIF(SUM(conversions), 0), 2) as cpa
       FROM meta_daily_metrics 
-      WHERE store = ? AND date >= ?
-    `).get(store, last7Days);
+      WHERE LOWER(store) = ? AND date >= ?
+    `).get(storeNormalized, last7Days);
 
     data.today = db.prepare(`
       SELECT SUM(spend) as spend, SUM(conversion_value) as revenue, SUM(conversions) as orders
-      FROM meta_daily_metrics WHERE store = ? AND date = ?
-    `).get(store, today);
+      FROM meta_daily_metrics WHERE LOWER(store) = ? AND date = ?
+    `).get(storeNormalized, today);
 
     data.yesterday = db.prepare(`
       SELECT SUM(spend) as spend, SUM(conversion_value) as revenue, SUM(conversions) as orders
-      FROM meta_daily_metrics WHERE store = ? AND date = ?
-    `).get(store, yesterday);
+      FROM meta_daily_metrics WHERE LOWER(store) = ? AND date = ?
+    `).get(storeNormalized, yesterday);
 
-    if (q.includes('campaign') || q.includes('scale') || q.includes('pause') || q.includes('budget') || 
-        q.includes('perform') || q.includes('roas') || q.includes('best') || q.includes('worst') ||
-        q.includes('recommend') || q.includes('optim') || q.includes('improv') || q.includes('analyz') ||
-        q.includes('review') || q.includes('assess') || q.includes('evaluat') || q.includes('insight')) {
-      data.campaigns = db.prepare(`
-        SELECT 
-          campaign_name, campaign_id,
-          SUM(spend) as spend, SUM(conversion_value) as revenue, SUM(conversions) as orders,
-          SUM(impressions) as impressions, SUM(clicks) as clicks,
-          ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas,
-          ROUND(SUM(spend) / NULLIF(SUM(conversions), 0), 2) as cpa,
-          ROUND(SUM(clicks) * 100.0 / NULLIF(SUM(impressions), 0), 2) as ctr
-        FROM meta_daily_metrics 
-        WHERE store = ? AND date >= ? AND campaign_name IS NOT NULL
-        GROUP BY campaign_id, campaign_name
-        ORDER BY spend DESC LIMIT 20
-      `).all(store, last7Days);
-    }
+    // Always fetch campaigns
+    data.campaigns = db.prepare(`
+      SELECT 
+        campaign_name, campaign_id,
+        SUM(spend) as spend, SUM(conversion_value) as revenue, SUM(conversions) as orders,
+        SUM(impressions) as impressions, SUM(clicks) as clicks,
+        ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas,
+        ROUND(SUM(spend) / NULLIF(SUM(conversions), 0), 2) as cpa,
+        ROUND(SUM(clicks) * 100.0 / NULLIF(SUM(impressions), 0), 2) as ctr
+      FROM meta_daily_metrics 
+      WHERE LOWER(store) = ? AND date >= ? AND campaign_name IS NOT NULL
+      GROUP BY campaign_id, campaign_name
+      ORDER BY spend DESC LIMIT 20
+    `).all(storeNormalized, last7Days);
 
-    if (q.includes('adset') || q.includes('ad set')) {
+    // Always fetch ad sets
+    try {
       data.adsets = db.prepare(`
         SELECT 
           campaign_name, adset_name, adset_id,
@@ -94,13 +95,16 @@ function getRelevantData(store, question) {
           ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas,
           ROUND(SUM(spend) / NULLIF(SUM(conversions), 0), 2) as cpa
         FROM meta_adset_metrics 
-        WHERE store = ? AND date >= ?
+        WHERE LOWER(store) = ? AND date >= ?
         GROUP BY adset_id, adset_name, campaign_name
         ORDER BY spend DESC LIMIT 20
-      `).all(store, last7Days);
+      `).all(storeNormalized, last7Days);
+    } catch (e) {
+      console.log('[getRelevantData] Adset query failed:', e.message);
     }
 
-    if (q.includes('ad') || q.includes('creative')) {
+    // Always fetch ads
+    try {
       data.ads = db.prepare(`
         SELECT 
           campaign_name, adset_name, ad_name, ad_id,
@@ -109,10 +113,12 @@ function getRelevantData(store, question) {
           ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas,
           ROUND(SUM(clicks) * 100.0 / NULLIF(SUM(impressions), 0), 2) as ctr
         FROM meta_ad_metrics 
-        WHERE store = ? AND date >= ?
+        WHERE LOWER(store) = ? AND date >= ?
         GROUP BY ad_id, ad_name, adset_name, campaign_name
         ORDER BY spend DESC LIMIT 30
-      `).all(store, last7Days);
+      `).all(storeNormalized, last7Days);
+    } catch (e) {
+      console.log('[getRelevantData] Ads query failed:', e.message);
     }
 
     if (q.includes('country') || q.includes('countr') || q.includes('saudi') || q.includes('uae') || q.includes('geo') || q.includes('region')) {
@@ -123,10 +129,10 @@ function getRelevantData(store, question) {
           ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas,
           ROUND(SUM(spend) / NULLIF(SUM(conversions), 0), 2) as cpa
         FROM meta_daily_metrics 
-        WHERE store = ? AND date >= ? AND country != 'ALL' AND country IS NOT NULL AND country != ''
+        WHERE LOWER(store) = ? AND date >= ? AND country != 'ALL' AND country IS NOT NULL AND country != ''
         GROUP BY country
         ORDER BY spend DESC
-      `).all(store, last7Days);
+      `).all(storeNormalized, last7Days);
     }
 
     if (q.includes('trend') || q.includes('daily') || q.includes('week') || q.includes('over time') || q.includes('history')) {
@@ -136,21 +142,21 @@ function getRelevantData(store, question) {
           SUM(spend) as spend, SUM(conversion_value) as revenue, SUM(conversions) as orders,
           ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas
         FROM meta_daily_metrics 
-        WHERE store = ? AND date >= ?
+        WHERE LOWER(store) = ? AND date >= ?
         GROUP BY date
         ORDER BY date DESC LIMIT 14
-      `).all(store, last30Days);
+      `).all(storeNormalized, last30Days);
     }
 
     if (q.includes('order') || q.includes('sale') || q.includes('revenue')) {
-      const orderTable = store === 'vironax' ? 'salla_orders' : 'shopify_orders';
+      const orderTable = storeNormalized === 'vironax' ? 'salla_orders' : 'shopify_orders';
       try {
         data.recentOrders = db.prepare(`
           SELECT date, COUNT(*) as order_count, SUM(order_total) as revenue, country_code
           FROM ${orderTable}
-          WHERE store = ? AND date >= ?
+          WHERE LOWER(store) = ? AND date >= ?
           GROUP BY date ORDER BY date DESC LIMIT 7
-        `).all(store, last7Days);
+        `).all(storeNormalized, last7Days);
       } catch (e) {
         console.log('[getRelevantData] Order table query failed:', e.message);
       }
@@ -163,8 +169,8 @@ function getRelevantData(store, question) {
           SUM(landing_page_views) as landing_page_views, SUM(add_to_cart) as add_to_cart,
           SUM(checkouts_initiated) as checkouts, SUM(conversions) as purchases
         FROM meta_daily_metrics 
-        WHERE store = ? AND date >= ?
-      `).get(store, last7Days);
+        WHERE LOWER(store) = ? AND date >= ?
+      `).get(storeNormalized, last7Days);
     }
 
   } catch (error) {
@@ -175,11 +181,12 @@ function getRelevantData(store, question) {
 }
 
 function buildSystemPrompt(store, mode, data) {
-  const storeContext = store === 'vironax'
+  const storeLower = store.toLowerCase();
+  const storeContext = storeLower === 'vironax'
     ? 'VironaX (Saudi Arabia, SAR currency, Salla e-commerce, mens jewelry)'
     : 'Shawq (Turkey/US, USD currency, Shopify, Palestinian & Syrian apparel)';
 
-  const currency = store === 'vironax' ? 'SAR' : 'USD';
+  const currency = storeLower === 'vironax' ? 'SAR' : 'USD';
 
   const basePrompt = `You are an AI analytics assistant for ${storeContext}.
 Currency: ${currency}
@@ -200,7 +207,14 @@ RULES:
   if (mode === 'summarize') {
     return basePrompt + `\n\nMODE: Trends & Patterns - Summarize data, compare periods, flag anomalies. Use bullet points.`;
   }
-  return basePrompt + `\n\nMODE: Strategic Decisions - Give actionable recommendations with specific numbers. Be decisive.`;
+  return basePrompt + `\n\nMODE: Strategic Decisions
+- Give DETAILED actionable recommendations with specific numbers
+- Analyze EACH campaign individually - don't just summarize
+- For each campaign, state: performance verdict, why, and specific action
+- Include specific budget recommendations with dollar/SAR amounts
+- Prioritize by impact
+- Be thorough - this is a deep analysis, not a summary
+- Format with clear sections and bullet points`;
 }
 
 async function callResponsesAPI(model, systemPrompt, userMessage, maxTokens, reasoningEffort = null) {
