@@ -2,8 +2,8 @@
 
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  LineChart, Line, AreaChart, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
+  LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import {
   RefreshCw, TrendingUp, TrendingDown, Plus, Trash2,
@@ -52,7 +52,7 @@ const STORES = {
   }
 };
 
-const TABS = ['Dashboard', 'Budget Efficiency', 'Budget Intelligence', 'Manual Data', 'AI Assistant'];
+const TABS = ['Dashboard', 'Budget Efficiency', 'Budget Intelligence', 'Manual Data', 'Exploration'];
 
 export default function App() {
   const [currentStore, setCurrentStore] = useState('vironax');
@@ -832,7 +832,7 @@ export default function App() {
         )}
 
         {activeTab === 4 && (
-          <AIAssistantTab
+          <AIExplorationTab
             store={store}
             dashboard={dashboard}
             metaAdManagerData={metaAdManagerData}
@@ -3717,18 +3717,37 @@ function FunnelDiagnostics({ data, currency = 'SAR', formatCurrency, expanded, s
   );
 }
 
-function AIAssistantTab({ store, dashboard, metaAdManagerData, funnelDiagnostics, dateRange, API_BASE, metaBreakdownData, countryTrends, efficiency, efficiencyTrends, budgetIntelligence, recommendations }) {
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      content: `👋 Hi! I'm your analytics assistant. I can see your ${store.name} data.\n\nAsk me anything! Try:\n• "Why did my CVR drop?"\n• "Which campaign should I scale?"\n• "Compare my campaigns"\n• "What's wrong with my funnel?"`
-    }
-  ]);
-  const [input, setInput] = useState('');
+function AIExplorationTab({ store, dashboard, metaAdManagerData, funnelDiagnostics, dateRange, API_BASE, metaBreakdownData, countryTrends, efficiency }) {
+  const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
-  const [aiConfigured, setAiConfigured] = useState(true);
+  const [result, setResult] = useState(null);
   const [selectedModel, setSelectedModel] = useState('gpt-5.1');
-  const messagesEndRef = useRef(null);
+  const [aiConfigured, setAiConfigured] = useState(true);
+
+  // Metrics/Dimensions/Filters state
+  const [selectedMetrics, setSelectedMetrics] = useState([]);
+  const [selectedDimensions, setSelectedDimensions] = useState([]);
+  const [visualization, setVisualization] = useState('auto');
+  const [dateFilter, setDateFilter] = useState('7d');
+
+  const availableMetrics = [
+    { id: 'orders', label: 'Orders', icon: '📦' },
+    { id: 'revenue', label: 'Revenue', icon: '💰' },
+    { id: 'spend', label: 'Ad Spend', icon: '💸' },
+    { id: 'roas', label: 'ROAS', icon: '📈' },
+    { id: 'ctr', label: 'CTR', icon: '👆' },
+    { id: 'cvr', label: 'CVR', icon: '🎯' },
+    { id: 'cpc', label: 'CPC', icon: '💵' },
+    { id: 'impressions', label: 'Impressions', icon: '👁️' },
+    { id: 'clicks', label: 'Clicks', icon: '🖱️' },
+  ];
+
+  const availableDimensions = [
+    { id: 'day', label: 'Day' },
+    { id: 'campaign', label: 'Campaign' },
+    { id: 'country', label: 'Country' },
+    { id: 'hour', label: 'Hour of Day' },
+  ];
 
   useEffect(() => {
     fetch(`${API_BASE}/ai/status`)
@@ -3737,17 +3756,10 @@ function AIAssistantTab({ store, dashboard, metaAdManagerData, funnelDiagnostics
       .catch(() => setAiConfigured(false));
   }, [API_BASE]);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  const handleExplore = async (e) => {
+    e?.preventDefault();
+    if (!query.trim() && selectedMetrics.length === 0) return;
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!input.trim() || loading) return;
-
-    const userMessage = input.trim();
-    setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
 
     try {
@@ -3757,54 +3769,55 @@ function AIAssistantTab({ store, dashboard, metaAdManagerData, funnelDiagnostics
         diagnostics: funnelDiagnostics,
         dateRange,
         countryBreakdown: metaBreakdownData,
-        countryTrends: countryTrends,
-        efficiency: efficiency,
-        efficiencyTrends: efficiencyTrends,
-        budgetIntelligence: budgetIntelligence,
-        recommendations: recommendations
+        countryTrends,
+        efficiency
       };
 
-      const response = await fetch(`${API_BASE}/ai/ask`, {
+      const response = await fetch(`${API_BASE}/ai/explore`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          question: userMessage,
+          query: query.trim(),
           dashboardData,
           store: store.id,
-          model: selectedModel
+          model: selectedModel,
+          selectedMetrics,
+          selectedDimensions,
+          visualization,
+          dateFilter
         })
       });
 
       const data = await response.json();
 
       if (data.success) {
-        setMessages(prev => [...prev, { role: 'assistant', content: data.answer }]);
+        setResult(data.result);
       } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: `❌ Error: ${data.error}` }]);
+        setResult({ type: 'error', message: data.error });
       }
     } catch (error) {
-      setMessages(prev => [...prev, { role: 'assistant', content: `❌ Error: ${error.message}` }]);
+      setResult({ type: 'error', message: error.message });
     } finally {
       setLoading(false);
     }
   };
 
-  const suggestedQuestions = [
-    "Why did my ROAS drop?",
-    "Which campaign is performing best?",
-    "Should I scale any campaigns?",
-    "What's wrong with my funnel?",
-    "Compare Saudi Arabia vs other countries",
-    "How can I improve my CTR?"
+  const suggestedQueries = [
+    "How many orders today?",
+    "Show revenue by country",
+    "Compare campaign performance",
+    "What's my best performing campaign?",
+    "Show me the sales trend this week",
+    "Why did ROAS drop?"
   ];
 
   if (!aiConfigured) {
     return (
       <div className="bg-white rounded-xl shadow-sm p-8 text-center">
-        <div className="text-6xl mb-4">🤖</div>
-        <h2 className="text-xl font-semibold mb-2">AI Assistant Not Configured</h2>
+        <div className="text-6xl mb-4">✨</div>
+        <h2 className="text-xl font-semibold mb-2">AI Exploration Not Configured</h2>
         <p className="text-gray-600 mb-4">
-          Add your OpenAI API key to Railway environment variables to enable the AI Assistant.
+          Add your OpenAI API key to enable AI-powered data exploration.
         </p>
         <code className="bg-gray-100 px-3 py-1 rounded text-sm">OPENAI_API_KEY=sk-...</code>
       </div>
@@ -3812,85 +3825,357 @@ function AIAssistantTab({ store, dashboard, metaAdManagerData, funnelDiagnostics
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm overflow-hidden flex flex-col" style={{ height: 'calc(100vh - 200px)' }}>
-      <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-purple-50 to-indigo-50">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
-          🤖 AI Analytics Assistant
-        </h2>
-        <p className="text-sm text-gray-600">
-          Ask questions about your {store.name} data
-        </p>
-        <div className="flex items-center gap-2 mt-2">
-          <span className="text-sm text-gray-500">Model:</span>
+    <div className="h-full flex flex-col" style={{ height: 'calc(100vh - 200px)' }}>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900">AI Exploration</h1>
+          <p className="text-sm text-gray-500 mt-1">Ask questions about your {store.name} data</p>
+        </div>
+        <div className="flex items-center gap-3">
           <select
             value={selectedModel}
             onChange={(e) => setSelectedModel(e.target.value)}
-            className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white"
           >
-            <option value="gpt-5.1">⚡ GPT-5.1 Instant (Fast)</option>
-            <option value="gpt-5.1-thinking">🧠 GPT-5.1 Thinking (Smartest)</option>
+            <option value="gpt-5.1">⚡ GPT-5.1 Instant</option>
+            <option value="gpt-5.1-thinking">🧠 GPT-5.1 Thinking</option>
           </select>
+          <button
+            onClick={() => { setResult(null); setQuery(''); setSelectedMetrics([]); setSelectedDimensions([]); }}
+            className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800"
+          >
+            New exploration
+          </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-4">
-        {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-              msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-800'
-            }`}>
-              <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
+      {/* Main Content */}
+      <div className="flex-1 flex gap-6 min-h-0">
+        {/* Left Panel - Query & Results */}
+        <div className="flex-1 flex flex-col min-h-0">
+          {/* Query Input */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+            <form onSubmit={handleExplore}>
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">✨</span>
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="What do you want to explore?"
+                  className="flex-1 text-lg border-none outline-none placeholder-gray-400"
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="p-2 hover:bg-gray-100 rounded-lg"
+                >
+                  {loading ? (
+                    <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                  ) : (
+                    <span className="text-xl">▶</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Suggested Queries (when no result) */}
+          {!result && !loading && (
+            <div className="bg-white rounded-xl border border-gray-200 p-8 flex-1 flex flex-col items-center justify-center">
+              <div className="w-16 h-16 bg-blue-50 rounded-xl flex items-center justify-center mb-4">
+                <span className="text-3xl">📊</span>
+              </div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Start by asking a question</h3>
+              <p className="text-sm text-gray-500 mb-6">Or select metrics from the right panel</p>
+              <div className="flex flex-wrap gap-2 justify-center max-w-lg">
+                {suggestedQueries.map((q, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { setQuery(q); }}
+                    className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Loading State */}
+          {loading && (
+            <div className="bg-white rounded-xl border border-gray-200 p-8 flex-1 flex flex-col items-center justify-center">
+              <div className="w-12 h-12 border-4 border-gray-200 border-t-blue-500 rounded-full animate-spin mb-4" />
+              <p className="text-gray-600">Analyzing your data...</p>
+            </div>
+          )}
+
+          {/* Results */}
+          {result && !loading && (
+            <div className="bg-white rounded-xl border border-gray-200 flex-1 overflow-auto">
+              {/* Generated Query Display */}
+              {result.generatedQuery && (
+                <div className="border-b border-gray-100 p-4">
+                  <div className="flex items-start gap-3">
+                    <span className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      {result.description && (
+                        <p className="text-sm text-gray-600 mb-2">{result.description}</p>
+                      )}
+                      <pre className="text-sm font-mono bg-gray-50 p-3 rounded-lg overflow-x-auto">
+                        {result.generatedQuery.split('\n').map((line, i) => (
+                          <div key={i}>
+                            <span className="text-gray-400 mr-3">{i + 1}</span>
+                            <span className={
+                              line.includes('FROM') ? 'text-purple-600 font-semibold' :
+                              line.includes('SHOW') ? 'text-blue-600 font-semibold' :
+                              line.includes('DURING') ? 'text-green-600 font-semibold' :
+                              line.includes('VISUALIZE') ? 'text-orange-600 font-semibold' :
+                              'text-gray-700'
+                            }>{line}</span>
+                          </div>
+                        ))}
+                      </pre>
+                    </div>
+                  </div>
+
+                  {/* Refine Query */}
+                  <div className="mt-3 ml-5">
+                    <input
+                      type="text"
+                      placeholder="Refine query..."
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && e.target.value) {
+                          setQuery(e.target.value);
+                          e.target.value = '';
+                          handleExplore();
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Metric Display (Big Number) */}
+              {result.type === 'metric' && (
+                <div className="p-12 text-center">
+                  <div className="text-7xl font-bold text-gray-900 mb-2">
+                    {result.value}
+                  </div>
+                  <div className="text-xl text-gray-500">{result.label}</div>
+                  {result.change !== undefined && result.change !== null && (
+                    <div className={`mt-4 text-lg ${result.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {result.change >= 0 ? '↑' : '↓'} {Math.abs(result.change)}% vs previous period
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Chart Display */}
+              {result.type === 'chart' && result.data && (
+                <div className="p-6">
+                  {/* Chart Type Selector */}
+                  <div className="flex gap-2 mb-4">
+                    {['bar', 'line', 'pie'].map(type => (
+                      <button
+                        key={type}
+                        onClick={() => setResult({ ...result, chartType: type })}
+                        className={`px-3 py-1.5 rounded-lg text-sm ${
+                          (result.chartType || 'bar') === type
+                            ? 'bg-gray-900 text-white'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        {type === 'bar' ? '📊' : type === 'line' ? '📈' : '🥧'} {type.charAt(0).toUpperCase() + type.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Chart */}
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      {(result.chartType || 'bar') === 'bar' ? (
+                        <BarChart data={result.data}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                          <YAxis tick={{ fontSize: 12 }} />
+                          <Tooltip />
+                          <Bar dataKey="value" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      ) : (result.chartType || 'bar') === 'line' ? (
+                        <LineChart data={result.data}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                          <YAxis tick={{ fontSize: 12 }} />
+                          <Tooltip />
+                          <Line type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} dot={{ fill: '#6366f1' }} />
+                        </LineChart>
+                      ) : (
+                        <PieChart>
+                          <Pie
+                            data={result.data}
+                            dataKey="value"
+                            nameKey="name"
+                            cx="50%"
+                            cy="50%"
+                            outerRadius={80}
+                            fill="#6366f1"
+                            label
+                          >
+                            {result.data.map((entry, index) => (
+                              <Cell key={index} fill={['#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd', '#ddd6fe'][index % 5]} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                        </PieChart>
+                      )}
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {/* Text Response */}
+              {result.type === 'text' && (
+                <div className="p-6">
+                  <div className="prose prose-sm max-w-none">
+                    <div className="whitespace-pre-wrap text-gray-700">{result.content}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Error */}
+              {result.type === 'error' && (
+                <div className="p-6">
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <p className="text-red-700">❌ {result.message}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Right Sidebar - Metrics/Dimensions/Filters */}
+        <div className="w-72 space-y-4 overflow-y-auto flex-shrink-0">
+          {/* Metrics */}
+          <div className="bg-white rounded-xl border border-gray-200">
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <span className="font-medium text-gray-900">Metrics</span>
+              <span className="text-xs text-gray-400">{selectedMetrics.length} selected</span>
+            </div>
+            <div className="p-2 max-h-64 overflow-y-auto">
+              {availableMetrics.map(metric => (
+                <label
+                  key={metric.id}
+                  className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedMetrics.includes(metric.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedMetrics([...selectedMetrics, metric.id]);
+                      } else {
+                        setSelectedMetrics(selectedMetrics.filter(m => m !== metric.id));
+                      }
+                    }}
+                    className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+                  />
+                  <span className="text-sm">{metric.icon}</span>
+                  <span className="text-sm text-gray-700">{metric.label}</span>
+                </label>
+              ))}
             </div>
           </div>
-        ))}
-        {loading && (
-          <div className="flex justify-start">
-            <div className="bg-gray-100 rounded-2xl px-4 py-3">
-              <div className="flex items-center gap-2 text-gray-500">
-                <div className="animate-spin h-4 w-4 border-2 border-indigo-500 border-t-transparent rounded-full"></div>
-                Thinking...
+
+          {/* Dimensions */}
+          <div className="bg-white rounded-xl border border-gray-200">
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <span className="font-medium text-gray-900">Dimensions</span>
+              <span className="text-xs text-gray-400">{selectedDimensions.length} selected</span>
+            </div>
+            <div className="p-2">
+              {availableDimensions.map(dim => (
+                <label
+                  key={dim.id}
+                  className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedDimensions.includes(dim.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedDimensions([...selectedDimensions, dim.id]);
+                      } else {
+                        setSelectedDimensions(selectedDimensions.filter(d => d !== dim.id));
+                      }
+                    }}
+                    className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+                  />
+                  <span className="text-sm text-gray-700">{dim.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Visualization */}
+          <div className="bg-white rounded-xl border border-gray-200">
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <span className="font-medium text-gray-900">Visualization</span>
+            </div>
+            <div className="p-4">
+              <select
+                value={visualization}
+                onChange={(e) => setVisualization(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+              >
+                <option value="auto">Auto</option>
+                <option value="metric">Display metric</option>
+                <option value="bar">Bar chart</option>
+                <option value="line">Line chart</option>
+                <option value="pie">Pie chart</option>
+                <option value="table">Table</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="bg-white rounded-xl border border-gray-200">
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <span className="font-medium text-gray-900">Filters</span>
+            </div>
+            <div className="p-4">
+              <div className="text-sm text-gray-500 mb-2">Date range</div>
+              <div className="flex flex-wrap gap-2">
+                {['Today', '7D', '14D', '30D'].map(period => (
+                  <button
+                    key={period}
+                    onClick={() => setDateFilter(period.toLowerCase())}
+                    className={`px-3 py-1.5 rounded-lg text-sm ${
+                      dateFilter === period.toLowerCase()
+                        ? 'bg-gray-900 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {period}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
 
-      {messages.length === 1 && (
-        <div className="px-6 pb-4">
-          <div className="flex flex-wrap gap-2">
-            {suggestedQuestions.map((q, i) => (
-              <button
-                key={i}
-                onClick={() => setInput(q)}
-                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-sm text-gray-700 transition-colors"
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="p-4 border-t border-gray-100">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask about your campaigns, metrics, or get recommendations..."
-            className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            disabled={loading}
-          />
+          {/* Run Button */}
           <button
-            type="submit"
-            disabled={loading || !input.trim()}
-            className="px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            onClick={handleExplore}
+            disabled={loading || (selectedMetrics.length === 0 && !query.trim())}
+            className="w-full py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            Send
+            <span>▶</span> Run
           </button>
         </div>
-      </form>
+      </div>
     </div>
   );
 }
