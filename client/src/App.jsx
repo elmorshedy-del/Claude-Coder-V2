@@ -784,6 +784,14 @@ export default function App() {
             expandedAdsets={expandedAdsets}
             setExpandedAdsets={setExpandedAdsets}
             funnelDiagnostics={funnelDiagnostics}
+            diagnosticsExpanded={diagnosticsExpanded}
+            setDiagnosticsExpanded={setDiagnosticsExpanded}
+            selectedDiagnosticsCampaign={selectedDiagnosticsCampaign}
+            setSelectedDiagnosticsCampaign={setSelectedDiagnosticsCampaign}
+            hiddenCampaigns={hiddenCampaigns}
+            setHiddenCampaigns={setHiddenCampaigns}
+            showHiddenDropdown={showHiddenDropdown}
+            setShowHiddenDropdown={setShowHiddenDropdown}
           />
           )}
         
@@ -885,6 +893,14 @@ function DashboardTab({
   expandedAdsets = new Set(),
   setExpandedAdsets = () => {},
   funnelDiagnostics = null,
+  diagnosticsExpanded = true,
+  setDiagnosticsExpanded = () => {},
+  selectedDiagnosticsCampaign = null,
+  setSelectedDiagnosticsCampaign = () => {},
+  hiddenCampaigns = new Set(),
+  setHiddenCampaigns = () => {},
+  showHiddenDropdown = false,
+  setShowHiddenDropdown = () => {},
 }) {
   const { overview = {}, trends = {}, campaigns = [], countries = [], diagnostics = {} } = dashboard || {};
 
