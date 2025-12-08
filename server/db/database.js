@@ -251,6 +251,20 @@ export function initDb() {
     )
   `);
 
+  // Notifications table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      store TEXT,
+      type TEXT,
+      message TEXT,
+      metadata TEXT,
+      source TEXT,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      read INTEGER DEFAULT 0
+    )
+  `);
+
   // Create indexes for performance
   db.exec(`CREATE INDEX IF NOT EXISTS idx_meta_store_date ON meta_daily_metrics(store, date)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_meta_adset_store_date ON meta_adset_metrics(store, date)`);
