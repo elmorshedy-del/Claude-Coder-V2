@@ -92,6 +92,13 @@ export default function App() {
   const [countryTrendsDataSource, setCountryTrendsDataSource] = useState('');
   const [countriesDataSource, setCountriesDataSource] = useState('');
 
+  // Unified analytics section state (must be before useEffect hooks that use them)
+  const [analyticsMode, setAnalyticsMode] = useState('countries'); // 'countries' | 'meta-ad-manager'
+  const [metaAdManagerData, setMetaAdManagerData] = useState([]);
+  const [adManagerBreakdown, setAdManagerBreakdown] = useState('none'); // 'none', 'country', 'age', 'gender', 'age_gender', 'placement'
+  const [expandedCampaigns, setExpandedCampaigns] = useState(new Set());
+  const [expandedAdsets, setExpandedAdsets] = useState(new Set());
+
   const store = STORES[currentStore];
   const [orderForm, setOrderForm] = useState({
     date: getLocalDateString(),
@@ -783,13 +790,6 @@ function DashboardTab({
   const [showMetaBreakdown, setShowMetaBreakdown] = useState(false); // Section 2 collapse
   const [expandedCountries, setExpandedCountries] = useState(new Set());
 
-  // New unified analytics section state
-  const [analyticsMode, setAnalyticsMode] = useState('countries'); // 'countries' | 'meta-ad-manager'
-  const [metaAdManagerData, setMetaAdManagerData] = useState([]);
-  const [adManagerBreakdown, setAdManagerBreakdown] = useState('none'); // 'none', 'country', 'age', 'gender', 'age_gender', 'placement'
-  const [expandedCampaigns, setExpandedCampaigns] = useState(new Set());
-  const [expandedAdsets, setExpandedAdsets] = useState(new Set());
-  
   const ecomLabel = store.ecommerce;
   
   const kpis = [
