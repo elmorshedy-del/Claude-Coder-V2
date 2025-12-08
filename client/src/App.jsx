@@ -690,6 +690,15 @@ export default function App() {
             daysOfWeek={daysOfWeek}
             daysOfWeekPeriod={daysOfWeekPeriod}
             setDaysOfWeekPeriod={setDaysOfWeekPeriod}
+            analyticsMode={analyticsMode}
+            setAnalyticsMode={setAnalyticsMode}
+            metaAdManagerData={metaAdManagerData}
+            adManagerBreakdown={adManagerBreakdown}
+            setAdManagerBreakdown={setAdManagerBreakdown}
+            expandedCampaigns={expandedCampaigns}
+            setExpandedCampaigns={setExpandedCampaigns}
+            expandedAdsets={expandedAdsets}
+            setExpandedAdsets={setExpandedAdsets}
           />
           )}
         
@@ -779,7 +788,16 @@ function DashboardTab({
   setSelectedShopifyRegion = () => {},
   daysOfWeek = { data: [], source: '', totalOrders: 0, period: '14d' },
   daysOfWeekPeriod = '14d',
-  setDaysOfWeekPeriod = () => {}
+  setDaysOfWeekPeriod = () => {},
+  analyticsMode = 'countries',
+  setAnalyticsMode = () => {},
+  metaAdManagerData = [],
+  adManagerBreakdown = 'none',
+  setAdManagerBreakdown = () => {},
+  expandedCampaigns = new Set(),
+  setExpandedCampaigns = () => {},
+  expandedAdsets = new Set(),
+  setExpandedAdsets = () => {},
 }) {
   const { overview = {}, trends = {}, campaigns = [], countries = [], diagnostics = {} } = dashboard || {};
 
