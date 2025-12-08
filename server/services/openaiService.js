@@ -1,6 +1,7 @@
 import fetch from 'node-fetch';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const MAX_COMPLETION_TOKENS = 8000;
 
 export async function askAnalyticsQuestion(question, dashboardData, store, model = 'gpt-5.1') {
   if (!OPENAI_API_KEY) {
@@ -28,7 +29,7 @@ Be specific with numbers. Give actionable recommendations. Be concise.`;
         { role: 'system', content: systemPrompt },
         { role: 'user', content: question }
       ],
-      max_tokens: 1000,
+      max_completion_tokens: MAX_COMPLETION_TOKENS,
       temperature: 0.7
     })
   });
@@ -103,7 +104,7 @@ RULES:
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userQuery }
       ],
-      max_tokens: 8000,
+      max_completion_tokens: MAX_COMPLETION_TOKENS,
       temperature: 0.3,
       response_format: { type: "json_object" }
     })
