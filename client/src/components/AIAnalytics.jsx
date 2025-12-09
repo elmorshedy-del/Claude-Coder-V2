@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Loader2, Sparkles, AlertCircle, TrendingUp, Calendar, MessageCircle, Search, Brain } from 'lucide-react';
+import { Send, Loader2, Sparkles, Calendar, Brain } from 'lucide-react';
 
 export default function AIAnalytics({ store, selectedStore, startDate, endDate }) {
   // Support both 'store' and 'selectedStore' props for backward compatibility
