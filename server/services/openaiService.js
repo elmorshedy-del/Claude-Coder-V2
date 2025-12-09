@@ -125,12 +125,20 @@ function getStoreDataFull(db, storeName, today, yesterday, periodStart) {
         GROUP BY strftime('%Y-%m', date) ORDER BY month DESC
       `).all(storeName);
 
+      // Only show campaigns that are ACTIVE (have data in last 14 days)
+      const last14 = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      
       storeData.metaAds.topCampaigns = db.prepare(`
         SELECT campaign_name, SUM(spend) as spend, SUM(conversion_value) as revenue, SUM(conversions) as conversions,
           ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas, MIN(date) as firstSeen, MAX(date) as lastSeen
-        FROM meta_daily_metrics WHERE LOWER(store) = ? AND campaign_name IS NOT NULL
+        FROM meta_daily_metrics 
+        WHERE LOWER(store) = ? AND campaign_name IS NOT NULL
+          AND campaign_name IN (
+            SELECT DISTINCT campaign_name FROM meta_daily_metrics 
+            WHERE LOWER(store) = ? AND date >= ? AND campaign_name IS NOT NULL
+          )
         GROUP BY campaign_name ORDER BY revenue DESC LIMIT 10
-      `).all(storeName);
+      `).all(storeName, storeName, last14);
 
       storeData.metaAds.recentCampaigns = db.prepare(`
         SELECT campaign_name, SUM(spend) as spend, SUM(conversion_value) as revenue, SUM(conversions) as conversions,
@@ -138,6 +146,34 @@ function getStoreDataFull(db, storeName, today, yesterday, periodStart) {
         FROM meta_daily_metrics WHERE LOWER(store) = ? AND date >= ? AND campaign_name IS NOT NULL
         GROUP BY campaign_name ORDER BY spend DESC LIMIT 10
       `).all(storeName, last7);
+
+      // Ad Sets - only active ones (with data in last 14 days)
+      try {
+        storeData.metaAds.topAdSets = db.prepare(`
+          SELECT adset_name, campaign_name, SUM(spend) as spend, SUM(conversion_value) as revenue, 
+            SUM(conversions) as conversions, ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas,
+            MAX(date) as lastSeen
+          FROM meta_adset_metrics 
+          WHERE LOWER(store) = ? AND adset_name IS NOT NULL AND date >= ?
+          GROUP BY adset_name, campaign_name ORDER BY spend DESC LIMIT 15
+        `).all(storeName, last14);
+      } catch (e) {
+        storeData.metaAds.topAdSets = [];
+      }
+
+      // Ads - only active ones (with data in last 14 days)
+      try {
+        storeData.metaAds.topAds = db.prepare(`
+          SELECT ad_name, adset_name, campaign_name, SUM(spend) as spend, SUM(conversion_value) as revenue,
+            SUM(conversions) as conversions, ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas,
+            MAX(date) as lastSeen
+          FROM meta_ad_metrics 
+          WHERE LOWER(store) = ? AND ad_name IS NOT NULL AND date >= ?
+          GROUP BY ad_name, adset_name, campaign_name ORDER BY spend DESC LIMIT 20
+        `).all(storeName, last14);
+      } catch (e) {
+        storeData.metaAds.topAds = [];
+      }
 
       storeData.metaAds.bestDays = db.prepare(`
         SELECT date, SUM(conversion_value) as revenue, SUM(conversions) as conversions, SUM(spend) as spend
@@ -689,12 +725,15 @@ ${history.map(m => `${m.role === 'user' ? 'User' : 'You'}: ${m.content}`).join('
   
   if (storeData.metaAds) {
     dataDescription += `
-META ADS (advertising):
+META ADS (advertising) - ONLY ACTIVE CAMPAIGNS/ADSETS/ADS (with activity in last 14 days):
 - Lifetime totals (spend, revenue, ROAS, CPA)
 - Monthly trends
-- Campaign performance (top campaigns, recent campaigns)
+- Campaign performance (top active campaigns only)
+- Ad Set performance (top active ad sets with parent campaign)
+- Ad performance (top active ads with parent ad set and campaign)
 - Today vs yesterday ad performance
-- Best performing days by ad revenue`;
+- Best performing days by ad revenue
+NOTE: Inactive/paused campaigns are excluded from the data.`;
   }
   
   if (storeData.shopifyOrders) {
