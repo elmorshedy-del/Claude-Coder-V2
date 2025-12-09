@@ -6,15 +6,164 @@ import {
   decideQuestionStream,
   runQuery
 } from '../services/openaiService.js';
+import { getDb } from '../db/database.js';
 
 const router = express.Router();
+
+// ============================================================================
+// CONVERSATION MANAGEMENT
+// ============================================================================
+
+// Get all conversations for a store
+router.get('/conversations', (req, res) => {
+  try {
+    const store = req.query.store || 'vironax';
+    const db = getDb();
+    
+    const conversations = db.prepare(`
+      SELECT c.*, 
+        (SELECT COUNT(*) FROM ai_messages WHERE conversation_id = c.id) as message_count
+      FROM ai_conversations c
+      WHERE c.store = ?
+      ORDER BY c.updated_at DESC
+      LIMIT 50
+    `).all(store);
+    
+    res.json({ success: true, conversations });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get single conversation with messages
+router.get('/conversations/:id', (req, res) => {
+  try {
+    const db = getDb();
+    
+    const conversation = db.prepare(`
+      SELECT * FROM ai_conversations WHERE id = ?
+    `).get(req.params.id);
+    
+    if (!conversation) {
+      return res.status(404).json({ success: false, error: 'Conversation not found' });
+    }
+    
+    const messages = db.prepare(`
+      SELECT * FROM ai_messages 
+      WHERE conversation_id = ?
+      ORDER BY created_at ASC
+    `).all(req.params.id);
+    
+    res.json({ success: true, conversation, messages });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Create new conversation
+router.post('/conversations', (req, res) => {
+  try {
+    const { store, title } = req.body;
+    const db = getDb();
+    
+    const result = db.prepare(`
+      INSERT INTO ai_conversations (store, title) VALUES (?, ?)
+    `).run(store || 'vironax', title || 'New Chat');
+    
+    res.json({ 
+      success: true, 
+      conversationId: result.lastInsertRowid 
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update conversation title
+router.patch('/conversations/:id', (req, res) => {
+  try {
+    const { title } = req.body;
+    const db = getDb();
+    
+    db.prepare(`
+      UPDATE ai_conversations SET title = ?, updated_at = datetime('now') WHERE id = ?
+    `).run(title, req.params.id);
+    
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Delete conversation
+router.delete('/conversations/:id', (req, res) => {
+  try {
+    const db = getDb();
+    
+    db.prepare(`DELETE FROM ai_messages WHERE conversation_id = ?`).run(req.params.id);
+    db.prepare(`DELETE FROM ai_conversations WHERE id = ?`).run(req.params.id);
+    
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Add message to conversation
+router.post('/conversations/:id/messages', (req, res) => {
+  try {
+    const { role, content, mode, depth, model } = req.body;
+    const db = getDb();
+    
+    const result = db.prepare(`
+      INSERT INTO ai_messages (conversation_id, role, content, mode, depth, model)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(req.params.id, role, content, mode || null, depth || null, model || null);
+    
+    // Update conversation timestamp
+    db.prepare(`
+      UPDATE ai_conversations SET updated_at = datetime('now') WHERE id = ?
+    `).run(req.params.id);
+    
+    // Auto-update title from first user message
+    const msgCount = db.prepare(`
+      SELECT COUNT(*) as count FROM ai_messages WHERE conversation_id = ?
+    `).get(req.params.id);
+    
+    if (msgCount.count === 1 && role === 'user') {
+      const shortTitle = content.slice(0, 50) + (content.length > 50 ? '...' : '');
+      db.prepare(`
+        UPDATE ai_conversations SET title = ? WHERE id = ?
+      `).run(shortTitle, req.params.id);
+    }
+    
+    res.json({ success: true, messageId: result.lastInsertRowid });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get conversation history for AI context
+function getConversationHistory(conversationId, limit = 10) {
+  const db = getDb();
+  try {
+    return db.prepare(`
+      SELECT role, content FROM ai_messages 
+      WHERE conversation_id = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(conversationId, limit).reverse();
+  } catch (e) {
+    return [];
+  }
+}
 
 // ============================================================================
 // ANALYZE - GPT-5 nano (Quick metrics)
 // ============================================================================
 router.post('/analyze', async (req, res) => {
   try {
-    const { question, store } = req.body;
+    const { question, store, conversationId } = req.body;
 
     if (!question) {
       return res.status(400).json({ success: false, error: 'Question required' });
@@ -24,13 +173,17 @@ router.post('/analyze', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Store required' });
     }
 
+    const history = conversationId ? getConversationHistory(conversationId) : [];
+
     console.log(`\n========================================`);
     console.log(`[API] POST /ai/analyze`);
     console.log(`[API] Question: "${question}"`);
     console.log(`[API] Store: ${store}`);
+    console.log(`[API] Conversation: ${conversationId || 'none'}`);
+    console.log(`[API] History: ${history.length} messages`);
     console.log(`========================================`);
 
-    const result = await analyzeQuestion(question, store);
+    const result = await analyzeQuestion(question, store, history);
     
     console.log(`[API] Response model: ${result.model}`);
     console.log(`[API] Response length: ${result.text?.length || 0} chars`);
@@ -55,7 +208,7 @@ router.post('/analyze', async (req, res) => {
 // ============================================================================
 router.post('/summarize', async (req, res) => {
   try {
-    const { question, store } = req.body;
+    const { question, store, conversationId } = req.body;
 
     if (!question) {
       return res.status(400).json({ success: false, error: 'Question required' });
@@ -65,13 +218,17 @@ router.post('/summarize', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Store required' });
     }
 
+    const history = conversationId ? getConversationHistory(conversationId) : [];
+
     console.log(`\n========================================`);
     console.log(`[API] POST /ai/summarize`);
     console.log(`[API] Question: "${question}"`);
     console.log(`[API] Store: ${store}`);
+    console.log(`[API] Conversation: ${conversationId || 'none'}`);
+    console.log(`[API] History: ${history.length} messages`);
     console.log(`========================================`);
 
-    const result = await summarizeData(question, store);
+    const result = await summarizeData(question, store, history);
     
     console.log(`[API] Response model: ${result.model}`);
     console.log(`[API] Response length: ${result.text?.length || 0} chars`);
@@ -96,7 +253,7 @@ router.post('/summarize', async (req, res) => {
 // ============================================================================
 router.post('/decide', async (req, res) => {
   try {
-    const { question, store, depth } = req.body;
+    const { question, store, depth, conversationId } = req.body;
 
     if (!question) {
       return res.status(400).json({ success: false, error: 'Question required' });
@@ -106,14 +263,18 @@ router.post('/decide', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Store required' });
     }
 
+    const history = conversationId ? getConversationHistory(conversationId) : [];
+
     console.log(`\n========================================`);
     console.log(`[API] POST /ai/decide`);
     console.log(`[API] Question: "${question}"`);
     console.log(`[API] Store: ${store}`);
     console.log(`[API] Depth: ${depth || 'balanced'}`);
+    console.log(`[API] Conversation: ${conversationId || 'none'}`);
+    console.log(`[API] History: ${history.length} messages`);
     console.log(`========================================`);
 
-    const result = await decideQuestion(question, store, depth || 'balanced');
+    const result = await decideQuestion(question, store, depth || 'balanced', history);
     
     console.log(`[API] Response model: ${result.model}`);
     console.log(`[API] Reasoning effort: ${result.reasoning}`);
@@ -140,7 +301,7 @@ router.post('/decide', async (req, res) => {
 // ============================================================================
 router.post('/stream', async (req, res) => {
   try {
-    const { question, store, depth } = req.body;
+    const { question, store, depth, conversationId } = req.body;
 
     if (!question) {
       return res.status(400).json({ success: false, error: 'Question required' });
@@ -156,16 +317,20 @@ router.post('/stream', async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
+    const history = conversationId ? getConversationHistory(conversationId) : [];
+
     console.log(`\n========================================`);
     console.log(`[API] POST /ai/stream`);
     console.log(`[API] Question: "${question}"`);
     console.log(`[API] Store: ${store}`);
     console.log(`[API] Depth: ${depth || 'balanced'}`);
+    console.log(`[API] Conversation: ${conversationId || 'none'}`);
+    console.log(`[API] History: ${history.length} messages`);
     console.log(`========================================`);
 
     const result = await decideQuestionStream(question, store, depth || 'balanced', (delta) => {
       res.write(`data: ${JSON.stringify({ type: 'delta', text: delta })}\n\n`);
-    });
+    }, history);
 
     console.log(`[API] Stream complete. Model: ${result.model}`);
 
@@ -184,7 +349,7 @@ router.post('/stream', async (req, res) => {
 });
 
 // ============================================================================
-// QUERY - Direct database query (for testing)
+// DEBUG - Run raw SQL query
 // ============================================================================
 router.post('/query', async (req, res) => {
   try {
@@ -206,6 +371,67 @@ router.post('/query', async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error(`[API] Query error:`, error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================================================
+// HISTORICAL DATA IMPORT - Import CSV data for campaigns
+// ============================================================================
+router.post('/import-historical', async (req, res) => {
+  try {
+    const { store, data } = req.body;
+    const db = getDb();
+
+    if (!store || !data || !Array.isArray(data)) {
+      return res.status(400).json({ success: false, error: 'Store and data array required' });
+    }
+
+    console.log(`[API] Importing ${data.length} historical records for ${store}`);
+
+    const insertStmt = db.prepare(`
+      INSERT OR REPLACE INTO meta_daily_metrics (
+        store, date, campaign_id, campaign_name, country,
+        spend, impressions, clicks, conversions, conversion_value
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    let imported = 0;
+    let skipped = 0;
+
+    const tx = db.transaction(() => {
+      for (const row of data) {
+        try {
+          if (!row.date || !row.campaign_name) {
+            skipped++;
+            continue;
+          }
+
+          insertStmt.run(
+            store,
+            row.date,
+            row.campaign_id || `hist_${row.campaign_name}_${row.date}`,
+            row.campaign_name,
+            row.country || 'ALL',
+            row.spend || 0,
+            row.impressions || 0,
+            row.clicks || 0,
+            row.conversions || row.purchases || row.orders || 0,
+            row.conversion_value || row.revenue || row.purchase_value || 0
+          );
+          imported++;
+        } catch (e) {
+          skipped++;
+        }
+      }
+    });
+
+    tx();
+
+    console.log(`[API] Import complete: ${imported} imported, ${skipped} skipped`);
+    res.json({ success: true, imported, skipped });
+  } catch (error) {
+    console.error(`[API] Import error:`, error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
