@@ -4,9 +4,14 @@ import {
   summarizeData, 
   decideQuestion,
   decideQuestionStream,
+  analyzeQuestionStream,
+  summarizeDataStream,
+  deleteDemoSallaData,
   runQuery
 } from '../services/openaiService.js';
 import { getDb } from '../db/database.js';
+import { clearSallaDemoData } from '../services/sallaService.js';
+import { clearShopifyDemoData } from '../services/shopifyService.js';
 
 const router = express.Router();
 
@@ -297,11 +302,11 @@ router.post('/decide', async (req, res) => {
 });
 
 // ============================================================================
-// STREAM - GPT-5.1 with SSE streaming (Best UX)
+// STREAM - All modes with SSE streaming (Best UX)
 // ============================================================================
 router.post('/stream', async (req, res) => {
   try {
-    const { question, store, depth, conversationId } = req.body;
+    const { question, store, depth, mode, conversationId } = req.body;
 
     if (!question) {
       return res.status(400).json({ success: false, error: 'Question required' });
@@ -318,9 +323,11 @@ router.post('/stream', async (req, res) => {
     res.flushHeaders();
 
     const history = conversationId ? getConversationHistory(conversationId) : [];
+    const activeMode = mode || 'decide';
 
     console.log(`\n========================================`);
     console.log(`[API] POST /ai/stream`);
+    console.log(`[API] Mode: ${activeMode}`);
     console.log(`[API] Question: "${question}"`);
     console.log(`[API] Store: ${store}`);
     console.log(`[API] Depth: ${depth || 'balanced'}`);
@@ -328,9 +335,18 @@ router.post('/stream', async (req, res) => {
     console.log(`[API] History: ${history.length} messages`);
     console.log(`========================================`);
 
-    const result = await decideQuestionStream(question, store, depth || 'balanced', (delta) => {
+    let result;
+    const onDelta = (delta) => {
       res.write(`data: ${JSON.stringify({ type: 'delta', text: delta })}\n\n`);
-    }, history);
+    };
+
+    if (activeMode === 'analyze') {
+      result = await analyzeQuestionStream(question, store, onDelta, history);
+    } else if (activeMode === 'summarize') {
+      result = await summarizeDataStream(question, store, onDelta, history);
+    } else {
+      result = await decideQuestionStream(question, store, depth || 'balanced', onDelta, history);
+    }
 
     console.log(`[API] Stream complete. Model: ${result.model}`);
 
@@ -345,6 +361,45 @@ router.post('/stream', async (req, res) => {
     console.error(`[API] Stream error:`, error.message);
     res.write(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`);
     res.end();
+  }
+});
+
+// ============================================================================
+// DELETE DEMO DATA - Clear ALL fake orders from Salla and Shopify
+// ============================================================================
+router.delete('/demo-data', (req, res) => {
+  try {
+    const db = getDb();
+    const results = {
+      salla: { deleted: 0 },
+      shopify: { deleted: 0 }
+    };
+
+    // Clear Salla demo data
+    try {
+      const sallaResult = db.prepare(`DELETE FROM salla_orders WHERE store = 'vironax'`).run();
+      results.salla.deleted = sallaResult.changes;
+      console.log(`[Cleanup] Deleted ${sallaResult.changes} Salla demo orders`);
+    } catch (e) {
+      results.salla.error = e.message;
+    }
+
+    // Clear Shopify demo data
+    try {
+      const shopifyResult = db.prepare(`DELETE FROM shopify_orders WHERE store = 'shawq'`).run();
+      results.shopify.deleted = shopifyResult.changes;
+      console.log(`[Cleanup] Deleted ${shopifyResult.changes} Shopify demo orders`);
+    } catch (e) {
+      results.shopify.error = e.message;
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Demo data cleared',
+      results 
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
