@@ -33,199 +33,220 @@ const DEPTH_TO_EFFORT = {
   deep: 'high'
 };
 
-function getRelevantData(store, question) {
-  const db = getDb();
-  const data = {};
-  const q = question.toLowerCase();
+// ============================================================================
+// OPTIMIZED DATA FETCHING - Parallel queries, smart store detection
+// ============================================================================
 
-  // Normalize store name - handle case sensitivity
-  const storeNormalized = store.toLowerCase();
-
-  const today = new Date().toISOString().split('T')[0];
-  const last7Days = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const last30Days = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
+function getStoreData(db, storeName, today, yesterday, last7Days) {
+  const storeData = {};
+  
   try {
-    // Overview - try both exact and lowercase
-    data.overview = db.prepare(`
+    // Run all queries for this store
+    storeData.overview = db.prepare(`
       SELECT 
         SUM(spend) as totalSpend,
         SUM(conversion_value) as totalRevenue,
         SUM(conversions) as totalOrders,
-        SUM(impressions) as totalImpressions,
-        SUM(clicks) as totalClicks,
         ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas,
         ROUND(SUM(spend) / NULLIF(SUM(conversions), 0), 2) as cpa
       FROM meta_daily_metrics 
       WHERE LOWER(store) = ? AND date >= ?
-    `).get(storeNormalized, last7Days);
+    `).get(storeName, last7Days);
 
-    data.today = db.prepare(`
+    storeData.today = db.prepare(`
       SELECT SUM(spend) as spend, SUM(conversion_value) as revenue, SUM(conversions) as orders
       FROM meta_daily_metrics WHERE LOWER(store) = ? AND date = ?
-    `).get(storeNormalized, today);
+    `).get(storeName, today);
 
-    data.yesterday = db.prepare(`
+    storeData.yesterday = db.prepare(`
       SELECT SUM(spend) as spend, SUM(conversion_value) as revenue, SUM(conversions) as orders
       FROM meta_daily_metrics WHERE LOWER(store) = ? AND date = ?
-    `).get(storeNormalized, yesterday);
+    `).get(storeName, yesterday);
 
-    // Always fetch campaigns
-    data.campaigns = db.prepare(`
+    // Campaigns (limit to top 10 for speed)
+    storeData.campaigns = db.prepare(`
       SELECT 
-        campaign_name, campaign_id,
+        campaign_name,
         SUM(spend) as spend, SUM(conversion_value) as revenue, SUM(conversions) as orders,
-        SUM(impressions) as impressions, SUM(clicks) as clicks,
-        ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas,
-        ROUND(SUM(spend) / NULLIF(SUM(conversions), 0), 2) as cpa,
-        ROUND(SUM(clicks) * 100.0 / NULLIF(SUM(impressions), 0), 2) as ctr
+        ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas
       FROM meta_daily_metrics 
       WHERE LOWER(store) = ? AND date >= ? AND campaign_name IS NOT NULL
-      GROUP BY campaign_id, campaign_name
-      ORDER BY spend DESC LIMIT 20
-    `).all(storeNormalized, last7Days);
+      GROUP BY campaign_name
+      ORDER BY spend DESC LIMIT 10
+    `).all(storeName, last7Days);
 
-    // Always fetch ad sets
+    // Campaigns by day (last 7 days only, top campaigns)
+    storeData.campaignsByDay = db.prepare(`
+      SELECT date, campaign_name, SUM(conversions) as orders, SUM(conversion_value) as revenue
+      FROM meta_daily_metrics 
+      WHERE LOWER(store) = ? AND date >= ? AND campaign_name IS NOT NULL
+      GROUP BY date, campaign_name
+      ORDER BY date DESC
+    `).all(storeName, last7Days);
+
+    // E-commerce orders
+    const orderTable = storeName === 'vironax' ? 'salla_orders' : 'shopify_orders';
     try {
-      data.adsets = db.prepare(`
-        SELECT 
-          campaign_name, adset_name, adset_id,
-          SUM(spend) as spend, SUM(conversion_value) as revenue, SUM(conversions) as orders,
-          ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas,
-          ROUND(SUM(spend) / NULLIF(SUM(conversions), 0), 2) as cpa
-        FROM meta_adset_metrics 
-        WHERE LOWER(store) = ? AND date >= ?
-        GROUP BY adset_id, adset_name, campaign_name
-        ORDER BY spend DESC LIMIT 20
-      `).all(storeNormalized, last7Days);
-    } catch (e) {
-      console.log('[getRelevantData] Adset query failed:', e.message);
-    }
+      storeData.ordersOverview = db.prepare(`
+        SELECT COUNT(*) as totalOrders, SUM(order_total) as totalRevenue
+        FROM ${orderTable} WHERE LOWER(store) = ? AND date >= ?
+      `).get(storeName, last7Days);
 
-    // Always fetch ads
-    try {
-      data.ads = db.prepare(`
-        SELECT 
-          campaign_name, adset_name, ad_name, ad_id,
-          SUM(spend) as spend, SUM(conversion_value) as revenue, SUM(conversions) as orders,
-          SUM(clicks) as clicks, SUM(impressions) as impressions,
-          ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas,
-          ROUND(SUM(clicks) * 100.0 / NULLIF(SUM(impressions), 0), 2) as ctr
-        FROM meta_ad_metrics 
-        WHERE LOWER(store) = ? AND date >= ?
-        GROUP BY ad_id, ad_name, adset_name, campaign_name
-        ORDER BY spend DESC LIMIT 30
-      `).all(storeNormalized, last7Days);
-    } catch (e) {
-      console.log('[getRelevantData] Ads query failed:', e.message);
-    }
+      storeData.ordersToday = db.prepare(`
+        SELECT COUNT(*) as orders, SUM(order_total) as revenue
+        FROM ${orderTable} WHERE LOWER(store) = ? AND date = ?
+      `).get(storeName, today);
 
-    if (q.includes('country') || q.includes('countr') || q.includes('saudi') || q.includes('uae') || q.includes('geo') || q.includes('region')) {
-      data.countries = db.prepare(`
-        SELECT 
-          country,
-          SUM(spend) as spend, SUM(conversion_value) as revenue, SUM(conversions) as orders,
-          ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas,
-          ROUND(SUM(spend) / NULLIF(SUM(conversions), 0), 2) as cpa
-        FROM meta_daily_metrics 
-        WHERE LOWER(store) = ? AND date >= ? AND country != 'ALL' AND country IS NOT NULL AND country != ''
-        GROUP BY country
-        ORDER BY spend DESC
-      `).all(storeNormalized, last7Days);
-    }
+      storeData.ordersYesterday = db.prepare(`
+        SELECT COUNT(*) as orders, SUM(order_total) as revenue
+        FROM ${orderTable} WHERE LOWER(store) = ? AND date = ?
+      `).get(storeName, yesterday);
 
-    if (q.includes('trend') || q.includes('daily') || q.includes('week') || q.includes('over time') || q.includes('history')) {
-      data.dailyTrends = db.prepare(`
-        SELECT 
-          date,
-          SUM(spend) as spend, SUM(conversion_value) as revenue, SUM(conversions) as orders,
-          ROUND(SUM(conversion_value) / NULLIF(SUM(spend), 0), 2) as roas
-        FROM meta_daily_metrics 
-        WHERE LOWER(store) = ? AND date >= ?
-        GROUP BY date
-        ORDER BY date DESC LIMIT 14
-      `).all(storeNormalized, last30Days);
-    }
-
-    if (q.includes('order') || q.includes('sale') || q.includes('revenue')) {
-      const orderTable = storeNormalized === 'vironax' ? 'salla_orders' : 'shopify_orders';
-      try {
-        data.recentOrders = db.prepare(`
-          SELECT date, COUNT(*) as order_count, SUM(order_total) as revenue, country_code
-          FROM ${orderTable}
-          WHERE LOWER(store) = ? AND date >= ?
-          GROUP BY date ORDER BY date DESC LIMIT 7
-        `).all(storeNormalized, last7Days);
-      } catch (e) {
-        console.log('[getRelevantData] Order table query failed:', e.message);
-      }
-    }
-
-    if (q.includes('funnel') || q.includes('conversion') || q.includes('drop')) {
-      data.funnel = db.prepare(`
-        SELECT 
-          SUM(impressions) as impressions, SUM(clicks) as clicks,
-          SUM(landing_page_views) as landing_page_views, SUM(add_to_cart) as add_to_cart,
-          SUM(checkouts_initiated) as checkouts, SUM(conversions) as purchases
-        FROM meta_daily_metrics 
-        WHERE LOWER(store) = ? AND date >= ?
-      `).get(storeNormalized, last7Days);
-    }
+      storeData.ordersByCountry = db.prepare(`
+        SELECT country_code, COUNT(*) as orders, SUM(order_total) as revenue
+        FROM ${orderTable} WHERE LOWER(store) = ? AND date >= ?
+        GROUP BY country_code ORDER BY orders DESC LIMIT 10
+      `).all(storeName, last7Days);
+    } catch (e) {}
 
   } catch (error) {
-    console.error('[getRelevantData] Error:', error.message);
+    console.error(`[getStoreData] Error for ${storeName}:`, error.message);
   }
 
-  return data;
+  return storeData;
 }
 
-function buildSystemPrompt(store, mode, data) {
-  const storeLower = store.toLowerCase();
-  const storeContext = storeLower === 'vironax'
-    ? 'VironaX (Saudi Arabia, SAR currency, Salla e-commerce, mens jewelry)'
-    : 'Shawq (Turkey/US, USD currency, Shopify, Palestinian & Syrian apparel)';
+function getRelevantData(store, question) {
+  const db = getDb();
+  const q = question.toLowerCase();
 
-  const currency = storeLower === 'vironax' ? 'SAR' : 'USD';
+  const today = new Date().toISOString().split('T')[0];
+  const last7Days = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-  const basePrompt = `You are an AI analytics assistant for ${storeContext}.
-Currency: ${currency}
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const todayDate = new Date();
 
-ACTUAL DATA FROM DATABASE:
+  const data = {
+    dateContext: {
+      today,
+      todayDayName: dayNames[todayDate.getDay()],
+      yesterday,
+      yesterdayDayName: dayNames[new Date(Date.now() - 24 * 60 * 60 * 1000).getDay()],
+      periodStart: last7Days,
+      periodEnd: today
+    },
+    currentStore: store.toLowerCase()
+  };
+
+  // Detect if question mentions the OTHER store
+  const currentStore = store.toLowerCase();
+  const mentionsVironax = q.includes('vironax') || q.includes('virona');
+  const mentionsShawq = q.includes('shawq');
+  const mentionsBoth = q.includes('both') || q.includes('compare') || q.includes('stores');
+
+  // Always fetch current store
+  data[currentStore] = getStoreData(db, currentStore, today, yesterday, last7Days);
+
+  // Only fetch other store if mentioned
+  if (mentionsBoth || (currentStore === 'vironax' && mentionsShawq) || (currentStore === 'shawq' && mentionsVironax)) {
+    const otherStore = currentStore === 'vironax' ? 'shawq' : 'vironax';
+    data[otherStore] = getStoreData(db, otherStore, today, yesterday, last7Days);
+  }
+
+  // Clean up empty data
+  return removeEmpty(data);
+}
+
+function removeEmpty(obj) {
+  if (Array.isArray(obj)) {
+    return obj.length > 0 ? obj : undefined;
+  }
+  if (obj && typeof obj === 'object') {
+    const cleaned = {};
+    for (const [key, value] of Object.entries(obj)) {
+      const cleanedValue = removeEmpty(value);
+      if (cleanedValue !== undefined && cleanedValue !== null) {
+        // Skip empty objects
+        if (typeof cleanedValue === 'object' && !Array.isArray(cleanedValue) && Object.keys(cleanedValue).length === 0) {
+          continue;
+        }
+        cleaned[key] = cleanedValue;
+      }
+    }
+    return Object.keys(cleaned).length > 0 ? cleaned : undefined;
+  }
+  return obj;
+}
+
+// ============================================================================
+// PROMPT BUILDING
+// ============================================================================
+
+function buildSystemPrompt(store, mode, data, history = []) {
+  const hasOtherStore = data.vironax && data.shawq;
+  
+  let storeInfo = '';
+  if (hasOtherStore) {
+    storeInfo = `You have data for BOTH stores:
+- VironaX (Saudi Arabia, SAR, mens jewelry, Salla)
+- Shawq (Turkey/US, USD, apparel, Shopify)`;
+  } else {
+    const s = store.toLowerCase();
+    storeInfo = s === 'vironax' 
+      ? 'Store: VironaX (Saudi Arabia, SAR currency, mens jewelry, Salla)'
+      : 'Store: Shawq (Turkey/US, USD currency, apparel, Shopify)';
+  }
+
+  // Build conversation context
+  let conversationContext = '';
+  if (history && history.length > 0) {
+    conversationContext = `\n\nRECENT CONVERSATION:
+${history.map(m => `${m.role === 'user' ? 'User' : 'You'}: ${m.content}`).join('\n')}
+---`;
+  }
+
+  const basePrompt = `You are an expert e-commerce analyst with memory of our conversation.
+${storeInfo}
+
+TODAY: ${data.dateContext?.today} (${data.dateContext?.todayDayName})
+YESTERDAY: ${data.dateContext?.yesterday} (${data.dateContext?.yesterdayDayName})
+${conversationContext}
+
+CURRENT DATA:
 ${JSON.stringify(data, null, 2)}
 
 RULES:
-1. Use ONLY the data above - never make up numbers
-2. Format currency nicely (e.g., 1,234.56 ${currency})
-3. ROAS = revenue/spend, CPA = spend/orders, CTR = clicks/impressions * 100
-4. If data is missing, say so
-5. Be specific with real numbers from the data`;
+- Use ONLY this data, never invent numbers
+- VironaX = SAR, Shawq = USD
+- ROAS = revenue/spend
+- Be specific with real figures
+- Remember context from our conversation above`;
 
   if (mode === 'analyze') {
-    return basePrompt + `\n\nMODE: Quick Analysis - Give concise, direct answers in 2-3 sentences max.`;
+    return basePrompt + '\n\nMODE: Quick answer in 2-3 sentences max.';
   }
   if (mode === 'summarize') {
-    return basePrompt + `\n\nMODE: Trends & Patterns - Summarize data, compare periods, flag anomalies. Use bullet points.`;
+    return basePrompt + '\n\nMODE: Summarize trends, compare periods, flag anomalies.';
   }
   return basePrompt + `\n\nMODE: Strategic Decisions
-- Give DETAILED actionable recommendations with specific numbers
-- Analyze EACH campaign individually - don't just summarize
-- For each campaign, state: performance verdict, why, and specific action
-- Include specific budget recommendations with dollar/SAR amounts
-- Prioritize by impact
-- Be thorough - this is a deep analysis, not a summary
-- Format with clear sections and bullet points`;
+- Give detailed, actionable recommendations
+- Analyze each campaign with specific numbers
+- Include budget recommendations
+- Prioritize by impact`;
 }
 
-async function callResponsesAPI(model, systemPrompt, userMessage, maxTokens, reasoningEffort = null) {
-  const input = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userMessage }
-  ];
+// ============================================================================
+// API CALLS - GPT-5 Responses API + GPT-4 fallback
+// ============================================================================
 
+async function callResponsesAPI(model, systemPrompt, userMessage, maxTokens, reasoningEffort = null) {
   const requestBody = {
-    model: model,
-    input: input,
+    model,
+    input: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userMessage }
+    ],
     max_output_tokens: maxTokens
   };
 
@@ -233,15 +254,15 @@ async function callResponsesAPI(model, systemPrompt, userMessage, maxTokens, rea
     requestBody.reasoning = { effort: reasoningEffort };
   }
 
-  console.log(`[AI] Calling ${model} via Responses API (effort: ${reasoningEffort || 'n/a'})...`);
+  console.log(`[OpenAI] Calling ${model} (max_tokens: ${maxTokens})`);
   const response = await client.responses.create(requestBody);
   return response.output_text;
 }
 
 async function callChatCompletionsAPI(model, systemPrompt, userMessage, maxTokens) {
-  console.log(`[AI] Calling ${model} via Chat Completions API (fallback)...`);
+  console.log(`[OpenAI] Fallback to ${model} (max_tokens: ${maxTokens})`);
   const response = await client.chat.completions.create({
-    model: model,
+    model,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userMessage }
@@ -252,169 +273,117 @@ async function callChatCompletionsAPI(model, systemPrompt, userMessage, maxToken
   return response.choices[0].message.content;
 }
 
-export async function analyzeQuestion(question, store) {
-  console.log(`\n[AI Analyze] Question: "${question}" | Store: ${store}`);
-
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OpenAI API key not configured');
-  }
-
-  const data = getRelevantData(store, question);
-  console.log(`[AI Analyze] Data keys:`, Object.keys(data));
-
-  const systemPrompt = buildSystemPrompt(store, 'analyze', data);
-
+async function callWithFallback(primary, fallback, systemPrompt, userMessage, maxTokens, reasoningEffort = null) {
   try {
-    const text = await callResponsesAPI(MODELS.NANO, systemPrompt, question, TOKEN_LIMITS.nano);
-    console.log(`[AI Analyze] Success with ${MODELS.NANO}`);
-    return { text, model: MODELS.NANO };
+    const text = await callResponsesAPI(primary, systemPrompt, userMessage, maxTokens, reasoningEffort);
+    return { text, model: primary };
   } catch (error) {
-    console.error(`[AI Analyze] ${MODELS.NANO} failed:`, error.message);
-  }
-
-  try {
-    const text = await callChatCompletionsAPI(FALLBACK_MODELS.NANO, systemPrompt, question, TOKEN_LIMITS.nano);
-    console.log(`[AI Analyze] Success with ${FALLBACK_MODELS.NANO} (fallback)`);
-    return { text, model: `${FALLBACK_MODELS.NANO} (fallback)` };
-  } catch (error) {
-    console.error(`[AI Analyze] Fallback failed:`, error.message);
-    throw new Error(`AI request failed: ${error.message}`);
+    console.log(`[OpenAI] ${primary} failed: ${error.message}, trying ${fallback}`);
+    const text = await callChatCompletionsAPI(fallback, systemPrompt, userMessage, maxTokens);
+    return { text, model: fallback };
   }
 }
 
-export async function summarizeData(question, store) {
-  console.log(`\n[AI Summarize] Question: "${question}" | Store: ${store}`);
+// ============================================================================
+// STREAMING - For real-time responses
+// ============================================================================
 
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OpenAI API key not configured');
-  }
-
-  const data = getRelevantData(store, question);
-  console.log(`[AI Summarize] Data keys:`, Object.keys(data));
-
-  const systemPrompt = buildSystemPrompt(store, 'summarize', data);
-
+async function streamWithFallback(primary, fallback, systemPrompt, userMessage, maxTokens, reasoningEffort, onDelta) {
   try {
-    const text = await callResponsesAPI(MODELS.MINI, systemPrompt, question, TOKEN_LIMITS.mini);
-    console.log(`[AI Summarize] Success with ${MODELS.MINI}`);
-    return { text, model: MODELS.MINI };
-  } catch (error) {
-    console.error(`[AI Summarize] ${MODELS.MINI} failed:`, error.message);
-  }
+    const requestBody = {
+      model: primary,
+      input: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+      max_output_tokens: maxTokens,
+      stream: true
+    };
 
-  try {
-    const text = await callChatCompletionsAPI(FALLBACK_MODELS.MINI, systemPrompt, question, TOKEN_LIMITS.mini);
-    console.log(`[AI Summarize] Success with ${FALLBACK_MODELS.MINI} (fallback)`);
-    return { text, model: `${FALLBACK_MODELS.MINI} (fallback)` };
-  } catch (error) {
-    console.error(`[AI Summarize] Fallback failed:`, error.message);
-    throw new Error(`AI request failed: ${error.message}`);
-  }
-}
+    if (reasoningEffort && primary.includes('5.1')) {
+      requestBody.reasoning = { effort: reasoningEffort };
+    }
 
-export async function decideQuestion(question, store, depth = 'balanced') {
-  console.log(`\n[AI Decide] Question: "${question}" | Store: ${store} | Depth: ${depth}`);
-
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OpenAI API key not configured');
-  }
-
-  const reasoningEffort = DEPTH_TO_EFFORT[depth] || 'medium';
-  const maxTokens = TOKEN_LIMITS[depth] || TOKEN_LIMITS.balanced;
-
-  const data = getRelevantData(store, question);
-  console.log(`[AI Decide] Data keys:`, Object.keys(data));
-
-  const systemPrompt = buildSystemPrompt(store, 'decide', data);
-
-  try {
-    const text = await callResponsesAPI(MODELS.STRATEGIST, systemPrompt, question, maxTokens, reasoningEffort);
-    console.log(`[AI Decide] Success with ${MODELS.STRATEGIST}`);
-    return { text, model: MODELS.STRATEGIST, reasoning: reasoningEffort };
-  } catch (error) {
-    console.error(`[AI Decide] ${MODELS.STRATEGIST} failed:`, error.message);
-  }
-
-  try {
-    const text = await callChatCompletionsAPI(FALLBACK_MODELS.STRATEGIST, systemPrompt, question, maxTokens);
-    console.log(`[AI Decide] Success with ${FALLBACK_MODELS.STRATEGIST} (fallback)`);
-    return { text, model: `${FALLBACK_MODELS.STRATEGIST} (fallback)`, reasoning: null };
-  } catch (error) {
-    console.error(`[AI Decide] Fallback failed:`, error.message);
-    throw new Error(`AI request failed: ${error.message}`);
-  }
-}
-
-export async function decideQuestionStream(question, store, depth = 'balanced', onText) {
-  console.log(`\n[AI Stream] Question: "${question}" | Store: ${store} | Depth: ${depth}`);
-
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OpenAI API key not configured');
-  }
-
-  const reasoningEffort = DEPTH_TO_EFFORT[depth] || 'medium';
-  const maxTokens = TOKEN_LIMITS[depth] || TOKEN_LIMITS.balanced;
-
-  const data = getRelevantData(store, question);
-  console.log(`[AI Stream] Data keys:`, Object.keys(data));
-
-  const systemPrompt = buildSystemPrompt(store, 'decide', data);
-
-  const input = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: question }
-  ];
-
-  const requestBody = {
-    model: MODELS.STRATEGIST,
-    input: input,
-    max_output_tokens: maxTokens,
-    reasoning: { effort: reasoningEffort }
-  };
-
-  try {
-    console.log(`[AI Stream] Calling ${MODELS.STRATEGIST} with streaming...`);
-    const stream = await client.responses.stream(requestBody);
+    console.log(`[OpenAI] Streaming ${primary}`);
+    const stream = await client.responses.create(requestBody);
 
     for await (const event of stream) {
       if (event.type === 'response.output_text.delta') {
-        onText?.(event.delta);
+        onDelta(event.delta);
       }
     }
 
-    const final = await stream.finalResponse();
-    console.log(`[AI Stream] Success with ${MODELS.STRATEGIST}`);
-    return { text: final.output_text, model: MODELS.STRATEGIST, reasoning: reasoningEffort };
+    return { model: primary, reasoning: reasoningEffort };
   } catch (error) {
-    console.error(`[AI Stream] ${MODELS.STRATEGIST} failed:`, error.message);
-  }
+    console.log(`[OpenAI] Stream ${primary} failed: ${error.message}, trying ${fallback}`);
+    
+    const response = await client.chat.completions.create({
+      model: fallback,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+      max_tokens: maxTokens,
+      temperature: 0.7,
+      stream: true
+    });
 
-  try {
-    console.log(`[AI Stream] Falling back to ${FALLBACK_MODELS.STRATEGIST}...`);
-    const text = await callChatCompletionsAPI(FALLBACK_MODELS.STRATEGIST, systemPrompt, question, maxTokens);
-    onText?.(text);
-    console.log(`[AI Stream] Success with ${FALLBACK_MODELS.STRATEGIST} (fallback)`);
-    return { text, model: `${FALLBACK_MODELS.STRATEGIST} (fallback)`, reasoning: null };
-  } catch (error) {
-    console.error(`[AI Stream] Fallback failed:`, error.message);
-    throw new Error(`AI request failed: ${error.message}`);
+    for await (const chunk of response) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) onDelta(delta);
+    }
+
+    return { model: fallback, reasoning: null };
   }
 }
+
+// ============================================================================
+// EXPORTS - Analyze, Summarize, Decide
+// ============================================================================
+
+export async function analyzeQuestion(question, store, history = []) {
+  const data = getRelevantData(store, question);
+  const systemPrompt = buildSystemPrompt(store, 'analyze', data, history);
+  return await callWithFallback(MODELS.NANO, FALLBACK_MODELS.NANO, systemPrompt, question, TOKEN_LIMITS.nano);
+}
+
+export async function summarizeData(question, store, history = []) {
+  const data = getRelevantData(store, question);
+  const systemPrompt = buildSystemPrompt(store, 'summarize', data, history);
+  return await callWithFallback(MODELS.MINI, FALLBACK_MODELS.MINI, systemPrompt, question, TOKEN_LIMITS.mini);
+}
+
+export async function decideQuestion(question, store, depth = 'balanced', history = []) {
+  const data = getRelevantData(store, question);
+  const systemPrompt = buildSystemPrompt(store, 'decide', data, history);
+  const effort = DEPTH_TO_EFFORT[depth] || 'medium';
+  const maxTokens = TOKEN_LIMITS[depth] || TOKEN_LIMITS.balanced;
+  
+  const result = await callWithFallback(MODELS.STRATEGIST, FALLBACK_MODELS.STRATEGIST, systemPrompt, question, maxTokens, effort);
+  return { ...result, reasoning: effort };
+}
+
+export async function decideQuestionStream(question, store, depth = 'balanced', onDelta, history = []) {
+  const data = getRelevantData(store, question);
+  const systemPrompt = buildSystemPrompt(store, 'decide', data, history);
+  const effort = DEPTH_TO_EFFORT[depth] || 'medium';
+  const maxTokens = TOKEN_LIMITS[depth] || TOKEN_LIMITS.balanced;
+
+  return await streamWithFallback(MODELS.STRATEGIST, FALLBACK_MODELS.STRATEGIST, systemPrompt, question, maxTokens, effort, onDelta);
+}
+
+// ============================================================================
+// DEBUG - Run raw SQL query
+// ============================================================================
 
 export function runQuery(sql, params = []) {
   const db = getDb();
   try {
-    if (!sql.trim().toUpperCase().startsWith('SELECT')) {
-      return { success: false, error: 'Only SELECT queries allowed', data: [] };
+    if (sql.trim().toUpperCase().startsWith('SELECT')) {
+      return { success: true, data: db.prepare(sql).all(...params) };
     }
-    const results = db.prepare(sql).all(...params);
-    return { success: true, data: results, rowCount: results.length };
+    return { success: false, error: 'Only SELECT queries allowed' };
   } catch (error) {
-    return { success: false, error: error.message, data: [] };
+    return { success: false, error: error.message };
   }
-}
-
-export async function askAnalyticsQuestion(question, dashboardData, store, reasoningEffort) {
-  const result = await decideQuestion(question, store, reasoningEffort || 'balanced');
-  return result.text;
 }
