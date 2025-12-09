@@ -23,51 +23,18 @@ const PORT = process.env.PORT || 3001;
 // Initialize database
 initDb();
 
-// ============================================================================
-// ONE-TIME CLEANUP: Delete Salla demo data (runs ONCE ever, tracked in DB)
-// ============================================================================
-function cleanupDemoData() {
-  try {
-    const db = getDb();
-    
-    // Create cleanup tracking table if not exists
-    db.exec(`CREATE TABLE IF NOT EXISTS cleanup_flags (
-      flag_name TEXT PRIMARY KEY,
-      completed_at TEXT
-    )`);
-    
-    // Check if cleanup already ran
-    const alreadyRan = db.prepare(`SELECT 1 FROM cleanup_flags WHERE flag_name = 'salla_demo_cleanup'`).get();
-    
-    if (alreadyRan) {
-      console.log('[Cleanup] Salla demo cleanup already completed - skipping');
-      return;
-    }
-    
-    // First time - do the cleanup
-    console.log('[Cleanup] Running ONE-TIME Salla demo data cleanup...');
-    
-    const sallaResult = db.prepare(`DELETE FROM salla_orders`).run();
-    console.log(`[Cleanup] Deleted ${sallaResult.changes} Salla orders`);
-    
-    const notifResult = db.prepare(`DELETE FROM notifications WHERE source = 'salla'`).run();
-    console.log(`[Cleanup] Deleted ${notifResult.changes} Salla notifications`);
-    
-    // Mark as completed - will never run again
-    db.prepare(`INSERT INTO cleanup_flags (flag_name, completed_at) VALUES (?, ?)`).run(
-      'salla_demo_cleanup', 
-      new Date().toISOString()
-    );
-    
-    console.log('[Cleanup] ONE-TIME cleanup complete - will not run again');
-    
-  } catch (error) {
-    console.error('[Cleanup] Error:', error.message);
+// One-time Salla cleanup (safe - won't crash if tables don't exist)
+try {
+  const db = getDb();
+  db.exec(`CREATE TABLE IF NOT EXISTS cleanup_flags (flag_name TEXT PRIMARY KEY, completed_at TEXT)`);
+  const done = db.prepare(`SELECT 1 FROM cleanup_flags WHERE flag_name = 'salla_demo_cleanup'`).get();
+  if (!done) {
+    db.prepare(`DELETE FROM salla_orders`).run();
+    db.prepare(`DELETE FROM notifications WHERE source = 'salla'`).run();
+    db.prepare(`INSERT INTO cleanup_flags VALUES ('salla_demo_cleanup', ?)`).run(new Date().toISOString());
+    console.log('[Cleanup] Salla demo data deleted');
   }
-}
-
-// Run cleanup on startup
-cleanupDemoData();
+} catch (e) { console.log('[Cleanup] Skipped:', e.message); }
 
 // Middleware
 app.use(cors());
