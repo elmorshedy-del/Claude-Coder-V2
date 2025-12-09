@@ -832,19 +832,22 @@ RULES:
 // ============================================================================
 
 async function callResponsesAPI(model, systemPrompt, userMessage, maxTokens, reasoningEffort = null) {
-  console.log(`[OpenAI] Calling ${model} (max_tokens: ${maxTokens})`);
-
-  const response = await client.chat.completions.create({
+  const requestBody = {
     model,
-    messages: [
+    input: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userMessage }
     ],
-    max_tokens: maxTokens,
-    temperature: 0.7
-  });
+    max_output_tokens: maxTokens
+  };
 
-  return response.choices[0].message.content;
+  if (reasoningEffort && model.includes('5.1')) {
+    requestBody.reasoning = { effort: reasoningEffort };
+  }
+
+  console.log(`[OpenAI] Calling ${model} (max_tokens: ${maxTokens})`);
+  const response = await client.responses.create(requestBody);
+  return response.output_text;
 }
 
 async function callChatCompletionsAPI(model, systemPrompt, userMessage, maxTokens) {
@@ -878,21 +881,27 @@ async function callWithFallback(primary, fallback, systemPrompt, userMessage, ma
 
 async function streamWithFallback(primary, fallback, systemPrompt, userMessage, maxTokens, reasoningEffort, onDelta) {
   try {
-    console.log(`[OpenAI] Streaming ${primary}`);
-    const stream = await client.chat.completions.create({
+    const requestBody = {
       model: primary,
-      messages: [
+      input: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userMessage }
       ],
-      max_tokens: maxTokens,
-      temperature: 0.7,
+      max_output_tokens: maxTokens,
       stream: true
-    });
+    };
 
-    for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta?.content;
-      if (delta) onDelta(delta);
+    if (reasoningEffort && primary.includes('5.1')) {
+      requestBody.reasoning = { effort: reasoningEffort };
+    }
+
+    console.log(`[OpenAI] Streaming ${primary}`);
+    const stream = await client.responses.create(requestBody);
+
+    for await (const event of stream) {
+      if (event.type === 'response.output_text.delta') {
+        onDelta(event.delta);
+      }
     }
 
     return { model: primary, reasoning: reasoningEffort };
