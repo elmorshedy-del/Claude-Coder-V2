@@ -142,7 +142,7 @@ export default function AIAnalytics({ selectedStore, startDate, endDate }) {
               AI Analytics Assistant
             </h2>
             <div className="text-sm text-gray-500">
-              {selectedStore === 'all' ? 'All Stores' : selectedStore.toUpperCase()}
+              {selectedStore === 'all' ? 'All Stores' : (selectedStore || '').toUpperCase()}
             </div>
           </div>
           

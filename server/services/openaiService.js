@@ -619,6 +619,9 @@ export function deleteDemoSallaData() {
 export function runQuery(sql, params = []) {
   const db = getDb();
   try {
+    if (!sql || typeof sql !== 'string') {
+      return { success: false, error: 'SQL query required' };
+    }
     if (sql.trim().toUpperCase().startsWith('SELECT')) {
       return { success: true, data: db.prepare(sql).all(...params) };
     }
