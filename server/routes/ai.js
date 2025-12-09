@@ -6,6 +6,8 @@ import {
   decideQuestionStream,
   analyzeQuestionStream,
   summarizeDataStream,
+  dailySummary,
+  dailySummaryStream,
   deleteDemoSallaData,
   runQuery
 } from '../services/openaiService.js';
@@ -304,9 +306,10 @@ router.post('/decide', async (req, res) => {
 // ============================================================================
 router.post('/stream', async (req, res) => {
   try {
-    const { question, store, depth, mode, conversationId } = req.body;
+    const { question, store, depth, mode, conversationId, reportType } = req.body;
 
-    if (!question) {
+    // Daily summary mode doesn't need a question
+    if (mode !== 'daily-summary' && !question) {
       return res.status(400).json({ success: false, error: 'Question required' });
     }
 
@@ -326,11 +329,15 @@ router.post('/stream', async (req, res) => {
     console.log(`\n========================================`);
     console.log(`[API] POST /ai/stream`);
     console.log(`[API] Mode: ${activeMode}`);
-    console.log(`[API] Question: "${question}"`);
+    console.log(`[API] Question: "${(question || '').substring(0, 100)}..."`);
     console.log(`[API] Store: ${store}`);
     console.log(`[API] Depth: ${depth || 'balanced'}`);
     console.log(`[API] Conversation: ${conversationId || 'none'}`);
     console.log(`[API] History: ${history.length} messages`);
+    if (activeMode === 'daily-summary') {
+      console.log(`[API] Report Type: ${reportType || 'am'}`);
+      console.log(`[API] Using GPT-5.1 Deep for daily summary`);
+    }
     console.log(`========================================`);
 
     let result;
@@ -338,7 +345,10 @@ router.post('/stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ type: 'delta', text: delta })}\n\n`);
     };
 
-    if (activeMode === 'analyze') {
+    if (activeMode === 'daily-summary') {
+      // Daily summary uses GPT-5.1 deep - always for both stores
+      result = await dailySummaryStream(reportType || 'am', onDelta);
+    } else if (activeMode === 'analyze') {
       result = await analyzeQuestionStream(question, store, onDelta, history);
     } else if (activeMode === 'summarize') {
       result = await summarizeDataStream(question, store, onDelta, history);
