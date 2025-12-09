@@ -410,7 +410,7 @@ router.post('/query', async (req, res) => {
   try {
     const { sql, params } = req.body;
 
-    if (!sql) {
+    if (!sql || typeof sql !== 'string') {
       return res.status(400).json({ success: false, error: 'SQL query required' });
     }
 
