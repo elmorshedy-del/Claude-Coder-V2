@@ -969,50 +969,34 @@ export async function dailySummary(reportType = 'am') {
   );
 }
 
-export async function dailySummaryStream(question, store, customSystemPrompt, onDelta) {
+export async function dailySummaryStream(reportType = 'am', onDelta) {
   const db = getDb();
   const today = new Date().toISOString().split('T')[0];
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const last30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   
   // Get BOTH stores data for comprehensive report
-  const vironaxData = getStoreDataFull(db, 'vironax', today, yesterday, last30);
-  const shawqData = getStoreDataFull(db, 'shawq', today, yesterday, last30);
-
   const data = {
+    reportType,
     generatedAt: new Date().toISOString(),
     today,
     yesterday,
-    vironax: vironaxData,
-    shawq: shawqData
+    vironax: getStoreDataFull(db, 'vironax', today, yesterday, last30),
+    shawq: getStoreDataFull(db, 'shawq', today, yesterday, last30)
   };
 
-  // Build final prompt with custom system prompt + data
-  const fullSystemPrompt = `${customSystemPrompt}
+  const userPrompt = buildDailySummaryPrompt(reportType, data);
 
-CURRENT BUSINESS DATA:
-${JSON.stringify(data, null, 2)}
-
-IMPORTANT FORMATTING:
-- Display country code "AE" as "UAE"
-- Display "SA" as "Saudi Arabia"
-- Display "GB" as "UK"
-- Display "US" as "USA"
-- Today's date: ${today}
-- Yesterday: ${yesterday}
-
-Generate a comprehensive report using ONLY the data provided above. Be specific with numbers.`;
-
-  console.log(`[DailySummary] Generating report with GPT-5.1 Deep`);
-  console.log(`[DailySummary] VironaX data available: ${!!vironaxData?.connectedSources?.length}`);
-  console.log(`[DailySummary] Shawq data available: ${!!shawqData?.connectedSources?.length}`);
+  console.log(`[DailySummary] Streaming ${reportType.toUpperCase()} report with GPT-5.1 Deep`);
+  console.log(`[DailySummary] VironaX sources: ${data.vironax?.connectedSources?.join(', ') || 'none'}`);
+  console.log(`[DailySummary] Shawq sources: ${data.shawq?.connectedSources?.join(', ') || 'none'}`);
   
   // Always use GPT-5.1 (STRATEGIST) with deep reasoning for daily summary
   return await streamWithFallback(
     MODELS.STRATEGIST,
     FALLBACK_MODELS.STRATEGIST,
-    fullSystemPrompt,
-    question,
+    DAILY_SUMMARY_SYSTEM_PROMPT,
+    userPrompt,
     TOKEN_LIMITS.deep,
     DEPTH_TO_EFFORT['deep'],
     onDelta
