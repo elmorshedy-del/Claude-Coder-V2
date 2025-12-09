@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { getDb } from '../db/database.js';
 
+// OpenAI Service - GPT-5 + GPT-4 fallback
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
@@ -306,7 +307,7 @@ async function streamWithFallback(primary, fallback, systemPrompt, userMessage, 
     return { model: primary, reasoning: reasoningEffort };
   } catch (error) {
     console.log(`[OpenAI] Stream ${primary} failed: ${error.message}, trying ${fallback}`);
-    
+
     const response = await client.chat.completions.create({
       model: fallback,
       messages: [
@@ -360,6 +361,81 @@ export async function decideQuestionStream(question, store, depth = 'balanced', 
   const maxTokens = TOKEN_LIMITS[depth] || TOKEN_LIMITS.balanced;
 
   return await streamWithFallback(MODELS.STRATEGIST, FALLBACK_MODELS.STRATEGIST, systemPrompt, question, maxTokens, effort, onDelta);
+}
+
+// Streaming versions for Analyze and Summarize
+export async function analyzeQuestionStream(question, store, onDelta) {
+  const data = getRelevantData(store, question);
+  const systemPrompt = buildSystemPrompt(store, 'analyze', data);
+  return await streamWithFallback(MODELS.NANO, FALLBACK_MODELS.NANO, systemPrompt, question, TOKEN_LIMITS.nano, null, onDelta);
+}
+
+export async function summarizeDataStream(question, store, onDelta) {
+  const data = getRelevantData(store, question);
+  const systemPrompt = buildSystemPrompt(store, 'summarize', data);
+  return await streamWithFallback(MODELS.MINI, FALLBACK_MODELS.MINI, systemPrompt, question, TOKEN_LIMITS.mini, null, onDelta);
+}
+
+// ============================================================================
+// DAILY SUMMARY - AM/PM Reports
+// ============================================================================
+
+export async function dailySummary(reportType = 'am') {
+  const db = getDb();
+  const today = new Date().toISOString().split('T')[0];
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const last7Days = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  const data = {
+    reportType,
+    generatedAt: new Date().toISOString(),
+    vironax: getStoreData(db, 'vironax', today, yesterday, last7Days),
+    shawq: getStoreData(db, 'shawq', today, yesterday, last7Days)
+  };
+
+  const systemPrompt = `You are a Growth Scientist analyzing both Virona and Shawq stores.
+Generate a ${reportType.toUpperCase()} report with actionable insights.`;
+
+  const userPrompt = `${reportType.toUpperCase()} Report for ${today}\n\nDATA:\n${JSON.stringify(data, null, 2)}`;
+
+  return await callWithFallback(MODELS.STRATEGIST, FALLBACK_MODELS.STRATEGIST, systemPrompt, userPrompt, TOKEN_LIMITS.deep, 'high');
+}
+
+export async function dailySummaryStream(reportType = 'am', onDelta) {
+  const db = getDb();
+  const today = new Date().toISOString().split('T')[0];
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const last7Days = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  const data = {
+    reportType,
+    generatedAt: new Date().toISOString(),
+    vironax: getStoreData(db, 'vironax', today, yesterday, last7Days),
+    shawq: getStoreData(db, 'shawq', today, yesterday, last7Days)
+  };
+
+  const systemPrompt = `You are a Growth Scientist analyzing both Virona and Shawq stores.
+Generate a ${reportType.toUpperCase()} report with actionable insights.`;
+
+  const userPrompt = `${reportType.toUpperCase()} Report for ${today}\n\nDATA:\n${JSON.stringify(data, null, 2)}`;
+
+  return await streamWithFallback(MODELS.STRATEGIST, FALLBACK_MODELS.STRATEGIST, systemPrompt, userPrompt, TOKEN_LIMITS.deep, 'high', onDelta);
+}
+
+// ============================================================================
+// CLEANUP - Delete demo Salla data
+// ============================================================================
+
+export function deleteDemoSallaData() {
+  const db = getDb();
+  try {
+    const result = db.prepare(`DELETE FROM salla_orders WHERE store = 'vironax'`).run();
+    console.log(`[Cleanup] Deleted ${result.changes} demo Salla orders`);
+    return { success: true, deleted: result.changes };
+  } catch (error) {
+    console.error('[Cleanup] Failed to delete demo data:', error.message);
+    return { success: false, error: error.message };
+  }
 }
 
 // ============================================================================
