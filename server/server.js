@@ -9,6 +9,9 @@ import manualRouter from './routes/manual.js';
 import notificationsRouter from './routes/notifications.js';
 import aiRouter from './routes/ai.js';
 import budgetIntelligenceRouter from './routes/budgetIntelligence.js';
+import whatifRouter from './routes/whatif.js';
+import { runWhatIfMigration } from './db/whatifMigration.js';
+import { smartSync as whatifSmartSync } from './services/whatifMetaService.js';
 import { syncMetaData } from './services/metaService.js';
 import { syncShopifyOrders } from './services/shopifyService.js';
 import { syncSallaOrders } from './services/sallaService.js';
@@ -22,6 +25,9 @@ const PORT = process.env.PORT || 3001;
 
 // Initialize database
 initDb();
+
+// Run What-If migration (creates whatif_timeseries table if not exists)
+runWhatIfMigration();
 
 // One-time Salla cleanup (safe - won't crash if tables don't exist)
 try {
@@ -46,6 +52,7 @@ app.use('/api/manual', manualRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/budget-intelligence', budgetIntelligenceRouter);
+app.use('/api/whatif', whatifRouter);
 
 // Serve static files in production
 const clientDist = path.join(__dirname, '../client/dist');
@@ -71,11 +78,29 @@ async function backgroundSync() {
   }
 }
 
+// What-If data sync (separate from main sync)
+async function whatifSync() {
+  console.log('[WhatIf] Starting What-If data sync...');
+  try {
+    await whatifSmartSync('vironax');
+    await whatifSmartSync('shawq');
+    console.log('[WhatIf] What-If sync complete');
+  } catch (error) {
+    console.error('[WhatIf] What-If sync error:', error);
+  }
+}
+
 // Initial sync on startup
 setTimeout(backgroundSync, 5000);
 
+// Initial What-If sync (delayed 2 min to let main sync finish)
+setTimeout(whatifSync, 2 * 60 * 1000);
+
 // Sync every 15 minutes
 setInterval(backgroundSync, 15 * 60 * 1000);
+
+// What-If sync every 24 hours
+setInterval(whatifSync, 24 * 60 * 60 * 1000);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
