@@ -87,8 +87,8 @@ import {
   Brain,
   ChevronDown,
   ChevronUp,
-  CircleCheck,
-  CircleHelp,
+  CheckCircle,
+  HelpCircle,
   Cog,
   FileUp,
   Flame,
@@ -967,7 +967,7 @@ function ConfidenceBadge({ level }) {
 
   return (
     <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${cls}`}>
-      {l === "High" ? <CircleCheck size={12} /> : l === "Medium" ? <Info size={12} /> : <ShieldAlert size={12} />}
+      {l === "High" ? <CheckCircle size={12} /> : l === "Medium" ? <Info size={12} /> : <ShieldAlert size={12} />}
       {l}
     </span>
   );
@@ -1125,6 +1125,11 @@ function AIBudgetSimulatorTab({ platformRows }) {
     return map;
   }, [adsetRowsMap]);
 
+  // Helper to avoid memo issues with array identity
+  function adsetsRowsMapKey(list) {
+    return (list || []).map(a => a.id).join("|");
+  }
+
   // Base shares (from lookbackRows)
   const baseShares = useMemo(() => {
     const adsets = adsetsForCampaign.length
@@ -1133,11 +1138,6 @@ function AIBudgetSimulatorTab({ platformRows }) {
 
     return estimateBaseShares(lookbackRows, adsets);
   }, [lookbackRows, adsetsForCampaign, adsetsRowsMapKey(adsetsForCampaign)]);
-
-  // Helper to avoid memo issues with array identity
-  function adsetsRowsMapKey(list) {
-    return (list || []).map(a => a.id).join("|");
-  }
 
   // Refined shares for CBO/ASC
   const refinedShares = useMemo(() => {
@@ -1687,7 +1687,7 @@ function AIBudgetSimulatorTab({ platformRows }) {
                 onClick={() => setShowModelHelp(v => !v)}
                 className="text-[10px] font-semibold text-indigo-700 hover:text-indigo-900 inline-flex items-center gap-1"
               >
-                <CircleHelp size={12} />
+                <HelpCircle size={12} />
                 Learn more
               </button>
             </div>
