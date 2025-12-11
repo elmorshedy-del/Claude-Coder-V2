@@ -44,7 +44,7 @@
  *
  * NOTE
  * This is a demo-ready frontend shell with deterministic math + clear wiring.
- * Replace MockPlatform with your real platform state selectors.
+ * Hooks into backend budget intelligence data.
  */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -68,138 +68,6 @@ import {
   XCircle
 } from "lucide-react";
 import { useMetaObjects } from "../features/meta-awareness/hooks/useMetaStatus.js";
-
-/* ============================================================================
-   MOCK PLATFORM DATA (replace with real platform selectors)
-   ============================================================================ */
-
-const MockPlatform = (() => {
-  // Simple mock generator for daily campaign/adset rows.
-  function genDays({ days = 90, campaign, geo, structure = "CBO", adsets = 3, baseSpend = 4000, baseRoas = 3.2 }) {
-    const rows = [];
-    const adsetNames = Array.from({ length: adsets }, (_, i) => `${campaign} — Adset ${i + 1}`);
-    const start = Date.now() - days * 86400000;
-    for (let d = 0; d < days; d++) {
-      const date = new Date(start + d * 86400000).toISOString().slice(0, 10);
-      const dayNoise = 0.85 + Math.random() * 0.3;
-      const spend = baseSpend * dayNoise;
-      const roas = baseRoas * (0.9 + Math.random() * 0.25);
-      const purchase_value = spend * roas;
-      const impressions = Math.max(0, Math.round(spend * 70 * (0.9 + Math.random() * 0.2)));
-      const clicks = Math.max(0, Math.round(impressions * (0.012 + Math.random() * 0.01)));
-      const atc = Math.max(0, Math.round(clicks * (0.18 + Math.random() * 0.08)));
-      const ic = Math.max(0, Math.round(atc * (0.45 + Math.random() * 0.15)));
-      const purchases = Math.max(0, Math.round(ic * (0.42 + Math.random() * 0.12)));
-      const active_creatives_count = 3 + Math.floor(Math.random() * 4);
-      const frequency = 1.0 + Math.random() * 1.2;
-      const promo_flag = d % 14 < 3 ? 1 : 0;
-      const discount_pct = promo_flag ? 10 + Math.round(Math.random() * 10) : 0;
-
-      // Campaign-level row
-      rows.push({
-        date,
-        brand: campaign.includes("Shawq") ? "Shawq" : "Virona",
-        campaign_id: `cmp_${campaign.replace(/\W+/g, "").toLowerCase()}`,
-        campaign_name: campaign,
-        adset_id: null,
-        adset_name: null,
-        geo,
-        structure,
-        spend,
-        purchase_value,
-        purchases,
-        impressions,
-        clicks,
-        atc,
-        ic,
-        frequency,
-        active_creatives_count,
-        new_creatives_7d: Math.random() < 0.35 ? 1 : 0,
-        promo_flag,
-        discount_pct
-      });
-
-      // Ad set rows (for allocation realism)
-      const shares = randomDirichlet(adsets);
-      for (let i = 0; i < adsets; i++) {
-        const sSpend = spend * shares[i] * (0.98 + Math.random() * 0.04);
-        const sRoas = baseRoas * (0.9 + Math.random() * 0.25);
-        const sRev = sSpend * sRoas;
-        const sImpr = Math.max(0, Math.round(sSpend * 70));
-        const sClicks = Math.max(0, Math.round(sImpr * 0.014));
-        const sAtc = Math.max(0, Math.round(sClicks * 0.22));
-        const sIc = Math.max(0, Math.round(sAtc * 0.55));
-        const sPurch = Math.max(0, Math.round(sIc * 0.45));
-
-        rows.push({
-          date,
-          brand: campaign.includes("Shawq") ? "Shawq" : "Virona",
-          campaign_id: `cmp_${campaign.replace(/\W+/g, "").toLowerCase()}`,
-          campaign_name: campaign,
-          adset_id: `ad_${i + 1}_${campaign.replace(/\W+/g, "").toLowerCase()}`,
-          adset_name: adsetNames[i],
-          geo,
-          structure,
-          spend: sSpend,
-          purchase_value: sRev,
-          purchases: sPurch,
-          impressions: sImpr,
-          clicks: sClicks,
-          atc: sAtc,
-          ic: sIc,
-          frequency,
-          active_creatives_count,
-          new_creatives_7d: Math.random() < 0.35 ? 1 : 0,
-          promo_flag,
-          discount_pct
-        });
-      }
-    }
-    return rows;
-  }
-
-  function randomDirichlet(k) {
-    const arr = Array.from({ length: k }, () => Math.random() + 0.2);
-    const sum = arr.reduce((a, b) => a + b, 0);
-    return arr.map(v => v / sum);
-  }
-
-  const campaigns = [
-    { name: "Virona — KSA Core Scale", geo: "SA", structure: "CBO", adsets: 4, baseSpend: 5200, baseRoas: 3.6 },
-    { name: "Virona — KSA Retargeting", geo: "SA", structure: "ABO", adsets: 3, baseSpend: 2200, baseRoas: 4.0 },
-    { name: "Virona — UAE Launch Test", geo: "AE", structure: "ASC", adsets: 3, baseSpend: 1600, baseRoas: 2.6 },
-    { name: "Shawq — USA Evergreen", geo: "US", structure: "CBO", adsets: 4, baseSpend: 4800, baseRoas: 3.1 }
-  ];
-
-  const allRows = [
-    ...genDays({ days: 180, campaign: campaigns[0].name, geo: campaigns[0].geo, structure: campaigns[0].structure, adsets: campaigns[0].adsets, baseSpend: campaigns[0].baseSpend, baseRoas: campaigns[0].baseRoas }),
-    ...genDays({ days: 120, campaign: campaigns[1].name, geo: campaigns[1].geo, structure: campaigns[1].structure, adsets: campaigns[1].adsets, baseSpend: campaigns[1].baseSpend, baseRoas: campaigns[1].baseRoas }),
-    ...genDays({ days: 40, campaign: campaigns[2].name, geo: campaigns[2].geo, structure: campaigns[2].structure, adsets: campaigns[2].adsets, baseSpend: campaigns[2].baseSpend, baseRoas: campaigns[2].baseRoas }),
-    ...genDays({ days: 150, campaign: campaigns[3].name, geo: campaigns[3].geo, structure: campaigns[3].structure, adsets: campaigns[3].adsets, baseSpend: campaigns[3].baseSpend, baseRoas: campaigns[3].baseRoas })
-  ];
-
-  return {
-    campaigns,
-    rows: allRows,
-    listCampaignNames() {
-      return campaigns.map(c => c.name);
-    },
-    getRowsByCampaign(campaignName) {
-      return allRows.filter(r => r.campaign_name === campaignName);
-    },
-    listAdsetsForCampaign(campaignName) {
-      const rows = allRows.filter(r => r.campaign_name === campaignName && r.adset_id);
-      const map = new Map();
-      rows.forEach(r => {
-        if (!map.has(r.adset_id)) map.set(r.adset_id, { id: r.adset_id, name: r.adset_name });
-      });
-      return Array.from(map.values());
-    },
-    getAllRows() {
-      return allRows;
-    }
-  };
-})();
 
 /* ============================================================================
    MATH UTILITIES (Elite-lite, deterministic, safe)
@@ -922,7 +790,30 @@ function ModeExplainRow({ modeKey, active }) {
    ============================================================================ */
 
 function AIBudgetSimulatorTab({ store }) {
+  const currentStore = store || "vironax";
   const [scenarioType, setScenarioType] = useState("existing"); // existing | planned
+
+  const [intel, setIntel] = useState(null);
+  const [loadingIntel, setLoadingIntel] = useState(true);
+  const [intelError, setIntelError] = useState(null);
+
+  useEffect(() => {
+    async function loadIntel() {
+      try {
+        setLoadingIntel(true);
+        const res = await fetch(`/api/budget-intelligence?store=${currentStore}`);
+        const data = await res.json();
+        setIntel(data);
+        setIntelError(null);
+      } catch (e) {
+        setIntelError("Failed to load budget intelligence");
+      } finally {
+        setLoadingIntel(false);
+      }
+    }
+
+    loadIntel();
+  }, [currentStore]);
 
   // Meta campaigns
   const { objects: metaObjects } = useMetaObjects(store, { autoFetch: !!store });
@@ -936,16 +827,16 @@ function AIBudgetSimulatorTab({ store }) {
   }, [metaObjects]);
 
   // Existing configuration
-  const [existingCampaign, setExistingCampaign] = useState(MockPlatform.campaigns[0].name);
-  const [existingGeo, setExistingGeo] = useState(MockPlatform.campaigns[0].geo);
-  const [existingStructure, setExistingStructure] = useState(MockPlatform.campaigns[0].structure);
+  const [existingCampaign, setExistingCampaign] = useState("");
+  const [existingGeo, setExistingGeo] = useState("SA");
+  const [existingStructure, setExistingStructure] = useState("CBO");
   const [existingGeoMaturity, setExistingGeoMaturity] = useState("mature"); // mature | thin
 
   // Planned configuration
   const [plannedSource, setPlannedSource] = useState("new"); // new | meta_template
-  const [plannedTemplateCampaign, setPlannedTemplateCampaign] = useState(MockPlatform.campaigns[0].name);
-  const [plannedGeo, setPlannedGeo] = useState(MockPlatform.campaigns[0].geo);
-  const [plannedStructure, setPlannedStructure] = useState(MockPlatform.campaigns[0].structure);
+  const [plannedTemplateCampaign, setPlannedTemplateCampaign] = useState("");
+  const [plannedGeo, setPlannedGeo] = useState("SA");
+  const [plannedStructure, setPlannedStructure] = useState("CBO");
   const [plannedGeoMaturity, setPlannedGeoMaturity] = useState("thin");
 
   const [expectedAov, setExpectedAov] = useState(150);
@@ -1015,11 +906,41 @@ function AIBudgetSimulatorTab({ store }) {
     plannedGeoMaturity
   ]);
 
+  const intelCampaignRows = useMemo(() => {
+    if (!intel?.liveGuidance) return [];
+    return intel.liveGuidance.map(row => ({
+      ...row,
+      campaign_id: row.campaignId,
+      campaign_name: row.campaignName,
+      geo: row.country,
+      structure: row.structure || "CBO",
+      purchase_value: row.revenue,
+      adset_id: null,
+      adset_name: null
+    }));
+  }, [intel]);
+
+  const intelStartPlanRows = useMemo(() => {
+    if (!intel?.startPlans) return [];
+    return intel.startPlans.map(plan => ({
+      ...plan,
+      campaign_id: plan.country,
+      campaign_name: plan.name || plan.country,
+      geo: plan.country,
+      structure: plan.structure || "CBO",
+      spend: plan.recommendedTotal,
+      purchase_value: plan.recommendedTotal,
+      purchases: plan.expectedPurchases,
+      adset_id: null,
+      adset_name: null
+    }));
+  }, [intel]);
+
   /* ----------------------------
      Platform rows for the configuration scope
      ---------------------------- */
   const platformCampaignRows = useMemo(() => {
-    const rows = MockPlatform.getAllRows();
+    const rows = intelCampaignRows;
     // For planned with template, we use template campaign rows as anchor.
     if (activeConfig.planned && activeConfig.plannedSource === "meta_template" && activeConfig.campaignName) {
       return scopeFilterRows(rows, { campaignName: activeConfig.campaignName, geo: null, includeAdsets: true });
@@ -1030,12 +951,12 @@ function AIBudgetSimulatorTab({ store }) {
     }
     // Planned without template: no direct campaign rows
     return [];
-  }, [activeConfig]);
+  }, [activeConfig, intelCampaignRows]);
 
   const allBrandRows = useMemo(() => {
     // Used for priors fallback in planned new + thin.
-    return MockPlatform.getAllRows();
-  }, []);
+    return [...intelCampaignRows, ...intelStartPlanRows];
+  }, [intelCampaignRows, intelStartPlanRows]);
 
   /* ----------------------------
      Parse file packets into flat rows
@@ -1131,18 +1052,18 @@ function AIBudgetSimulatorTab({ store }) {
   const activeAdsets = useMemo(() => {
     // For existing: ad sets from selected campaign
     if (scenarioType === "existing") {
-      return MockPlatform.listAdsetsForCampaign(existingCampaign);
+      return intelCampaignRows.filter(r => r.campaign_name === existingCampaign && r.adset_id);
     }
     // For planned with template: ad sets from template
     if (plannedSource === "meta_template") {
-      return MockPlatform.listAdsetsForCampaign(plannedTemplateCampaign);
+      return intelCampaignRows.filter(r => r.campaign_name === plannedTemplateCampaign && r.adset_id);
     }
     // Planned new: create placeholder ad sets (editable in future backend)
     return [
       { id: "planned_ad_1", name: "Planned Adset 1" },
       { id: "planned_ad_2", name: "Planned Adset 2" }
     ];
-  }, [scenarioType, existingCampaign, plannedSource, plannedTemplateCampaign]);
+  }, [scenarioType, existingCampaign, plannedSource, plannedTemplateCampaign, intelCampaignRows]);
 
   /* ----------------------------
      Compute dynamic slider bounds from recent campaign-level spends
@@ -1252,9 +1173,9 @@ function AIBudgetSimulatorTab({ store }) {
   const referenceRows = useMemo(() => {
     const refs = scenarioType === "existing" ? refCampaignsExisting : refCampaignsPlanned;
     if (!refs.length) return [];
-    const all = MockPlatform.getAllRows();
+    const all = allBrandRows;
     return all.filter(r => refs.includes(r.campaign_name));
-  }, [scenarioType, refCampaignsExisting, refCampaignsPlanned]);
+  }, [scenarioType, refCampaignsExisting, refCampaignsPlanned, allBrandRows]);
 
   /* ----------------------------
      Construct effective rows for parameter estimation:
@@ -1416,22 +1337,39 @@ function AIBudgetSimulatorTab({ store }) {
      ---------------------------- */
   const campaignOptions = useMemo(() => {
     if (metaCampaignNames.length) return metaCampaignNames;
-    return MockPlatform.listCampaignNames();
-  }, [metaCampaignNames]);
+    if (intelCampaignRows.length) {
+      return Array.from(new Set(intelCampaignRows.map(r => r.campaign_name).filter(Boolean)));
+    }
+    return [];
+  }, [metaCampaignNames, intelCampaignRows]);
 
   // Seed campaign selections when options change
   useEffect(() => {
     const first = campaignOptions[0];
-    if (!first) return;
-
-    if (!campaignOptions.includes(existingCampaign)) {
+    if (first && !campaignOptions.includes(existingCampaign)) {
       setExistingCampaign(first);
+      const meta = intelCampaignRows.find(c => c.campaign_name === first);
+      if (meta?.geo) setExistingGeo(meta.geo);
+      if (meta?.structure) setExistingStructure(meta.structure);
     }
 
-    if (!campaignOptions.includes(plannedTemplateCampaign)) {
+    if (first && !campaignOptions.includes(plannedTemplateCampaign)) {
       setPlannedTemplateCampaign(first);
     }
-  }, [campaignOptions, existingCampaign, plannedTemplateCampaign]);
+
+    if (intelStartPlanRows.length && (!plannedGeo || plannedGeo === "")) {
+      setPlannedGeo(intelStartPlanRows[0].geo || intelStartPlanRows[0].country || plannedGeo);
+    }
+  }, [
+    campaignOptions,
+    existingCampaign,
+    plannedTemplateCampaign,
+    intelCampaignRows,
+    intelStartPlanRows,
+    plannedGeo,
+    existingGeo,
+    existingStructure
+  ]);
 
   /* ----------------------------
      UI: reference campaign multi-select (simple)
@@ -1475,6 +1413,16 @@ function AIBudgetSimulatorTab({ store }) {
   /* ----------------------------
      Render
      ---------------------------- */
+  if (loadingIntel) {
+    return <div>Loading…</div>;
+  }
+  if (intelError) {
+    return <div>{intelError}</div>;
+  }
+  if (!intel) {
+    return <div>No budget intelligence data available.</div>;
+  }
+
   return (
     <div className="space-y-6">
       {/* Scenario switch */}
@@ -1505,7 +1453,7 @@ function AIBudgetSimulatorTab({ store }) {
                     onChange={(e) => {
                       const name = e.target.value;
                       setExistingCampaign(name);
-                      const meta = MockPlatform.campaigns.find(c => c.name === name);
+                      const meta = intelCampaignRows.find(c => c.campaign_name === name);
                       if (meta) {
                         setExistingGeo(meta.geo);
                         setExistingStructure(meta.structure);
@@ -1636,7 +1584,7 @@ function AIBudgetSimulatorTab({ store }) {
                       onChange={(e) => {
                         const name = e.target.value;
                         setPlannedTemplateCampaign(name);
-                        const meta = MockPlatform.campaigns.find(c => c.name === name);
+                        const meta = intelCampaignRows.find(c => c.campaign_name === name);
                         if (meta) {
                           setPlannedGeo(meta.geo);
                           setPlannedStructure(meta.structure);
@@ -2182,7 +2130,7 @@ export default function AIBudgetApp({ store }) {
         {activeTab === "sim" ? <AIBudgetSimulatorTab store={store} /> : <AIBudgetMathFlowTab />}
 
         <div className="text-[10px] text-gray-400">
-          Demo shell. Replace MockPlatform with your platform store + Meta ingestion.
+          Demo shell connected to backend budget intelligence data.
           Allocation, priors, and incrementality layers are designed to upgrade cleanly
           with backend support.
         </div>
