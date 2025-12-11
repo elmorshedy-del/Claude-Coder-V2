@@ -575,6 +575,71 @@ export function getCountryTrends(store, params) {
 }
 
 // ============================================================================
+  // CAMPAIGN TRENDS
+  // ===========================================================================
+export function getCampaignTrends(store, params = {}) {
+  const db = getDb();
+  const endDate = formatDateAsGmt3(new Date());
+  const startDate = formatDateAsGmt3(new Date(Date.now() - 13 * 24 * 60 * 60 * 1000));
+  const statusFilter = buildStatusFilter(params);
+
+  try {
+    let rawData = [];
+    let dataSource = 'Meta';
+
+    if (store === 'vironax' || store === 'shawq') {
+      rawData = db.prepare(`
+        SELECT
+          date,
+          campaign_id as campaignId,
+          campaign_name as campaignName,
+          SUM(conversions) as orders,
+          SUM(conversion_value) as revenue
+        FROM meta_daily_metrics
+        WHERE store = ? AND date BETWEEN ? AND ?${statusFilter}
+        GROUP BY date, campaign_id, campaign_name
+        ORDER BY date ASC, campaign_id ASC
+      `).all(store, startDate, endDate);
+    } else {
+      return { data: [], dataSource: 'none' };
+    }
+
+    const campaignsMap = new Map();
+
+    for (const row of rawData) {
+      const key = row.campaignId || row.campaignName || 'unknown';
+      if (!campaignsMap.has(key)) {
+        campaignsMap.set(key, {
+          campaignId: row.campaignId || 'unknown',
+          campaignName: row.campaignName || 'Unknown Campaign',
+          totalOrders: 0,
+          totalRevenue: 0,
+          trends: []
+        });
+      }
+
+      const campaignData = campaignsMap.get(key);
+      campaignData.trends.push({
+        date: row.date,
+        orders: row.orders || 0,
+        revenue: row.revenue || 0
+      });
+      campaignData.totalOrders += row.orders || 0;
+      campaignData.totalRevenue += row.revenue || 0;
+    }
+
+    const result = Array.from(campaignsMap.values())
+      .filter(c => c.totalOrders > 0)
+      .sort((a, b) => b.totalOrders - a.totalOrders);
+
+    return { data: result, dataSource };
+  } catch (error) {
+    console.error(`[Analytics] Error getting campaign trends:`, error);
+    return { data: [], dataSource: 'error' };
+  }
+}
+
+// ===========================================================================
 // TIME OF DAY (with timezone logic)
 // ============================================================================
 export function getShopifyTimeOfDay(store, params) {
