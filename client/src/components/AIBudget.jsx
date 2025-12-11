@@ -801,7 +801,7 @@ function AIBudgetSimulatorTab({ store }) {
     async function loadIntel() {
       try {
         setLoadingIntel(true);
-        const res = await fetch(`/api/budget-intelligence?store=${currentStore}`);
+        const res = await fetch(`/api/budget-intelligence?store=${currentStore}&includeInactive=true`);
         const data = await res.json();
         setIntel(data);
         setIntelError(null);
