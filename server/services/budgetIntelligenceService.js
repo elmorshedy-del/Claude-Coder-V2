@@ -164,7 +164,7 @@ export function getBudgetIntelligence(store, params) {
       conversions as purchases,
       conversion_value as revenue
     FROM meta_daily_metrics
-    WHERE store = ? AND date BETWEEN ? AND ? AND country != 'ALL'${statusFilter}
+    WHERE store = ? AND date BETWEEN ? AND ?${statusFilter}
     ORDER BY date, campaign_id, country
   `).all(store, startDate, endDate);
 
@@ -191,14 +191,16 @@ export function getBudgetIntelligence(store, params) {
       conversions as purchases,
       conversion_value as revenue
     FROM meta_adset_metrics
-    WHERE store = ? AND date BETWEEN ? AND ? AND country != 'ALL'${statusFilter}    ORDER BY date, campaign_id, adset_id, country
+    WHERE store = ? AND date BETWEEN ? AND ?${statusFilter}
+    ORDER BY date, campaign_id, adset_id, country
   `).all(store, startDate, endDate);
 
   // Country-level aggregates for observed signal
   const metaByCountry = db.prepare(`
     SELECT country, SUM(spend) as spend, SUM(conversions) as conversions, SUM(conversion_value) as revenue
     FROM meta_daily_metrics
-    WHERE store = ? AND date BETWEEN ? AND ? AND country != 'ALL'${statusFilter}    GROUP BY country
+    WHERE store = ? AND date BETWEEN ? AND ?${statusFilter}
+    GROUP BY country
   `).all(store, startDate, endDate);
 
   let ecommerceOrders = [];
