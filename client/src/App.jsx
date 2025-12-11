@@ -93,6 +93,8 @@ export default function App() {
   // Country trends
   const [countryTrends, setCountryTrends] = useState([]);
   const [countryTrendsDataSource, setCountryTrendsDataSource] = useState('');
+  const [campaignTrends, setCampaignTrends] = useState([]);
+  const [campaignTrendsDataSource, setCampaignTrendsDataSource] = useState('');
   const [countriesDataSource, setCountriesDataSource] = useState('');
 
   // Unified analytics section state (must be before useEffect hooks that use them)
@@ -170,6 +172,7 @@ export default function App() {
     try {
       const params = new URLSearchParams({ store: currentStore });
       const countryTrendParams = new URLSearchParams({ store: currentStore, days: 7 });
+      const campaignTrendParams = new URLSearchParams({ store: currentStore, days: 7 });
       
       // Fix 7: Always show arrows for comparison (Today compares to Yesterday, Yesterday compares to day before)
       const shouldShowArrows = true;
@@ -179,12 +182,16 @@ export default function App() {
         params.set('endDate', dateRange.end);
         countryTrendParams.set('startDate', dateRange.start);
         countryTrendParams.set('endDate', dateRange.end);
+        campaignTrendParams.set('startDate', dateRange.start);
+        campaignTrendParams.set('endDate', dateRange.end);
       } else if (dateRange.type === 'yesterday') {
         params.set('yesterday', '1');
         countryTrendParams.set('yesterday', '1');
+        campaignTrendParams.set('yesterday', '1');
       } else {
         params.set(dateRange.type, dateRange.value);
         countryTrendParams.set(dateRange.type, dateRange.value);
+        campaignTrendParams.set(dateRange.type, dateRange.value);
       }
       
       params.set('showArrows', shouldShowArrows);
@@ -192,6 +199,8 @@ export default function App() {
       // Include inactive campaigns/adsets/ads if toggle is on
       if (includeInactive) {
         params.set('includeInactive', 'true');
+        countryTrendParams.set('includeInactive', 'true');
+        campaignTrendParams.set('includeInactive', 'true');
       }
 
       const shopifyRegion = selectedShopifyRegion ?? 'us';
@@ -207,6 +216,7 @@ export default function App() {
         spendOverrides,
         countries,
         cTrends,
+        campaignTrendData,
         timeOfDayData,
         dowData
       ] = await Promise.all([
@@ -219,6 +229,7 @@ export default function App() {
         fetch(`${API_BASE}/manual/spend?${params}`).then(r => r.json()),
         fetch(`${API_BASE}/analytics/countries?store=${currentStore}`).then(r => r.json()),
         fetch(`${API_BASE}/analytics/countries/trends?${countryTrendParams}`).then(r => r.json()),
+        fetch(`${API_BASE}/analytics/campaigns/trends?${campaignTrendParams}`).then(r => r.json()),
         // Time of day - now fetches for both stores
         fetch(`${API_BASE}/analytics/time-of-day?${timeOfDayParams}`).then(r => r.json()),
         // Days of week
@@ -262,6 +273,17 @@ export default function App() {
       } else {
         setCountryTrends([]);
         setCountryTrendsDataSource('');
+      }
+
+      if (campaignTrendData && typeof campaignTrendData === 'object' && Array.isArray(campaignTrendData.data)) {
+        setCampaignTrends(campaignTrendData.data);
+        setCampaignTrendsDataSource(campaignTrendData.dataSource || '');
+      } else if (Array.isArray(campaignTrendData)) {
+        setCampaignTrends(campaignTrendData);
+        setCampaignTrendsDataSource('');
+      } else {
+        setCampaignTrends([]);
+        setCampaignTrendsDataSource('');
       }
 
       // Set countries data source from dashboard
@@ -782,6 +804,8 @@ export default function App() {
             store={store}
             countryTrends={countryTrends}
             countryTrendsDataSource={countryTrendsDataSource}
+            campaignTrends={campaignTrends}
+            campaignTrendsDataSource={campaignTrendsDataSource}
             countriesDataSource={countriesDataSource}
             timeOfDay={timeOfDay}
             selectedShopifyRegion={selectedShopifyRegion}
@@ -904,6 +928,8 @@ function DashboardTab({
   store = {},
   countryTrends = [],
   countryTrendsDataSource = '',
+  campaignTrends = [],
+  campaignTrendsDataSource = '',
   countriesDataSource = '',
   timeOfDay = { data: [], timezone: 'America/Chicago', sampleTimestamps: [], source: '' },
   selectedShopifyRegion = 'us',
@@ -939,6 +965,7 @@ function DashboardTab({
   const [countrySortConfig, setCountrySortConfig] = useState({ field: 'totalOrders', direction: 'desc' });
   const [campaignSortConfig, setCampaignSortConfig] = useState({ field: 'spend', direction: 'desc' });
   const [showCountryTrends, setShowCountryTrends] = useState(false);
+  const [showCampaignTrends, setShowCampaignTrends] = useState(false);
   const [metaView, setMetaView] = useState('campaign'); // 'campaign' | 'country'
   const [showMetaBreakdown, setShowMetaBreakdown] = useState(false); // Section 2 collapse
   const [expandedCountries, setExpandedCountries] = useState(new Set());
@@ -979,6 +1006,7 @@ function DashboardTab({
   });
 
   const orderedCountryTrends = [...countryTrends].sort((a, b) => (b.totalOrders || 0) - (a.totalOrders || 0));
+  const orderedCampaignTrends = [...campaignTrends].sort((a, b) => (b.totalOrders || 0) - (a.totalOrders || 0));
 
   const parseLocalDate = useCallback((dateString) => {
     if (!dateString) return null;
@@ -1707,6 +1735,88 @@ function DashboardTab({
                           dataKey="orders" 
                           stroke="#6366f1"
                           fill="#6366f1"
+                          fillOpacity={0.2}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Campaign order trends */}
+      {orderedCampaignTrends && orderedCampaignTrends.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden mt-6">
+          <button
+            onClick={() => setShowCampaignTrends(!showCampaignTrends)}
+            className="w-full p-6 flex items-center justify-between hover:bg-gray-50 transition-colors"
+          >
+            <div>
+              <h2 className="text-lg font-semibold text-left">Order Trends by Campaign</h2>
+              <p className="text-sm text-gray-500 text-left">
+                Click to {showCampaignTrends ? 'collapse' : 'expand'} daily order trends
+                per campaign
+              </p>
+              {campaignTrendsDataSource && (
+                <div className="flex items-center gap-2 mt-2 text-xs text-gray-600">
+                  <span>Data source:</span>
+                  <span className={`inline-flex items-center px-2 py-1 rounded-full font-medium ${
+                    campaignTrendsDataSource === 'Meta' ? 'bg-blue-50 text-blue-700' :
+                    campaignTrendsDataSource === 'Salla' ? 'bg-green-50 text-green-700' :
+                    'bg-purple-50 text-purple-700'
+                  }`}>
+                    {campaignTrendsDataSource}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div
+              className={`transform transition-transform ${
+                showCampaignTrends ? 'rotate-180' : ''
+              }`}
+            >
+              <ChevronDown className="w-5 h-5 text-gray-500" />
+            </div>
+          </button>
+
+          {showCampaignTrends && (
+            <div className="p-6 pt-0 space-y-6">
+              {orderedCampaignTrends.map((campaign) => (
+                <div
+                  key={campaign.campaignId || campaign.campaignName}
+                  className="border-t border-gray-100 pt-4 first:border-0 first:pt-0"
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="font-semibold">{campaign.campaignName}</span>
+                    <span className="text-sm text-gray-500">
+                      ({campaign.totalOrders} orders)
+                    </span>
+                  </div>
+                  <div className="h-32">
+                    <ResponsiveContainer>
+                      <AreaChart data={campaign.trends}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 10 }}
+                          tickFormatter={formatCountryTick}
+                        />
+                        <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                        <Tooltip
+                          labelFormatter={formatCountryTooltip}
+                          formatter={(value, name) => [
+                            value,
+                            name === 'orders' ? 'Orders' : 'Revenue'
+                          ]}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="orders"
+                          stroke="#22c55e"
+                          fill="#22c55e"
                           fillOpacity={0.2}
                         />
                       </AreaChart>
