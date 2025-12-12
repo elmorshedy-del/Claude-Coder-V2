@@ -2,8 +2,32 @@ import express from 'express';
 import budgetIntelligenceService from '../services/budgetIntelligenceService.js';
 import aiBudgetDataAdapter from '../services/aiBudgetDataAdapter.js';
 import weeklyAggregationService from '../services/weeklyAggregationService.js';
+import { getAiBudgetMetaDataset } from '../features/aibudget/metaDataset.js';
 
 const router = express.Router();
+
+/**
+ * GET /api/aibudget
+ * Base AI Budget dataset (hierarchy + metrics)
+ */
+router.get('/', (req, res) => {
+  try {
+    const store = req.query.store || 'shawq';
+    const data = getAiBudgetMetaDataset(store, {
+      startDate: req.query.startDate,
+      endDate: req.query.endDate
+    });
+
+    res.json(data);
+  } catch (error) {
+    console.error('❌ Error getting AI Budget dataset:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get AI Budget dataset',
+      message: error.message
+    });
+  }
+});
 
 /**
  * GET /api/aibudget/recommendations

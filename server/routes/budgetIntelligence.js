@@ -1,9 +1,32 @@
 import express from 'express';
-import budgetIntelligenceService from '../services/budgetIntelligenceService.js';
+import budgetIntelligenceService, { getBudgetIntelligence } from '../services/budgetIntelligenceService.js';
 import aiBudgetDataAdapter from '../services/aiBudgetDataAdapter.js';
 import weeklyAggregationService from '../services/weeklyAggregationService.js';
 
 const router = express.Router();
+
+/**
+ * GET /api/budget-intelligence
+ * Primary budget intelligence payload (live guidance + start plans)
+ */
+router.get('/', (req, res) => {
+  try {
+    const store = req.query.store || 'shawq';
+    const data = getBudgetIntelligence(store, req.query);
+
+    res.json({
+      success: true,
+      data
+    });
+  } catch (error) {
+    console.error('❌ Error getting budget intelligence payload:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to load budget intelligence',
+      message: error.message
+    });
+  }
+});
 
 /**
  * GET /api/budget-intelligence/analysis
