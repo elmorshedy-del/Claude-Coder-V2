@@ -10,7 +10,7 @@ import notificationsRouter from './routes/notifications.js';
 import aiRouter from './routes/ai.js';
 import budgetIntelligenceRouter from './routes/budgetIntelligence.js';
 import whatifRouter from './routes/whatif.js';
-const aibudgetRouter = require('./routes/aibudget');
+import aibudgetRouter from './routes/aibudget.js';
 import { runWhatIfMigration } from './db/whatifMigration.js';
 import { smartSync as whatifSmartSync } from './services/whatifMetaService.js';
 import { syncMetaData } from './services/metaService.js';
@@ -26,19 +26,7 @@ const PORT = process.env.PORT || 3001;
 
 // Initialize database
 initDb();
-// Initialize database
-initDb();
 
-const { runMigration } = require('./db/aiBudgetMigration');
-
-// Run AIBudget schema migration on startup
-runMigration()
-  .then(() => {
-    console.log('✅ AIBudget schema ready');
-  })
-  .catch(err => {
-    console.error('⚠️  AIBudget migration warning:', err);
-  });
 // Run What-If migration (creates whatif_timeseries table if not exists)
 runWhatIfMigration();
 
