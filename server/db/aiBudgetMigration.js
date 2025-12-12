@@ -1,9 +1,12 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+import sqlite3Module from 'sqlite3';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
+const sqlite3 = sqlite3Module.verbose();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = path.join(__dirname, 'finance.db');
 
-async function runMigration() {
+export async function runMigration() {
   return new Promise((resolve, reject) => {
     const db = new sqlite3.Database(dbPath, (err) => {
       if (err) {
@@ -89,7 +92,7 @@ async function runMigration() {
 }
 
 // Run migration if called directly
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   runMigration()
     .then(() => {
       console.log('✅ Migration script completed');
@@ -100,6 +103,4 @@ if (require.main === module) {
       process.exit(1);
     });
 }
-
-module.exports = { runMigration };
 

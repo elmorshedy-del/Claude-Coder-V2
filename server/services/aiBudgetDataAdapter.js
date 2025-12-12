@@ -1,5 +1,5 @@
-const db = require('../db/database');
-const metaAIBudgetCollector = require('./metaAIBudgetCollector');
+import { getDb } from '../db/database.js';
+import metaAIBudgetCollector from './metaAIBudgetCollector.js';
 
 /**
  * AIBudget Data Adapter
@@ -79,7 +79,8 @@ class AIBudgetDataAdapter {
     `;
 
     try {
-      const rows = await db.all(query, [startDate, endDate]);
+      const db = getDb();
+      const rows = db.prepare(query).all(startDate, endDate);
       console.log(`📚 Fetched ${rows.length} records from database`);
       return rows || [];
     } catch (error) {
@@ -292,4 +293,4 @@ class AIBudgetDataAdapter {
   }
 }
 
-module.exports = new AIBudgetDataAdapter();
+export default new AIBudgetDataAdapter();

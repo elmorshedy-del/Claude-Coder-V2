@@ -1,8 +1,9 @@
-const express = require('express');
+import express from 'express';
+import budgetIntelligenceService from '../services/budgetIntelligenceService.js';
+import aiBudgetDataAdapter from '../services/aiBudgetDataAdapter.js';
+import weeklyAggregationService from '../services/weeklyAggregationService.js';
+
 const router = express.Router();
-const budgetIntelligenceService = require('../services/budgetIntelligenceService');
-const aiBudgetDataAdapter = require('../services/aiBudgetDataAdapter');
-const weeklyAggregationService = require('../services/weeklyAggregationService');
 
 /**
  * GET /api/budget-intelligence/analysis
@@ -78,4 +79,4 @@ router.get('/recommendations', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

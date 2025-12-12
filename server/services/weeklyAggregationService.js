@@ -1,4 +1,4 @@
-const aiBudgetDataAdapter = require('./aiBudgetDataAdapter');
+import aiBudgetDataAdapter from './aiBudgetDataAdapter.js';
 
 /**
  * Weekly Aggregation Service
@@ -219,4 +219,4 @@ class WeeklyAggregationService {
   }
 }
 
-module.exports = new WeeklyAggregationService();
+export default new WeeklyAggregationService();

@@ -12,6 +12,7 @@ import budgetIntelligenceRouter from './routes/budgetIntelligence.js';
 import whatifRouter from './routes/whatif.js';
 import aibudgetRouter from './routes/aibudget.js';
 import { runWhatIfMigration } from './db/whatifMigration.js';
+import { runMigration as runAIBudgetMigration } from './db/aiBudgetMigration.js';
 import { smartSync as whatifSmartSync } from './services/whatifMetaService.js';
 import { syncMetaData } from './services/metaService.js';
 import { syncShopifyOrders } from './services/shopifyService.js';
@@ -26,6 +27,15 @@ const PORT = process.env.PORT || 3001;
 
 // Initialize database
 initDb();
+
+// Run AIBudget schema migration on startup
+runAIBudgetMigration()
+  .then(() => {
+    console.log('✅ AIBudget schema ready');
+  })
+  .catch(err => {
+    console.error('⚠️  AIBudget migration warning:', err);
+  });
 
 // Run What-If migration (creates whatif_timeseries table if not exists)
 runWhatIfMigration();
