@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+import fetch from 'node-fetch';
 
 /**
  * Meta AI Budget Data Collector
@@ -282,5 +282,5 @@ class MetaAIBudgetCollector {
   }
 }
 
-module.exports = new MetaAIBudgetCollector();
+export default new MetaAIBudgetCollector();
 
