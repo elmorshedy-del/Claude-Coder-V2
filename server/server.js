@@ -26,7 +26,19 @@ const PORT = process.env.PORT || 3001;
 
 // Initialize database
 initDb();
+// Initialize database
+initDb();
 
+const { runMigration } = require('./db/aiBudgetMigration');
+
+// Run AIBudget schema migration on startup
+runMigration()
+  .then(() => {
+    console.log('✅ AIBudget schema ready');
+  })
+  .catch(err => {
+    console.error('⚠️  AIBudget migration warning:', err);
+  });
 // Run What-If migration (creates whatif_timeseries table if not exists)
 runWhatIfMigration();
 
