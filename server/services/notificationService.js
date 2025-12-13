@@ -96,12 +96,35 @@ export function createOrderNotifications(store, source, orders) {
   
   // Get the latest notification timestamp to avoid duplicates
   const lastNotification = db.prepare(`
-    SELECT timestamp FROM notifications 
-    WHERE store = ? AND source = ? 
+    SELECT timestamp, metadata FROM notifications
+    WHERE store = ? AND source = ?
     ORDER BY timestamp DESC LIMIT 1
   `).get(store, source);
-  
-  const lastTimestamp = lastNotification ? new Date(lastNotification.timestamp) : new Date(0);
+
+  let lastTimestamp = new Date(0);
+
+  if (lastNotification) {
+    try {
+      const storedMetadata = lastNotification.metadata ? JSON.parse(lastNotification.metadata) : null;
+      if (storedMetadata?.timestamp) {
+        const eventTime = new Date(storedMetadata.timestamp);
+        if (!isNaN(eventTime.getTime())) {
+          lastTimestamp = eventTime;
+        }
+      }
+    } catch (e) {
+      console.warn('[Notification] Failed to parse metadata timestamp:', e.message);
+    }
+
+    // Fallback to notification row timestamp if metadata is missing/invalid
+    if (isNaN(lastTimestamp.getTime())) {
+      lastTimestamp = new Date(lastNotification.timestamp);
+    }
+  }
+
+  if (isNaN(lastTimestamp.getTime())) {
+    lastTimestamp = new Date(0);
+  }
   
   // Group orders by country for cleaner notifications
   const ordersByCountry = {};
@@ -109,6 +132,10 @@ export function createOrderNotifications(store, source, orders) {
   for (const order of orders) {
     // Shawq/Shopify uses order_created_at and order_total, others use created_at and total_price
     const orderDate = new Date(order.order_created_at || order.created_at || order.date || order.timestamp);
+
+    if (isNaN(orderDate)) {
+      continue;
+    }
 
     // Only notify for orders newer than last notification
     if (orderDate <= lastTimestamp) {
