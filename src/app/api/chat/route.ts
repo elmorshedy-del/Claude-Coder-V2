@@ -14,7 +14,10 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as ChatRequest;
-    const { messages, settings, repoContext, files } = body;
+    const { settings, repoContext, files } = body;
+
+    // Filter out any empty messages to satisfy Anthropic API validation
+    const messages = body.messages.filter(m => m.content?.trim());
 
     // Validate required API keys
     const anthropicKey = request.headers.get('x-anthropic-key');
@@ -200,7 +203,10 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json() as ChatRequest;
-    const { messages, settings, repoContext } = body;
+    const { settings, repoContext } = body;
+
+    // Filter out any empty messages to avoid Anthropic validation errors
+    const messages = body.messages.filter(m => m.content?.trim());
 
     const anthropicKey = request.headers.get('x-anthropic-key');
     const githubToken = request.headers.get('x-github-token');
