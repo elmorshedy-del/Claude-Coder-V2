@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Streaming endpoint
+// Streaming endpoint with tool execution loop
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json() as ChatRequest;
@@ -246,28 +246,159 @@ export async function PUT(request: NextRequest) {
       settings.enableWebSearch
     );
 
-    // Create streaming response
+    // Build tools array
+    const tools = claude.getDefaultTools();
+    if (settings.enableWebSearch) {
+      tools.push(claude.getWebSearchTool());
+      tools.push(claude.getWebFetchTool());
+    }
+
+    // Create streaming response with tool execution loop
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          const streamGenerator = claude.streamChat(
-            messages,
-            systemPrompt,
-            codeContext,
-            {
-              enableThinking: settings.enableExtendedThinking,
-              thinkingBudget: settings.thinkingBudget,
-              effort: settings.effort,
-              enableContextCompaction: settings.enableContextCompaction,
-              enableInterleavedThinking: settings.enableInterleavedThinking,
-            }
-          );
+          // Working copy of messages for the tool loop
+          const workingMessages = [...messages];
+          const MAX_TOOL_ITERATIONS = 10;
+          let iteration = 0;
+          let totalCost = 0;
+          let totalSavedPercent = 0;
+          let pendingToolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
 
-          for await (const chunk of streamGenerator) {
-            const data = JSON.stringify(chunk) + '\n';
-            controller.enqueue(encoder.encode(data));
+          while (iteration < MAX_TOOL_ITERATIONS) {
+            iteration++;
+            pendingToolCalls = [];
+
+            // Stream Claude's response
+            const streamGenerator = claude.streamChat(
+              workingMessages,
+              systemPrompt,
+              codeContext,
+              {
+                tools,
+                enableThinking: settings.enableExtendedThinking,
+                thinkingBudget: settings.thinkingBudget,
+                effort: settings.effort,
+                enableContextCompaction: settings.enableContextCompaction,
+                enableInterleavedThinking: settings.enableInterleavedThinking,
+              }
+            );
+
+            let streamedContent = '';
+            let streamedThinking = '';
+
+            for await (const chunk of streamGenerator) {
+              // Forward all chunks to the client for real-time display
+              controller.enqueue(encoder.encode(JSON.stringify(chunk) + '\n'));
+
+              // Track content for conversation history
+              if (chunk.type === 'text') {
+                streamedContent += chunk.content || '';
+              } else if (chunk.type === 'thinking') {
+                streamedThinking += chunk.content || '';
+              } else if (chunk.type === 'tool_use' && chunk.toolCall) {
+                pendingToolCalls.push({
+                  id: chunk.toolCall.id,
+                  name: chunk.toolCall.name,
+                  input: chunk.toolCall.input,
+                });
+              } else if (chunk.type === 'done') {
+                totalCost += chunk.cost || 0;
+                totalSavedPercent = chunk.savedPercent || 0;
+              }
+            }
+
+            // If no tool calls, we're done
+            if (pendingToolCalls.length === 0) {
+              break;
+            }
+
+            // Execute tools and collect results
+            const toolResults: Array<{ tool_use_id: string; content: string }> = [];
+
+            for (const toolCall of pendingToolCalls) {
+              let result = '';
+
+              try {
+                if (toolCall.name === 'read_file') {
+                  const input = toolCall.input as { path: string };
+                  const file = await github.getFileContent(input.path, repoContext.branch);
+                  result = file.content;
+                } else if (toolCall.name === 'search_files') {
+                  const input = toolCall.input as { query: string };
+                  const paths = await github.searchFiles(input.query);
+                  result = paths.length > 0
+                    ? `Found ${paths.length} files:\n${paths.join('\n')}`
+                    : 'No files found matching the query.';
+                } else if (toolCall.name === 'grep_search') {
+                  const input = toolCall.input as { pattern: string };
+                  const matches = await github.grepSearch(input.pattern, repoContext.branch, {});
+                  result = matches.length > 0
+                    ? matches.map(m => `${m.path}:${m.line}: ${m.content}`).join('\n')
+                    : 'No matches found.';
+                } else if (toolCall.name === 'str_replace') {
+                  const input = toolCall.input as { path: string; old_str: string; new_str: string };
+                  const replaceResult = await github.applyStrReplace(
+                    input.path,
+                    input.old_str,
+                    input.new_str,
+                    repoContext.branch
+                  );
+                  result = replaceResult.success
+                    ? `Successfully replaced text in ${input.path}. Changes: +${replaceResult.additions} -${replaceResult.deletions}`
+                    : `Failed to replace: ${replaceResult.error || 'Unknown error'}`;
+                } else if (toolCall.name === 'create_file') {
+                  const input = toolCall.input as { path: string; content: string };
+                  const createResult = await github.createFile(
+                    input.path,
+                    input.content,
+                    repoContext.branch
+                  );
+                  result = createResult.success
+                    ? `Successfully created ${input.path}`
+                    : `Failed to create file: ${createResult.error || 'Unknown error'}`;
+                } else {
+                  result = `Tool ${toolCall.name} not implemented`;
+                }
+              } catch (error) {
+                result = `Error executing ${toolCall.name}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+              }
+
+              toolResults.push({
+                tool_use_id: toolCall.id,
+                content: result,
+              });
+
+              // Stream tool result to client
+              controller.enqueue(encoder.encode(JSON.stringify({
+                type: 'tool_result',
+                toolUseId: toolCall.id,
+                name: toolCall.name,
+                result: result.slice(0, 1000) + (result.length > 1000 ? '...(truncated)' : ''),
+              }) + '\n'));
+            }
+
+            // Add assistant message and tool results to conversation for next iteration
+            workingMessages.push({
+              role: 'assistant',
+              content: streamedContent || 'I\'ll execute the requested tools.',
+            });
+            workingMessages.push({
+              role: 'user',
+              content: toolResults.map(tr =>
+                `<tool_result tool_use_id="${tr.tool_use_id}">\n${tr.content}\n</tool_result>`
+              ).join('\n\n'),
+            });
           }
+
+          // Send final done event with total cost
+          controller.enqueue(encoder.encode(JSON.stringify({
+            type: 'done',
+            cost: totalCost,
+            savedPercent: totalSavedPercent,
+            iterations: iteration,
+          }) + '\n'));
 
           controller.close();
         } catch (error) {
