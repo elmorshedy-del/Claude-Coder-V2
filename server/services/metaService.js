@@ -10,8 +10,10 @@ const BACKFILL_CHUNK_DAYS = 30; // Fetch in 30-day chunks
 const MAX_HISTORICAL_DAYS = 730; // Attempt up to 2 years of history (Meta typically allows 37 months)
 
 // Helper: Get currency conversion rate
+// TRY to USD: As of late 2024, 1 USD ≈ 32-34 TRY, so 1 TRY ≈ 0.030 USD
+// Update this rate periodically or consider using a live exchange rate API
 function getCurrencyRate(store) {
-  if (store === 'shawq') return 0.029; // Convert TRY to USD
+  if (store === 'shawq') return 0.030; // Convert TRY to USD (1 TRY ≈ 0.030 USD as of late 2024)
   if (store === 'vironax') return 1.0; // Keep SAR as SAR
   return 1.0;
 }
