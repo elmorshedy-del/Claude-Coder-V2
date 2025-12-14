@@ -1,4 +1,5 @@
 import { getDb } from '../db/database.js';
+import { getCountryInfo } from '../utils/countryData.js';
 
 // Check if Salla is active for VironaX
 function isSallaActive() {
@@ -129,6 +130,29 @@ export function createOrderNotifications(store, source, orders) {
   // Group orders by country for cleaner notifications
   const ordersByCountry = {};
 
+  const normalizeCountry = (order, fallback = 'Unknown') => {
+    const rawCountry = (order.country || order.shipping_country || order.country_code || '').toString().trim();
+    if (!rawCountry) {
+      return { code: fallback, label: fallback };
+    }
+
+    const upper = rawCountry.toUpperCase();
+
+    if (upper === 'ALL' || upper === 'UNKNOWN') {
+      return { code: 'ALL', label: 'All Countries' };
+    }
+
+    if (/^[A-Z]{2}$/.test(upper)) {
+      const info = getCountryInfo(upper);
+      return {
+        code: info.code || upper,
+        label: info.name || upper
+      };
+    }
+
+    return { code: rawCountry, label: rawCountry };
+  };
+
   for (const order of orders) {
     // Shawq/Shopify uses order_created_at and order_total, others use created_at and total_price
     const orderDate = new Date(order.order_created_at || order.created_at || order.date || order.timestamp);
@@ -142,12 +166,16 @@ export function createOrderNotifications(store, source, orders) {
       continue;
     }
 
-    const country = order.country || order.shipping_country || 'Unknown';
+    const country = normalizeCountry(order);
     const value = parseFloat(order.order_total || order.total_price || order.revenue || order.value || 0);
     const currency = order.currency || fallbackCurrency;
 
-    if (!ordersByCountry[country]) {
-      ordersByCountry[country] = {
+    const countryKey = country.code || country.label || 'Unknown';
+
+    if (!ordersByCountry[countryKey]) {
+      ordersByCountry[countryKey] = {
+        code: country.code,
+        label: country.label,
         count: 0,
         total: 0,
         latest: orderDate,
@@ -155,32 +183,34 @@ export function createOrderNotifications(store, source, orders) {
       };
     }
 
-    ordersByCountry[country].count += 1;
-    ordersByCountry[country].total += value;
-    if (orderDate > ordersByCountry[country].latest) {
-      ordersByCountry[country].latest = orderDate;
+    ordersByCountry[countryKey].count += 1;
+    ordersByCountry[countryKey].total += value;
+    if (orderDate > ordersByCountry[countryKey].latest) {
+      ordersByCountry[countryKey].latest = orderDate;
     }
     // Always prefer a real currency from the order, but keep existing value when absent
     if (order.currency) {
-      ordersByCountry[country].currency = order.currency;
+      ordersByCountry[countryKey].currency = order.currency;
     }
   }
 
   // Create notifications for each country
-  for (const [country, data] of Object.entries(ordersByCountry)) {
+  for (const data of Object.values(ordersByCountry)) {
     const currency = data.currency || fallbackCurrency;
     const sourceLabel = source.charAt(0).toUpperCase() + source.slice(1);
+    const displayCountry = data.label || data.code || 'Unknown';
 
     // Format: Country • Amount • Source (clean format)
-    const message = `${country} • ${currency} ${(data.total || 0).toFixed(2)} • ${sourceLabel}`;
-    
+    const message = `${displayCountry} • ${currency} ${(data.total || 0).toFixed(2)} • ${sourceLabel}`;
+
     createNotification({
       store,
       type: 'order',
       message,
       metadata: {
         source,
-        country,
+        country: displayCountry,
+        country_code: data.code,
         currency,
         value: data.total,
         order_count: data.count,
