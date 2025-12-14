@@ -1,7 +1,7 @@
 // client/src/components/NotificationCenter.jsx
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Bell, Check, Volume2, VolumeX, Trash2, X } from 'lucide-react';
-import { parseTimestamp as parseTs, getTimeAgo as calculateTimeAgo } from '../utils/timestampUtils';
+import { Bell, Check, Volume2, VolumeX, Trash2 } from 'lucide-react';
+import { getTimeAgo as calculateTimeAgo } from '../utils/timestampUtils';
 
 // ============================================================================
 // NotificationRow Component (was missing!)
