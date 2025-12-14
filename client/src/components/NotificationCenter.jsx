@@ -521,6 +521,7 @@ export default function NotificationCenter({ currentStore }) {
                     onDelete={deleteNotification}
                     getSourceBadge={getSourceBadge}
                     formatNotificationMessage={formatNotificationMessage}
+                    getTimeAgo={getTimeAgo}
                   />
                 ))}
               </div>
