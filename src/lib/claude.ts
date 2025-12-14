@@ -425,7 +425,7 @@ export class ClaudeClient {
   // Default Tools
   // --------------------------------------------------------------------------
 
-  private getDefaultTools(): ClaudeTool[] {
+    getDefaultTools(): ClaudeTool[] {
     return [
       {
         name: 'read_file',
