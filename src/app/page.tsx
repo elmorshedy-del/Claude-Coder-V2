@@ -685,7 +685,7 @@ export default function Home() {
                 <ChatMessage
                   key={message.id}
                   message={message}
-                  onViewPR={() => handleViewPR()}
+                  onViewPR={() => window.open(`https://github.com/${currentRepo?.owner}/${currentRepo?.repo}/pulls`, '_blank')}
                   onDiscard={() => handleDiscard()}
                 />
               ))}
