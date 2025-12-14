@@ -682,12 +682,17 @@ export default function Home() {
           ) : (
             <div className="pb-32">
               {messages.map((message) => (
-                <ChatMessage
-                  key={message.id}
-                  message={message}
-                  onViewPR={() => window.open(`https://github.com/${currentRepo?.owner}/${currentRepo?.repo}/pulls`, '_blank')}
-                  onDiscard={() => handleDiscard()}
-                />
+              <ChatMessage
+                key={message.id}
+                message={message}
+                onViewPR={() => {
+                  const prUrl = currentRepo
+                    ? `https://github.com/${currentRepo.owner}/${currentRepo.name}/pulls`
+                    : undefined;
+                  handleViewPR(prUrl);
+                }}
+                onDiscard={() => handleDiscard()}
+              />
               ))}
               <div ref={messagesEndRef} />
             </div>
