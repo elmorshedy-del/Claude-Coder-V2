@@ -164,22 +164,29 @@ export class ClaudeClient {
       betas.push('interleaved-thinking-2025-05-14');
     }
 
+    // Build system prompts (skip empty values so we don't send blank cache entries)
+    const systemMessages = [
+      systemPrompt?.trim()
+        ? {
+            type: 'text',
+            text: systemPrompt,
+          }
+        : null,
+      codeContext?.trim()
+        ? {
+            type: 'text',
+            text: codeContext,
+            // Enable prompt caching for code context (1-hour extended TTL)
+            cache_control: { type: 'ephemeral' },
+          }
+        : null,
+    ].filter(Boolean) as Anthropic.MessageCreateParams['system'];
+
     // Build request parameters
     const requestParams: Anthropic.MessageCreateParams = {
       model: this.model,
       max_tokens: config.maxTokens,
-      system: [
-        systemPrompt ? {
-          type: 'text',
-          text: systemPrompt,
-        } : null,
-        codeContext ? {
-          type: 'text',
-          text: codeContext,
-          // Enable prompt caching for code context (1-hour extended TTL)
-          cache_control: { type: 'ephemeral' },
-        } : null,
-      ].filter(Boolean) as Anthropic.MessageCreateParams['system'],
+      system: systemMessages,
       messages: messages.map(m => ({
         role: m.role,
         content: m.content,
@@ -320,21 +327,27 @@ export class ClaudeClient {
       betas.push('interleaved-thinking-2025-05-14');
     }
 
+    const systemMessages = [
+      systemPrompt?.trim()
+        ? {
+            type: 'text',
+            text: systemPrompt,
+          }
+        : null,
+      codeContext?.trim()
+        ? {
+            type: 'text',
+            text: codeContext,
+            cache_control: { type: 'ephemeral' },
+          }
+        : null,
+    ].filter(Boolean) as Anthropic.MessageCreateParams['system'];
+
     const requestParams: Anthropic.MessageCreateParams = {
       model: this.model,
       max_tokens: config.maxTokens,
       stream: true,
-      system: [
-        systemPrompt ? {
-          type: 'text',
-          text: systemPrompt,
-        } : null,
-        codeContext ? {
-          type: 'text',
-          text: codeContext,
-          cache_control: { type: 'ephemeral' },
-        } : null,
-      ].filter(Boolean) as Anthropic.MessageCreateParams['system'],
+      system: systemMessages,
       messages: messages.map(m => ({
         role: m.role,
         content: m.content as Anthropic.MessageCreateParams['messages'][0]['content'],
