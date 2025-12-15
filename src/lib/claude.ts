@@ -164,22 +164,25 @@ export class ClaudeClient {
       betas.push('interleaved-thinking-2025-05-14');
     }
 
+    // Build system blocks, filtering out empty content
+    const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [];
+    if (systemPrompt && systemPrompt.trim()) {
+      systemBlocks.push({ type: 'text', text: systemPrompt });
+    }
+    if (codeContext && codeContext.trim()) {
+      systemBlocks.push({
+        type: 'text',
+        text: codeContext,
+        // Enable prompt caching for code context (1-hour extended TTL)
+        cache_control: { type: 'ephemeral' },
+      });
+    }
+
     // Build request parameters
     const requestParams: Anthropic.MessageCreateParams = {
       model: this.model,
       max_tokens: config.maxTokens,
-      system: [
-        {
-          type: 'text',
-          text: systemPrompt,
-        },
-        {
-          type: 'text',
-          text: codeContext,
-          // Enable prompt caching for code context (1-hour extended TTL)
-          cache_control: { type: 'ephemeral' },
-        },
-      ],
+      system: systemBlocks.length > 0 ? systemBlocks : undefined,
       messages: messages.map(m => ({
         role: m.role,
         content: m.content,
@@ -320,21 +323,24 @@ export class ClaudeClient {
       betas.push('interleaved-thinking-2025-05-14');
     }
 
+    // Build system blocks, filtering out empty content
+    const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [];
+    if (systemPrompt && systemPrompt.trim()) {
+      systemBlocks.push({ type: 'text', text: systemPrompt });
+    }
+    if (codeContext && codeContext.trim()) {
+      systemBlocks.push({
+        type: 'text',
+        text: codeContext,
+        cache_control: { type: 'ephemeral' },
+      });
+    }
+
     const requestParams: Anthropic.MessageCreateParams = {
       model: this.model,
       max_tokens: config.maxTokens,
       stream: true,
-      system: [
-        {
-          type: 'text',
-          text: systemPrompt,
-        },
-        {
-          type: 'text',
-          text: codeContext,
-          cache_control: { type: 'ephemeral' },
-        },
-      ],
+      system: systemBlocks.length > 0 ? systemBlocks : undefined,
       messages: messages.map(m => ({
         role: m.role,
         content: m.content,
@@ -695,11 +701,17 @@ export function generateCodeContext(
   const MAX_TREE_CHARS = 12000;
   const MAX_FILE_CHARS = 16000;
 
+  // Escape code fences inside content to prevent markdown breakage
+  const escapeCodeFences = (content: string): string => {
+    // Replace ``` with an escaped version that won't break markdown parsing
+    return content.replace(/```/g, '\\`\\`\\`');
+  };
+
   const clippedTree = fileTree.length > MAX_TREE_CHARS
     ? fileTree.slice(0, MAX_TREE_CHARS) + "\n...[truncated repository tree]"
     : fileTree;
 
-  let context = `## Repository Structure\n\`\`\`\n${clippedTree}\n\`\`\`\n\n`;
+  let context = `## Repository Structure\n\`\`\`\n${escapeCodeFences(clippedTree)}\n\`\`\`\n\n`;
   context += `## Loaded Files\n\n`;
 
   for (const file of files) {
@@ -710,13 +722,12 @@ export function generateCodeContext(
 ...[truncated file: ${file.content.length} chars total]`
       : file.content;
 
-    context += `### ${file.path}\n\`\`\`${ext}\n${clipped}\n\`\`\`\n\n`;
+    context += `### ${file.path}\n\`\`\`${ext}\n${escapeCodeFences(clipped)}\n\`\`\`\n\n`;
   }
 
   context += `\nIf you need to see other files, use the read_file tool.\n`;
 
   return context;
-
 }
 
 // ----------------------------------------------------------------------------
