@@ -1,8 +1,8 @@
 'use client';
 
-import React from 'react';
-import { X, Shield, Zap, Globe, Brain, Gauge, DollarSign, Moon, Sun, Terminal, Database, FileUp } from 'lucide-react';
-import { Settings, ModelType, EffortLevel } from '@/types';
+import React, { useState } from 'react';
+import { X, Shield, Zap, Globe, Brain, Gauge, DollarSign, Moon, Sun, Terminal, Database, FileUp, Key, Eye, EyeOff, Check, LogOut, Github } from 'lucide-react';
+import { Settings, ModelType, EffortLevel, WebSearchMode, MODEL_DISPLAY_NAMES } from '@/types';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -11,6 +11,12 @@ interface SettingsPanelProps {
   onSettingsChange: (settings: Settings) => void;
   darkMode: boolean;
   onDarkModeChange: (dark: boolean) => void;
+  anthropicKey?: string;
+  githubToken?: string;
+  githubUser?: string;
+  onAnthropicKeyChange?: (key: string) => void;
+  onGithubTokenChange?: (token: string) => void;
+  onLogout?: () => void;
 }
 
 export default function SettingsPanel({
@@ -20,7 +26,16 @@ export default function SettingsPanel({
   onSettingsChange,
   darkMode,
   onDarkModeChange,
+  anthropicKey = '',
+  githubToken = '',
+  githubUser = '',
+  onAnthropicKeyChange,
+  onGithubTokenChange,
+  onLogout,
 }: SettingsPanelProps) {
+  const [showAnthropicKey, setShowAnthropicKey] = useState(false);
+  const [showGithubToken, setShowGithubToken] = useState(false);
+
   if (!isOpen) return null;
 
   const updateSetting = <K extends keyof Settings>(key: K, value: Settings[K]) => {
@@ -80,15 +95,27 @@ export default function SettingsPanel({
             title="Model"
             description="Select the Claude model to use"
           >
-            <select
-              value={settings.model}
-              onChange={(e) => updateSetting('model', e.target.value as ModelType)}
-              className="w-full px-4 py-3 rounded-xl bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-[var(--claude-text)] focus:outline-none focus:border-[var(--claude-terracotta)]"
-            >
-              <option value="claude-sonnet-4-5-20250929">Claude Sonnet 4.5 (Fast)</option>
-              <option value="claude-opus-4-5-20251101">Claude Opus 4.5 (Best)</option>
-              <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (Cheap)</option>
-            </select>
+            <div className="space-y-2">
+              {(Object.entries(MODEL_DISPLAY_NAMES) as [ModelType, typeof MODEL_DISPLAY_NAMES[ModelType]][]).map(([modelId, info]) => (
+                <button
+                  key={modelId}
+                  onClick={() => updateSetting('model', modelId)}
+                  className={`w-full px-4 py-3 rounded-xl text-left transition-all ${
+                    settings.model === modelId
+                      ? 'bg-[var(--claude-terracotta)] text-white'
+                      : 'bg-[var(--claude-surface-sunken)] text-[var(--claude-text)] hover:bg-[var(--claude-sand-light)]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{info.name}</span>
+                    <span>{info.cost}</span>
+                  </div>
+                  <p className={`text-sm ${settings.model === modelId ? 'text-white/80' : 'text-[var(--claude-text-muted)]'}`}>
+                    {info.description}
+                  </p>
+                </button>
+              ))}
+            </div>
           </SettingSection>
 
           {/* Effort Level */}
@@ -122,19 +149,31 @@ export default function SettingsPanel({
             title="Web Search"
             description="Enable searching the web for current information"
           >
-            <Toggle
-              checked={settings.enableWebSearch}
-              onChange={(checked) => updateSetting('enableWebSearch', checked)}
-              label="Enable web search"
-            />
-            {settings.enableWebSearch && (
-              <Toggle
-                checked={settings.webSearchAutoDetect}
-                onChange={(checked) => updateSetting('webSearchAutoDetect', checked)}
-                label="Auto-detect when to search"
-                className="mt-3"
-              />
-            )}
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                {(['off', 'manual', 'auto'] as WebSearchMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => {
+                      updateSetting('webSearchMode', mode);
+                      updateSetting('enableWebSearch', mode !== 'off');
+                    }}
+                    className={`px-3 py-2 rounded-xl text-sm font-medium capitalize transition-all ${
+                      settings.webSearchMode === mode
+                        ? 'bg-[var(--claude-terracotta)] text-white'
+                        : 'bg-[var(--claude-surface-sunken)] text-[var(--claude-text-secondary)] hover:bg-[var(--claude-sand-light)]'
+                    }`}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-[var(--claude-text-muted)]">
+                {settings.webSearchMode === 'off' && 'Web search disabled'}
+                {settings.webSearchMode === 'manual' && 'Only searches when you ask'}
+                {settings.webSearchMode === 'auto' && 'Claude decides when to search'}
+              </p>
+            </div>
           </SettingSection>
 
           {/* Extended Thinking */}
@@ -289,6 +328,124 @@ export default function SettingsPanel({
                 </div>
               </div>
             )}
+          </SettingSection>
+
+          {/* API Keys */}
+          <SettingSection
+            icon={<Key className="w-5 h-5" />}
+            title="API Keys"
+            description="Manage your API credentials"
+          >
+            <div className="space-y-4">
+              {/* Anthropic API Key */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm text-[var(--claude-text-secondary)]">
+                    Anthropic API Key
+                  </label>
+                  <a
+                    href="https://console.anthropic.com/settings/keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-[var(--claude-terracotta)] hover:underline"
+                  >
+                    Get key →
+                  </a>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showAnthropicKey ? 'text' : 'password'}
+                    value={anthropicKey}
+                    onChange={(e) => onAnthropicKeyChange?.(e.target.value)}
+                    placeholder="sk-ant-..."
+                    className="w-full px-4 py-2.5 pr-10 rounded-xl bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-[var(--claude-text)] placeholder:text-[var(--claude-text-muted)] focus:outline-none focus:border-[var(--claude-terracotta)] text-sm"
+                  />
+                  <button
+                    onClick={() => setShowAnthropicKey(!showAnthropicKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--claude-text-muted)] hover:text-[var(--claude-text)]"
+                  >
+                    {showAnthropicKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {anthropicKey && (
+                  <p className="text-xs text-[var(--claude-success)] mt-1 flex items-center gap-1">
+                    <Check className="w-3 h-3" /> Valid
+                  </p>
+                )}
+              </div>
+
+              {/* GitHub Token */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm text-[var(--claude-text-secondary)]">
+                    GitHub Token
+                  </label>
+                  <a
+                    href="https://github.com/settings/tokens"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-[var(--claude-terracotta)] hover:underline"
+                  >
+                    Get token →
+                  </a>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showGithubToken ? 'text' : 'password'}
+                    value={githubToken}
+                    onChange={(e) => onGithubTokenChange?.(e.target.value)}
+                    placeholder="ghp_... (optional)"
+                    className="w-full px-4 py-2.5 pr-10 rounded-xl bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-[var(--claude-text)] placeholder:text-[var(--claude-text-muted)] focus:outline-none focus:border-[var(--claude-terracotta)] text-sm"
+                  />
+                  <button
+                    onClick={() => setShowGithubToken(!showGithubToken)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--claude-text-muted)] hover:text-[var(--claude-text)]"
+                  >
+                    {showGithubToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {githubToken && githubUser && (
+                  <p className="text-xs text-[var(--claude-success)] mt-1 flex items-center gap-1">
+                    <Check className="w-3 h-3" /> Connected as @{githubUser}
+                  </p>
+                )}
+              </div>
+            </div>
+          </SettingSection>
+
+          {/* Security */}
+          <SettingSection
+            icon={<Shield className="w-5 h-5" />}
+            title="Security"
+            description="Manage access and data"
+          >
+            <div className="space-y-3">
+              <p className="text-sm text-[var(--claude-text-muted)]">
+                Password is set via APP_PASSWORD environment variable.
+              </p>
+              <div className="flex gap-2">
+                {onLogout && (
+                  <button
+                    onClick={onLogout}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[var(--claude-surface-sunken)] text-[var(--claude-text-secondary)] hover:bg-[var(--claude-sand-light)] transition-colors text-sm"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Log Out
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    if (confirm('Clear all stored data? This will remove your conversations and settings.')) {
+                      localStorage.clear();
+                      window.location.reload();
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[var(--claude-error)]/10 text-[var(--claude-error)] hover:bg-[var(--claude-error)]/20 transition-colors text-sm"
+                >
+                  Clear All Data
+                </button>
+              </div>
+            </div>
           </SettingSection>
 
           {/* Theme */}

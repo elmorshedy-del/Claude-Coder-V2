@@ -1,56 +1,123 @@
 // ============================================================================
-// AUTH API ROUTE - Validate API keys and GitHub token
+// AUTH API ROUTE - Password auth + API key validation
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { Octokit } from 'octokit';
 
+// Password authentication endpoint
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { anthropicKey, githubToken } = body;
+    const { action, password, anthropicKey, githubToken } = body;
 
-    const results: {
-      anthropic: { valid: boolean; error?: string };
-      github: { valid: boolean; user?: string; error?: string };
-    } = {
-      anthropic: { valid: false },
-      github: { valid: false },
-    };
+    // Handle password login
+    if (action === 'login') {
+      const appPassword = process.env.APP_PASSWORD;
 
-    // Validate Anthropic key
-    if (anthropicKey) {
-      try {
-        const client = new Anthropic({ apiKey: anthropicKey });
-        // Make a minimal API call to verify
-        await client.messages.create({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 1,
-          messages: [{ role: 'user', content: 'hi' }],
+      // If no APP_PASSWORD is set, allow access (for development)
+      if (!appPassword) {
+        return NextResponse.json({
+          success: true,
+          message: 'No password configured - access granted',
+          noPasswordSet: true,
         });
-        results.anthropic.valid = true;
-      } catch (error) {
-        results.anthropic.error = error instanceof Error ? error.message : 'Invalid key';
+      }
+
+      if (password === appPassword) {
+        return NextResponse.json({ success: true });
+      } else {
+        return NextResponse.json({
+          success: false,
+          error: 'Invalid password'
+        }, { status: 401 });
       }
     }
 
-    // Validate GitHub token
-    if (githubToken) {
-      try {
-        const octokit = new Octokit({ auth: githubToken });
-        const { data } = await octokit.rest.users.getAuthenticated();
-        results.github.valid = true;
-        results.github.user = data.login;
-      } catch (error) {
-        results.github.error = error instanceof Error ? error.message : 'Invalid token';
+    // Handle API key validation
+    if (action === 'validate') {
+      const results: {
+        anthropic: { valid: boolean; error?: string };
+        github: { valid: boolean; user?: string; error?: string };
+      } = {
+        anthropic: { valid: false },
+        github: { valid: false },
+      };
+
+      // Validate Anthropic key
+      if (anthropicKey) {
+        try {
+          const client = new Anthropic({ apiKey: anthropicKey });
+          // Make a minimal API call to verify
+          await client.messages.create({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 1,
+            messages: [{ role: 'user', content: 'hi' }],
+          });
+          results.anthropic.valid = true;
+        } catch (error) {
+          results.anthropic.error = error instanceof Error ? error.message : 'Invalid key';
+        }
       }
+
+      // Validate GitHub token (optional)
+      if (githubToken) {
+        try {
+          const octokit = new Octokit({ auth: githubToken });
+          const { data } = await octokit.rest.users.getAuthenticated();
+          results.github.valid = true;
+          results.github.user = data.login;
+        } catch (error) {
+          results.github.error = error instanceof Error ? error.message : 'Invalid token';
+        }
+      }
+
+      return NextResponse.json(results);
     }
 
-    return NextResponse.json(results);
+    // Legacy support: validate both keys (old format)
+    if (anthropicKey || githubToken) {
+      const results: {
+        anthropic: { valid: boolean; error?: string };
+        github: { valid: boolean; user?: string; error?: string };
+      } = {
+        anthropic: { valid: false },
+        github: { valid: false },
+      };
+
+      if (anthropicKey) {
+        try {
+          const client = new Anthropic({ apiKey: anthropicKey });
+          await client.messages.create({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 1,
+            messages: [{ role: 'user', content: 'hi' }],
+          });
+          results.anthropic.valid = true;
+        } catch (error) {
+          results.anthropic.error = error instanceof Error ? error.message : 'Invalid key';
+        }
+      }
+
+      if (githubToken) {
+        try {
+          const octokit = new Octokit({ auth: githubToken });
+          const { data } = await octokit.rest.users.getAuthenticated();
+          results.github.valid = true;
+          results.github.user = data.login;
+        } catch (error) {
+          results.github.error = error instanceof Error ? error.message : 'Invalid token';
+        }
+      }
+
+      return NextResponse.json(results);
+    }
+
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
 
   } catch (error) {
-    console.error('Auth validation error:', error);
+    console.error('Auth error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
   }
