@@ -12,6 +12,10 @@ import { ChatRequest, Settings, RepoFile, FileChange, TokenUsage } from '@/types
 const fileTreeCache = new Map<string, { tree: string; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+function hasStatusCode(error: unknown): error is { status: number } {
+  return typeof (error as { status?: unknown }).status === 'number';
+}
+
 function mapClaudeError(error: unknown): { status: number; message: string } {
   if (error instanceof APIError) {
     if (error.status === 429 || (error.error && (error.error as { type?: string }).type === 'rate_limit_error')) {
@@ -29,9 +33,9 @@ function mapClaudeError(error: unknown): { status: number; message: string } {
     }
   }
 
-  if (error instanceof Error && (error as { status?: number }).status) {
+  if (error instanceof Error && hasStatusCode(error)) {
     return {
-      status: (error as { status: number }).status,
+      status: error.status,
       message: error.message,
     };
   }
