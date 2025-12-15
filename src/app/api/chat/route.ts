@@ -204,7 +204,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json() as ChatRequest;
-    const { settings, repoContext } = body;
+    const { settings, repoContext, files } = body;
 
     // Filter out any empty messages to avoid Anthropic validation errors
     const messages = body.messages.filter(m => m.content?.trim());
@@ -278,6 +278,59 @@ export async function PUT(request: NextRequest) {
       tools.push(claude.getWebFetchTool());
     }
 
+    // Process files into proper format for Claude API
+    // Files must be included in the last user message for Claude to see them
+    type MessageContent = string | Array<{ type: string; [key: string]: unknown }>;
+    const processedMessages: Array<{ role: 'user' | 'assistant'; content: MessageContent }> = messages.map((m, index) => {
+      // Only add files to the last user message
+      if (m.role === 'user' && files && files.length > 0 && index === messages.length - 1) {
+        const content: Array<{ type: string; [key: string]: unknown }> = [
+          { type: 'text', text: m.content }
+        ];
+
+        for (const file of files) {
+          if (file.type.startsWith('image/')) {
+            // Images - send as image block
+            content.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: file.type,
+                data: file.base64,
+              }
+            });
+          } else if (file.type === 'application/pdf') {
+            // PDFs - send as document block
+            content.push({
+              type: 'document',
+              source: {
+                type: 'base64',
+                media_type: 'application/pdf',
+                data: file.base64,
+              }
+            });
+          } else {
+            // Text/code files - decode and include as text
+            try {
+              const textContent = Buffer.from(file.base64, 'base64').toString('utf-8');
+              content.push({
+                type: 'text',
+                text: `\n\n📎 File: ${file.name}\n\`\`\`\n${textContent}\n\`\`\``
+              });
+            } catch {
+              content.push({
+                type: 'text',
+                text: `\n\n📎 File: ${file.name} (binary file, ${file.size} bytes)`
+              });
+            }
+          }
+        }
+
+        return { role: m.role, content };
+      }
+      return { role: m.role, content: m.content };
+    });
+
     // Create streaming response - SINGLE PASS, NO LOOP!
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -287,7 +340,7 @@ export async function PUT(request: NextRequest) {
 
           // Stream Claude's response (SINGLE API CALL)
           const streamGenerator = claude.streamChat(
-            messages,
+            processedMessages,
             systemPrompt,
             codeContext,
             {
@@ -396,12 +449,47 @@ export async function PUT(request: NextRequest) {
             }) + '\n'));
           }
 
-          // Send final done event with cost info
+          // Safe Mode: Create PR after file changes
+          let prUrl: string | undefined;
+          let previewUrl: string | undefined;
+
+          if (settings.deployMode === 'safe' && fileChanges.length > 0 && github && hasRepoContext) {
+            try {
+              // Generate PR title and body from file changes
+              const changedPaths = fileChanges.map(f => f.path.split('/').pop()).join(', ');
+              const prTitle = `Claude: ${changedPaths}`;
+              const prBody = `## Changes made by Claude\n\n${fileChanges.map(f =>
+                `- ${f.action === 'create' ? '➕ Created' : '✏️ Edited'} \`${f.path}\` (+${f.additions || 0} -${f.deletions || 0})`
+              ).join('\n')}`;
+
+              // Create the PR using the current branch (changes were pushed there)
+              const pr = await github.createPullRequest(
+                prTitle,
+                prBody,
+                repoContext.branch, // head branch where changes were pushed
+                'main' // base branch
+              );
+
+              prUrl = pr.url;
+
+              // Build preview URL if Railway service name is configured
+              if (settings.railwayServiceName) {
+                previewUrl = `https://${settings.railwayServiceName}-pr-${pr.number}.up.railway.app`;
+              }
+            } catch (error) {
+              console.error('Failed to create PR:', error);
+              // Don't fail the whole request, just log it
+            }
+          }
+
+          // Send final done event with cost info and PR URLs
           controller.enqueue(encoder.encode(JSON.stringify({
             type: 'done',
             cost: totalCost,
             savedPercent: totalSavedPercent,
             fileChanges: fileChanges.length > 0 ? fileChanges : undefined,
+            prUrl,
+            previewUrl,
           }) + '\n'));
 
           controller.close();

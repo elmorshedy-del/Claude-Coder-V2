@@ -273,7 +273,7 @@ export class ClaudeClient {
   // --------------------------------------------------------------------------
 
   async *streamChat(
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+    messages: Array<{ role: 'user' | 'assistant'; content: string | Array<{ type: string; [key: string]: unknown }> }>,
     systemPrompt: string,
     codeContext: string,
     options: {
@@ -337,7 +337,7 @@ export class ClaudeClient {
       ],
       messages: messages.map(m => ({
         role: m.role,
-        content: m.content,
+        content: m.content as Anthropic.MessageCreateParams['messages'][0]['content'],
       })),
       tools: tools || this.getDefaultTools(),
     };
