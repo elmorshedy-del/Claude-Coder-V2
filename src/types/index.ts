@@ -140,17 +140,20 @@ export interface PullRequest {
 // Settings Types
 // ----------------------------------------------------------------------------
 
+export type WebSearchMode = 'off' | 'manual' | 'auto';
+
 export interface Settings {
   // Deployment
   deployMode: 'safe' | 'direct';
-  
+
   // Model
   model: ModelType;
   effort: EffortLevel;
-  
+
   // Features
   enableWebSearch: boolean;
-  webSearchAutoDetect: boolean;
+  webSearchMode: WebSearchMode;
+  webSearchAutoDetect: boolean; // Legacy - use webSearchMode instead
   enableExtendedThinking: boolean;
   thinkingBudget: number;
   enableContextCompaction: boolean;
@@ -158,7 +161,7 @@ export interface Settings {
   enableMemory: boolean;
   enableInterleavedThinking: boolean;
   enableFilesApi: boolean;
-  
+
   // Budget
   tokenBudget: {
     enabled: boolean;
@@ -308,42 +311,62 @@ export const DEFAULT_SETTINGS: Settings = {
   model: 'claude-sonnet-4-5-20250929',
   effort: 'medium',
   enableWebSearch: true,
-  webSearchAutoDetect: true,
+  webSearchMode: 'auto',
+  webSearchAutoDetect: true, // Legacy
   enableExtendedThinking: false,
   thinkingBudget: 10000,
   enableContextCompaction: true,
   enableCodeExecution: false,
-  enableMemory: false,
-  enableInterleavedThinking: true,
+  enableMemory: true,
+  enableInterleavedThinking: false,
   enableFilesApi: false,
   tokenBudget: {
     enabled: true,
-    perMessage: 1.0,
+    perMessage: 0.50,
     perDay: 10.0,
   },
 };
 
 // ----------------------------------------------------------------------------
-// Model Pricing (per million tokens)
+// Model Pricing (per million tokens) - Per Anthropic API docs
 // ----------------------------------------------------------------------------
 
 export const MODEL_PRICING: Record<ModelType, { input: number; output: number; cacheRead: number; cacheWrite: number }> = {
   'claude-sonnet-4-5-20250929': {
-    input: 3.00,
-    output: 15.00,
-    cacheRead: 0.30,
-    cacheWrite: 3.75,
+    input: 3.00,      // $3/M input
+    output: 15.00,    // $15/M output
+    cacheRead: 0.30,  // 90% off = $0.30/M
+    cacheWrite: 3.75, // 25% more = $3.75/M
   },
   'claude-opus-4-5-20251101': {
-    input: 15.00,
-    output: 75.00,
-    cacheRead: 1.50,
-    cacheWrite: 18.75,
+    input: 15.00,     // $15/M input
+    output: 75.00,    // $75/M output
+    cacheRead: 1.50,  // 90% off = $1.50/M
+    cacheWrite: 18.75,// 25% more = $18.75/M
   },
   'claude-haiku-4-5-20251001': {
-    input: 0.80,
-    output: 4.00,
-    cacheRead: 0.08,
-    cacheWrite: 1.00,
+    input: 1.00,      // $1/M input (corrected from $0.80)
+    output: 5.00,     // $5/M output (corrected from $4.00)
+    cacheRead: 0.10,  // 90% off = $0.10/M
+    cacheWrite: 1.25, // 25% more = $1.25/M
+  },
+};
+
+// Model display names for UI
+export const MODEL_DISPLAY_NAMES: Record<ModelType, { name: string; cost: string; description: string }> = {
+  'claude-haiku-4-5-20251001': {
+    name: 'Haiku 4.5',
+    cost: '💸',
+    description: 'Fastest',
+  },
+  'claude-sonnet-4-5-20250929': {
+    name: 'Sonnet 4.5',
+    cost: '💸💸',
+    description: 'Default',
+  },
+  'claude-opus-4-5-20251101': {
+    name: 'Opus 4.5',
+    cost: '💸💸💸',
+    description: 'Best',
   },
 };

@@ -1,16 +1,31 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Settings as SettingsIcon, Plus, GitBranch, ChevronDown, Moon, Sun } from 'lucide-react';
-import { 
-  Message, 
-  Conversation, 
-  Settings, 
-  Repository, 
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Send,
+  Settings as SettingsIcon,
+  Plus,
+  GitBranch,
+  ChevronDown,
+  Moon,
+  Sun,
+  Square,
+  Search,
+  Brain,
+  Lock
+} from 'lucide-react';
+import {
+  Message,
+  Conversation,
+  Settings,
+  Repository,
   UploadedFile,
   Artifact,
   FileChange,
   DEFAULT_SETTINGS,
+  ModelType,
+  MODEL_DISPLAY_NAMES,
+  WebSearchMode,
 } from '@/types';
 
 // Component imports
@@ -23,6 +38,7 @@ import ArtifactsList from '@/components/ArtifactsList';
 import FileUpload from '@/components/FileUpload';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import CostTracker from '@/components/CostTracker';
+import QuickSettings from '@/components/QuickSettings';
 
 // ============================================================================
 // MAIN PAGE COMPONENT
@@ -30,11 +46,20 @@ import CostTracker from '@/components/CostTracker';
 
 export default function Home() {
   // --------------------------------------------------------------------------
-  // STATE - Auth & Keys
+  // STATE - Auth
+  // --------------------------------------------------------------------------
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
+  const [password, setPassword] = useState<string>('');
+  const [loginError, setLoginError] = useState<string>('');
+  const [rememberMe, setRememberMe] = useState<boolean>(false);
+
+  // --------------------------------------------------------------------------
+  // STATE - API Keys
   // --------------------------------------------------------------------------
   const [anthropicKey, setAnthropicKey] = useState<string>('');
   const [githubToken, setGithubToken] = useState<string>('');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [githubUser, setGithubUser] = useState<string>('');
 
   // --------------------------------------------------------------------------
   // STATE - Repository
@@ -58,10 +83,12 @@ export default function Home() {
   // --------------------------------------------------------------------------
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
+  const [quickSettingsOpen, setQuickSettingsOpen] = useState<boolean>(false);
   const [darkMode, setDarkMode] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [showRepoDropdown, setShowRepoDropdown] = useState<boolean>(false);
+  const [showModelDropdown, setShowModelDropdown] = useState<boolean>(false);
 
   // --------------------------------------------------------------------------
   // STATE - Settings
@@ -86,12 +113,19 @@ export default function Home() {
   // --------------------------------------------------------------------------
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // --------------------------------------------------------------------------
   // EFFECTS - Initialize from localStorage
   // --------------------------------------------------------------------------
   useEffect(() => {
-    // Load saved state from localStorage
+    // Check if already unlocked (remembered)
+    const savedUnlocked = localStorage.getItem('isUnlocked');
+    if (savedUnlocked === 'true') {
+      setIsUnlocked(true);
+    }
+
+    // Load saved state
     const savedAnthropicKey = localStorage.getItem('anthropicKey');
     const savedGithubToken = localStorage.getItem('githubToken');
     const savedRepo = localStorage.getItem('currentRepo');
@@ -107,15 +141,25 @@ export default function Home() {
     if (savedRepo) setCurrentRepo(JSON.parse(savedRepo));
     if (savedBranch) setCurrentBranch(savedBranch);
     if (savedConversations) setConversations(JSON.parse(savedConversations));
-    if (savedSettings) setSettings(JSON.parse(savedSettings));
+    if (savedSettings) {
+      const parsed = JSON.parse(savedSettings);
+      // Ensure webSearchMode exists for migrating old settings
+      if (!parsed.webSearchMode) {
+        parsed.webSearchMode = parsed.enableWebSearch ? 'auto' : 'off';
+      }
+      setSettings(parsed);
+    }
     if (savedDarkMode) setDarkMode(savedDarkMode === 'true');
     if (savedCurrentConvId) setCurrentConversationId(savedCurrentConvId);
     if (savedTotalCost) setTotalCost(parseFloat(savedTotalCost));
 
-    // Check if authenticated
-    if (savedAnthropicKey && savedGithubToken) {
+    // Check if API key is valid
+    if (savedAnthropicKey) {
       setIsAuthenticated(true);
-      fetchRepos(savedGithubToken);
+      // Only fetch repos if we have a GitHub token
+      if (savedGithubToken) {
+        fetchRepos(savedGithubToken);
+      }
     }
   }, []);
 
@@ -169,6 +213,36 @@ export default function Home() {
   }, [currentConversationId, conversations]);
 
   // --------------------------------------------------------------------------
+  // FUNCTIONS - Login with password
+  // --------------------------------------------------------------------------
+  const handleLogin = async () => {
+    setIsLoading(true);
+    setLoginError('');
+
+    try {
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'login', password }),
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        setIsUnlocked(true);
+        if (rememberMe) {
+          localStorage.setItem('isUnlocked', 'true');
+        }
+      } else {
+        setLoginError(data.error || 'Invalid password');
+      }
+    } catch {
+      setLoginError('Connection error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --------------------------------------------------------------------------
   // FUNCTIONS - Fetch repos
   // --------------------------------------------------------------------------
   const fetchRepos = async (token: string) => {
@@ -186,25 +260,32 @@ export default function Home() {
   };
 
   // --------------------------------------------------------------------------
-  // FUNCTIONS - Authenticate
+  // FUNCTIONS - Authenticate API keys
   // --------------------------------------------------------------------------
   const handleAuthenticate = async () => {
-    if (!anthropicKey || !githubToken) return;
+    if (!anthropicKey) return;
 
     setIsLoading(true);
     try {
       const response = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ anthropicKey, githubToken }),
+        body: JSON.stringify({
+          action: 'validate',
+          anthropicKey,
+          githubToken: githubToken || undefined
+        }),
       });
       const data = await response.json();
 
-      if (data.anthropic?.valid && data.github?.valid) {
+      if (data.anthropic?.valid) {
         setIsAuthenticated(true);
-        await fetchRepos(githubToken);
+        if (data.github?.valid) {
+          setGithubUser(data.github.user);
+          await fetchRepos(githubToken);
+        }
       } else {
-        alert('Invalid API keys. Please check your credentials.');
+        alert('Invalid Anthropic API key. Please check your credentials.');
       }
     } catch (error) {
       console.error('Auth error:', error);
@@ -215,26 +296,20 @@ export default function Home() {
   };
 
   // --------------------------------------------------------------------------
-  // FUNCTIONS - Select repo
+  // FUNCTIONS - Select repo (LAZY - NO API CALLS)
   // --------------------------------------------------------------------------
-  const handleSelectRepo = async (repo: Repository) => {
+  const handleSelectRepo = (repo: Repository | null) => {
     setCurrentRepo(repo);
-    setCurrentBranch(repo.defaultBranch);
-    setShowRepoDropdown(false);
-
-    // Fetch branches
-    try {
-      const response = await fetch(
-        `/api/github?action=branches&owner=${repo.owner}&repo=${repo.name}`,
-        { headers: { 'x-github-token': githubToken } }
-      );
-      const data = await response.json();
-      if (data.branches) {
-        setBranches(data.branches.map((b: { name: string }) => b.name));
-      }
-    } catch (error) {
-      console.error('Failed to fetch branches:', error);
+    if (repo) {
+      setCurrentBranch(repo.defaultBranch);
+      // LAZY LOADING: Don't fetch branches here
+      // Branches will be fetched on first message if needed
+      setBranches([repo.defaultBranch]);
+    } else {
+      setCurrentBranch('main');
+      setBranches(['main']);
     }
+    setShowRepoDropdown(false);
   };
 
   // --------------------------------------------------------------------------
@@ -260,10 +335,21 @@ export default function Home() {
   };
 
   // --------------------------------------------------------------------------
+  // FUNCTIONS - Stop streaming
+  // --------------------------------------------------------------------------
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsStreaming(false);
+    }
+  };
+
+  // --------------------------------------------------------------------------
   // FUNCTIONS - Send message
   // --------------------------------------------------------------------------
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || !currentRepo || isStreaming) return;
+    if (!inputValue.trim() || isStreaming) return;
 
     // Create or get conversation
     let convId = currentConversationId;
@@ -274,8 +360,8 @@ export default function Home() {
         messages: [],
         createdAt: new Date(),
         updatedAt: new Date(),
-        repoOwner: currentRepo.owner,
-        repoName: currentRepo.name,
+        repoOwner: currentRepo?.owner,
+        repoName: currentRepo?.name,
         branch: currentBranch,
       };
       setConversations(prev => [newConv, ...prev]);
@@ -308,30 +394,46 @@ export default function Home() {
     setUploadedFiles([]);
     setIsStreaming(true);
 
+    // Create abort controller for stop button
+    abortControllerRef.current = new AbortController();
+
     try {
-      // Prepare API request
+      // Prepare API request - repo context is optional
       const apiMessages = newMessages
         .filter(m => !m.isStreaming)
         .map(m => ({ role: m.role, content: m.content }));
 
+      // Build headers
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-anthropic-key': anthropicKey,
+      };
+      if (githubToken) {
+        headers['x-github-token'] = githubToken;
+      }
+
+      // Determine if web search should be enabled based on mode
+      const webSearchEnabled = settings.webSearchMode !== 'off';
+      const effectiveSettings = {
+        ...settings,
+        enableWebSearch: webSearchEnabled,
+      };
+
       // Use PUT for streaming
       const response = await fetch('/api/chat', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-anthropic-key': anthropicKey,
-          'x-github-token': githubToken,
-        },
+        headers,
         body: JSON.stringify({
           messages: apiMessages,
-          settings,
-          repoContext: {
+          settings: effectiveSettings,
+          repoContext: currentRepo ? {
             owner: currentRepo.owner,
             repo: currentRepo.name,
             branch: currentBranch,
-          },
+          } : { owner: '', repo: '', branch: '' },
           files: userMessage.files,
         }),
+        signal: abortControllerRef.current.signal,
       });
 
       if (!response.ok) {
@@ -363,21 +465,19 @@ export default function Home() {
 
             if (chunk.type === 'text') {
               accumulatedContent += chunk.content || '';
-              // Update message in real-time
-              setMessages(prev => prev.map(m => 
-                m.id === assistantMessage.id 
+              setMessages(prev => prev.map(m =>
+                m.id === assistantMessage.id
                   ? { ...m, content: accumulatedContent }
                   : m
               ));
             } else if (chunk.type === 'thinking') {
               accumulatedThinking += chunk.content || '';
-              setMessages(prev => prev.map(m => 
-                m.id === assistantMessage.id 
+              setMessages(prev => prev.map(m =>
+                m.id === assistantMessage.id
                   ? { ...m, thinkingContent: accumulatedThinking }
                   : m
               ));
             } else if (chunk.type === 'tool_use') {
-              // Handle tool calls (for file changes display)
               if (chunk.toolCall?.name === 'str_replace' || chunk.toolCall?.name === 'create_file') {
                 const input = chunk.toolCall.input;
                 allFileChanges.push({
@@ -388,11 +488,13 @@ export default function Home() {
             } else if (chunk.type === 'done') {
               finalCost = chunk.cost || 0;
               finalSavedPercent = chunk.savedPercent || 0;
+              if (chunk.fileChanges) {
+                allFileChanges.push(...chunk.fileChanges);
+              }
             } else if (chunk.error) {
               throw new Error(chunk.error);
             }
           } catch (e) {
-            // Skip invalid JSON lines
             if (!(e instanceof SyntaxError)) throw e;
           }
         }
@@ -428,17 +530,14 @@ export default function Home() {
       const finalMessages = [...messages, userMessage, updatedAssistant];
       setMessages(finalMessages);
 
-      // Update artifacts
       if (allArtifacts.length > 0) {
         setArtifacts(prev => [...prev, ...allArtifacts]);
       }
 
-      // Update costs
       setSessionCost(prev => prev + finalCost);
       setTotalCost(prev => prev + finalCost);
 
-      // Update conversation
-      setConversations(prev => prev.map(c => 
+      setConversations(prev => prev.map(c =>
         c.id === convId
           ? {
               ...c,
@@ -452,16 +551,25 @@ export default function Home() {
       ));
 
     } catch (error) {
-      console.error('Chat error:', error);
-      // Update message with error
-      const errorMessage: Message = {
-        ...assistantMessage,
-        content: 'Sorry, an error occurred. Please try again.',
-        isStreaming: false,
-      };
-      setMessages([...messages, userMessage, errorMessage]);
+      if ((error as Error).name === 'AbortError') {
+        // User cancelled - update message to show partial content
+        setMessages(prev => prev.map(m =>
+          m.id === assistantMessage.id
+            ? { ...m, isStreaming: false, content: m.content || '(Cancelled)' }
+            : m
+        ));
+      } else {
+        console.error('Chat error:', error);
+        const errorMessage: Message = {
+          ...assistantMessage,
+          content: 'Sorry, an error occurred. Please try again.',
+          isStreaming: false,
+        };
+        setMessages([...messages, userMessage, errorMessage]);
+      }
     } finally {
       setIsStreaming(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -473,6 +581,30 @@ export default function Home() {
       e.preventDefault();
       handleSendMessage();
     }
+  };
+
+  // --------------------------------------------------------------------------
+  // FUNCTIONS - Cycle web search mode
+  // --------------------------------------------------------------------------
+  const cycleWebSearchMode = () => {
+    const modes: WebSearchMode[] = ['off', 'manual', 'auto'];
+    const currentIndex = modes.indexOf(settings.webSearchMode);
+    const nextIndex = (currentIndex + 1) % modes.length;
+    setSettings(prev => ({
+      ...prev,
+      webSearchMode: modes[nextIndex],
+      enableWebSearch: modes[nextIndex] !== 'off',
+    }));
+  };
+
+  // --------------------------------------------------------------------------
+  // FUNCTIONS - Toggle extended thinking
+  // --------------------------------------------------------------------------
+  const toggleExtendedThinking = () => {
+    setSettings(prev => ({
+      ...prev,
+      enableExtendedThinking: !prev.enableExtendedThinking,
+    }));
   };
 
   // --------------------------------------------------------------------------
@@ -489,7 +621,7 @@ export default function Home() {
   // --------------------------------------------------------------------------
   const handleDiscard = async (branch?: string) => {
     if (!branch || !currentRepo) return;
-    
+
     try {
       await fetch('/api/github', {
         method: 'POST',
@@ -526,7 +658,69 @@ export default function Home() {
   };
 
   // --------------------------------------------------------------------------
-  // RENDER - Auth Screen
+  // FUNCTIONS - Logout
+  // --------------------------------------------------------------------------
+  const handleLogout = () => {
+    setIsUnlocked(false);
+    localStorage.removeItem('isUnlocked');
+  };
+
+  // --------------------------------------------------------------------------
+  // RENDER - Login Screen
+  // --------------------------------------------------------------------------
+  if (!isUnlocked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-8 bg-[var(--claude-bg)]">
+        <div className="w-full max-w-sm space-y-6 animate-fade-in-up">
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[var(--claude-terracotta-subtle)] flex items-center justify-center">
+              <Lock className="w-8 h-8 text-[var(--claude-terracotta)]" />
+            </div>
+            <h1 className="text-2xl font-serif text-[var(--claude-text)]">Claude Coder</h1>
+            <p className="text-[var(--claude-text-secondary)] mt-1">Enter password to continue</p>
+          </div>
+
+          <div className="space-y-4">
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+              placeholder="Password"
+              className="w-full px-4 py-3 rounded-xl bg-[var(--claude-surface)] border border-[var(--claude-border)] text-[var(--claude-text)] placeholder:text-[var(--claude-text-muted)] focus:outline-none focus:border-[var(--claude-terracotta)]"
+              autoFocus
+            />
+
+            {loginError && (
+              <p className="text-sm text-[var(--claude-error)]">{loginError}</p>
+            )}
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="w-4 h-4 rounded border-[var(--claude-border)] text-[var(--claude-terracotta)] focus:ring-[var(--claude-terracotta)]"
+              />
+              <span className="text-sm text-[var(--claude-text-secondary)]">Remember me</span>
+            </label>
+
+            <button
+              onClick={handleLogin}
+              disabled={!password || isLoading}
+              className="w-full px-4 py-3 rounded-xl bg-[var(--claude-terracotta)] text-white font-medium hover:bg-[var(--claude-terracotta-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+            >
+              {isLoading ? <LoadingSpinner size="sm" /> : null}
+              {isLoading ? 'Unlocking...' : 'Unlock'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // RENDER - Setup Screen (No API Key)
   // --------------------------------------------------------------------------
   if (!isAuthenticated) {
     return (
@@ -534,13 +728,13 @@ export default function Home() {
         <div className="w-full max-w-md space-y-6 animate-fade-in-up">
           <div className="text-center mb-8">
             <h1 className="text-3xl font-serif text-[var(--claude-text)] mb-2">Claude Coder</h1>
-            <p className="text-[var(--claude-text-secondary)]">Enter your API keys to get started</p>
+            <p className="text-[var(--claude-text-secondary)]">Setup required - add your API keys</p>
           </div>
 
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-[var(--claude-text-secondary)] mb-2">
-                Anthropic API Key
+                Anthropic API Key <span className="text-[var(--claude-error)]">*</span>
               </label>
               <input
                 type="password"
@@ -549,24 +743,40 @@ export default function Home() {
                 placeholder="sk-ant-..."
                 className="w-full px-4 py-3 rounded-xl bg-[var(--claude-surface)] border border-[var(--claude-border)] text-[var(--claude-text)] placeholder:text-[var(--claude-text-muted)] focus:outline-none focus:border-[var(--claude-terracotta)]"
               />
+              <a
+                href="https://console.anthropic.com/settings/keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-[var(--claude-terracotta)] hover:underline mt-1 inline-block"
+              >
+                Get API key →
+              </a>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-[var(--claude-text-secondary)] mb-2">
-                GitHub Personal Access Token
+                GitHub Token <span className="text-[var(--claude-text-muted)]">(optional)</span>
               </label>
               <input
                 type="password"
                 value={githubToken}
                 onChange={(e) => setGithubToken(e.target.value)}
-                placeholder="ghp_..."
+                placeholder="ghp_... (needed for code editing)"
                 className="w-full px-4 py-3 rounded-xl bg-[var(--claude-surface)] border border-[var(--claude-border)] text-[var(--claude-text)] placeholder:text-[var(--claude-text-muted)] focus:outline-none focus:border-[var(--claude-terracotta)]"
               />
+              <a
+                href="https://github.com/settings/tokens"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-[var(--claude-terracotta)] hover:underline mt-1 inline-block"
+              >
+                Get token →
+              </a>
             </div>
 
             <button
               onClick={handleAuthenticate}
-              disabled={!anthropicKey || !githubToken || isLoading}
+              disabled={!anthropicKey || isLoading}
               className="w-full px-4 py-3 rounded-xl bg-[var(--claude-terracotta)] text-white font-medium hover:bg-[var(--claude-terracotta-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {isLoading ? <LoadingSpinner size="sm" /> : null}
@@ -581,6 +791,8 @@ export default function Home() {
   // --------------------------------------------------------------------------
   // RENDER - Main App
   // --------------------------------------------------------------------------
+  const currentModel = MODEL_DISPLAY_NAMES[settings.model] || MODEL_DISPLAY_NAMES['claude-sonnet-4-5-20250929'];
+
   return (
     <div className={`min-h-screen flex ${darkMode ? 'dark' : ''}`}>
       {/* Sidebar */}
@@ -608,12 +820,23 @@ export default function Home() {
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-sm text-[var(--claude-text)] hover:border-[var(--claude-border-strong)] transition-colors"
               >
                 <GitBranch className="w-4 h-4 text-[var(--claude-text-muted)]" />
-                {currentRepo ? currentRepo.fullName : 'Select repository'}
+                {currentRepo ? currentRepo.fullName : 'No Repo'}
                 <ChevronDown className="w-3 h-3 text-[var(--claude-text-muted)]" />
               </button>
 
               {showRepoDropdown && (
                 <div className="absolute top-full left-0 mt-1 w-72 max-h-80 overflow-y-auto rounded-xl bg-[var(--claude-surface)] border border-[var(--claude-border)] shadow-lg z-20">
+                  {/* No Repo option */}
+                  <button
+                    onClick={() => handleSelectRepo(null)}
+                    className={`w-full px-4 py-2 text-left text-sm hover:bg-[var(--claude-sand-light)] transition-colors ${
+                      !currentRepo ? 'bg-[var(--claude-terracotta-subtle)]' : ''
+                    }`}
+                  >
+                    <p className="font-medium text-[var(--claude-text)]">No Repo</p>
+                    <p className="text-xs text-[var(--claude-text-muted)]">Just chat with Claude</p>
+                  </button>
+                  <div className="border-t border-[var(--claude-border)]" />
                   {repos.map((repo) => (
                     <button
                       key={repo.fullName}
@@ -626,11 +849,19 @@ export default function Home() {
                       <p className="text-xs text-[var(--claude-text-muted)]">{repo.defaultBranch}</p>
                     </button>
                   ))}
+                  {repos.length === 0 && githubToken && (
+                    <p className="px-4 py-2 text-sm text-[var(--claude-text-muted)]">Loading repos...</p>
+                  )}
+                  {!githubToken && (
+                    <p className="px-4 py-2 text-sm text-[var(--claude-text-muted)]">
+                      Add GitHub token in settings to connect repos
+                    </p>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Branch selector */}
+            {/* Branch selector (only if repo selected) */}
             {currentRepo && (
               <select
                 value={currentBranch}
@@ -644,9 +875,11 @@ export default function Home() {
             )}
 
             {/* Mode badge */}
-            <span className={`badge ${settings.deployMode === 'safe' ? 'badge-success' : 'badge-warning'}`}>
-              {settings.deployMode === 'safe' ? '🛡 Safe' : '⚡ Direct'}
-            </span>
+            {currentRepo && (
+              <span className={`badge ${settings.deployMode === 'safe' ? 'badge-success' : 'badge-warning'}`}>
+                {settings.deployMode === 'safe' ? '🛡 Safe' : '⚡ Direct'}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -713,7 +946,8 @@ export default function Home() {
             )}
 
             {/* Input row */}
-            <div className="flex items-end gap-3">
+            <div className="flex items-end gap-2">
+              {/* Attach button */}
               <button
                 onClick={() => document.getElementById('file-input')?.click()}
                 className="p-3 rounded-xl hover:bg-[var(--claude-sand-light)] text-[var(--claude-text-secondary)] transition-colors"
@@ -729,7 +963,6 @@ export default function Home() {
                 onChange={(e) => {
                   if (e.target.files) {
                     const newFiles = Array.from(e.target.files);
-                    // Convert to UploadedFile format
                     Promise.all(newFiles.map(async (file) => {
                       const base64 = await new Promise<string>((resolve) => {
                         const reader = new FileReader();
@@ -747,25 +980,127 @@ export default function Home() {
                 }}
               />
 
+              {/* Quick settings */}
+              <div className="relative">
+                <button
+                  onClick={() => setQuickSettingsOpen(!quickSettingsOpen)}
+                  className="p-3 rounded-xl hover:bg-[var(--claude-sand-light)] text-[var(--claude-text-secondary)] transition-colors"
+                  title="Quick settings"
+                >
+                  <SettingsIcon className="w-5 h-5" />
+                </button>
+                <QuickSettings
+                  isOpen={quickSettingsOpen}
+                  onClose={() => setQuickSettingsOpen(false)}
+                  settings={settings}
+                  onSettingsChange={setSettings}
+                  onOpenFullSettings={() => {
+                    setQuickSettingsOpen(false);
+                    setSettingsOpen(true);
+                  }}
+                />
+              </div>
+
+              {/* Input */}
               <textarea
                 ref={inputRef}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyPress}
-                placeholder={currentRepo ? "Ask Claude about your code..." : "Select a repository first..."}
-                disabled={!currentRepo}
+                placeholder="Ask Claude anything..."
+                disabled={isStreaming}
                 rows={1}
                 className="flex-1 px-4 py-3 rounded-xl bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-[var(--claude-text)] placeholder:text-[var(--claude-text-muted)] focus:outline-none focus:border-[var(--claude-terracotta)] resize-none disabled:opacity-50"
                 style={{ minHeight: '48px', maxHeight: '200px' }}
               />
 
+              {/* Model dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowModelDropdown(!showModelDropdown)}
+                  className="flex items-center gap-1 px-3 py-3 rounded-xl bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-sm text-[var(--claude-text)] hover:border-[var(--claude-border-strong)] transition-colors"
+                  title="Select model"
+                >
+                  <span>{currentModel.name}</span>
+                  <span className="text-xs">{currentModel.cost}</span>
+                  <ChevronDown className="w-3 h-3 text-[var(--claude-text-muted)]" />
+                </button>
+                {showModelDropdown && (
+                  <div className="absolute bottom-full right-0 mb-2 w-56 rounded-xl bg-[var(--claude-surface)] border border-[var(--claude-border)] shadow-lg z-50">
+                    {(Object.entries(MODEL_DISPLAY_NAMES) as [ModelType, typeof MODEL_DISPLAY_NAMES[ModelType]][]).map(([modelId, info]) => (
+                      <button
+                        key={modelId}
+                        onClick={() => {
+                          setSettings(prev => ({ ...prev, model: modelId }));
+                          setShowModelDropdown(false);
+                        }}
+                        className={`w-full px-4 py-3 text-left hover:bg-[var(--claude-sand-light)] transition-colors first:rounded-t-xl last:rounded-b-xl ${
+                          settings.model === modelId ? 'bg-[var(--claude-terracotta-subtle)]' : ''
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-[var(--claude-text)]">{info.name}</span>
+                          <span className="text-xs">{info.cost}</span>
+                        </div>
+                        <p className="text-xs text-[var(--claude-text-muted)]">{info.description}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Web search toggle */}
               <button
-                onClick={handleSendMessage}
-                disabled={!inputValue.trim() || !currentRepo || isStreaming}
-                className="p-3 rounded-xl bg-[var(--claude-terracotta)] text-white hover:bg-[var(--claude-terracotta-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                onClick={cycleWebSearchMode}
+                className={`p-3 rounded-xl transition-colors ${
+                  settings.webSearchMode !== 'off'
+                    ? 'bg-[var(--claude-terracotta-subtle)] text-[var(--claude-terracotta)]'
+                    : 'hover:bg-[var(--claude-sand-light)] text-[var(--claude-text-muted)]'
+                }`}
+                title={`Web Search: ${settings.webSearchMode}`}
               >
-                {isStreaming ? <LoadingSpinner size="sm" /> : <Send className="w-5 h-5" />}
+                <div className="relative">
+                  <Search className="w-5 h-5" />
+                  {settings.webSearchMode === 'auto' && (
+                    <span className="absolute -top-1 -right-1 text-[8px] font-bold bg-[var(--claude-terracotta)] text-white rounded px-0.5">
+                      A
+                    </span>
+                  )}
+                </div>
               </button>
+
+              {/* Extended thinking toggle */}
+              <button
+                onClick={toggleExtendedThinking}
+                className={`p-3 rounded-xl transition-colors ${
+                  settings.enableExtendedThinking
+                    ? 'bg-[var(--claude-terracotta-subtle)] text-[var(--claude-terracotta)]'
+                    : 'hover:bg-[var(--claude-sand-light)] text-[var(--claude-text-muted)]'
+                }`}
+                title={`Extended Thinking: ${settings.enableExtendedThinking ? 'ON' : 'OFF'}`}
+              >
+                <Brain className="w-5 h-5" />
+              </button>
+
+              {/* Send/Stop button */}
+              {isStreaming ? (
+                <button
+                  onClick={handleStop}
+                  className="p-3 rounded-xl bg-[var(--claude-error)] text-white hover:bg-[var(--claude-error)]/80 transition-colors"
+                  title="Stop"
+                >
+                  <Square className="w-5 h-5" />
+                </button>
+              ) : (
+                <button
+                  onClick={handleSendMessage}
+                  disabled={!inputValue.trim()}
+                  className="p-3 rounded-xl bg-[var(--claude-terracotta)] text-white hover:bg-[var(--claude-terracotta-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  title="Send"
+                >
+                  <Send className="w-5 h-5" />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -798,6 +1133,12 @@ export default function Home() {
         onSettingsChange={setSettings}
         darkMode={darkMode}
         onDarkModeChange={setDarkMode}
+        anthropicKey={anthropicKey}
+        githubToken={githubToken}
+        githubUser={githubUser}
+        onAnthropicKeyChange={setAnthropicKey}
+        onGithubTokenChange={setGithubToken}
+        onLogout={handleLogout}
       />
     </div>
   );
