@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
+import { APIError } from '@anthropic-ai/sdk';
 import { ClaudeClient, getSystemPrompt, generateCodeContext, extractKeywords } from '@/lib/claude';
 import { GitHubClient, formatFileTree } from '@/lib/github';
 import { ChatRequest, Settings, RepoFile, FileChange, TokenUsage } from '@/types';
@@ -10,6 +11,34 @@ import { ChatRequest, Settings, RepoFile, FileChange, TokenUsage } from '@/types
 // Store for session-based file tree caching
 const fileTreeCache = new Map<string, { tree: string; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function mapClaudeError(error: unknown): { status: number; message: string } {
+  if (error instanceof APIError) {
+    if (error.status === 429 || (error.error && (error.error as { type?: string }).type === 'rate_limit_error')) {
+      return {
+        status: 429,
+        message: 'Anthropic rate limit exceeded. Please wait a moment and try again.',
+      };
+    }
+
+    if (error.status) {
+      return {
+        status: error.status,
+        message: error.message,
+      };
+    }
+  }
+
+  if (error instanceof Error && (error as { status?: number }).status) {
+    return {
+      status: (error as { status: number }).status,
+      message: error.message,
+    };
+  }
+
+  const message = error instanceof Error ? error.message : 'Unknown error';
+  return { status: 500, message };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -190,11 +219,11 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Chat API error:', error);
-    
-    const message = error instanceof Error ? error.message : 'Unknown error';
+
+    const mapped = mapClaudeError(error);
     return NextResponse.json(
-      { error: message },
-      { status: 500 }
+      { error: mapped.message },
+      { status: mapped.status }
     );
   }
 }
@@ -494,8 +523,8 @@ export async function PUT(request: NextRequest) {
 
           controller.close();
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Stream error';
-          controller.enqueue(encoder.encode(JSON.stringify({ error: message }) + '\n'));
+          const mapped = mapClaudeError(error);
+          controller.enqueue(encoder.encode(JSON.stringify({ error: mapped.message }) + '\n'));
           controller.close();
         }
       },
@@ -511,8 +540,8 @@ export async function PUT(request: NextRequest) {
 
   } catch (error) {
     console.error('Stream API error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const mapped = mapClaudeError(error);
+    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
   }
 }
 
