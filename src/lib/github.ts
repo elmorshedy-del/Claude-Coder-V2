@@ -6,16 +6,51 @@
 import { Octokit } from 'octokit';
 import { RepoFile, RepoTree, Branch, Repository, PullRequest, FileChange } from '@/types';
 
+// Module-level cache that persists across GitHubClient instances
+// This is critical because a new GitHubClient is created on every request
+const FILE_TREE_CACHE = new Map<string, { tree: RepoTree[]; timestamp: number }>();
+const FILE_CONTENT_CACHE = new Map<string, { file: RepoFile; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const MAX_CACHE_ENTRIES = 200;
+
+// Cleanup old cache entries
+function cleanupCache<T>(cache: Map<string, { timestamp: number } & T>, maxEntries: number = MAX_CACHE_ENTRIES): void {
+  const now = Date.now();
+  const toDelete: string[] = [];
+
+  for (const [key, value] of cache.entries()) {
+    if (now - value.timestamp > CACHE_TTL) {
+      toDelete.push(key);
+    }
+  }
+
+  for (const key of toDelete) {
+    cache.delete(key);
+  }
+
+  // If still over limit, remove oldest
+  if (cache.size > maxEntries) {
+    const entries = Array.from(cache.entries())
+      .sort((a, b) => a[1].timestamp - b[1].timestamp);
+    const removeCount = cache.size - maxEntries;
+    for (let i = 0; i < removeCount; i++) {
+      cache.delete(entries[i][0]);
+    }
+  }
+}
+
 export class GitHubClient {
   private octokit: Octokit;
   private owner: string;
   private repo: string;
-  private fileTreeCache: Map<string, RepoTree[]> = new Map();
 
   constructor(token: string, owner: string, repo: string) {
     this.octokit = new Octokit({ auth: token });
     this.owner = owner;
     this.repo = repo;
+    // Cleanup caches on instantiation
+    cleanupCache(FILE_TREE_CACHE);
+    cleanupCache(FILE_CONTENT_CACHE);
   }
 
   // --------------------------------------------------------------------------
@@ -43,14 +78,19 @@ export class GitHubClient {
 
   async getFileTree(branch: string = 'main', useCache: boolean = true): Promise<RepoTree[]> {
     const cacheKey = `${this.owner}/${this.repo}/${branch}`;
-    
-    // Return cached tree if available
-    if (useCache && this.fileTreeCache.has(cacheKey)) {
-      return this.fileTreeCache.get(cacheKey)!;
+
+    // Return cached tree if available and not expired
+    if (useCache) {
+      const cached = FILE_TREE_CACHE.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        console.log(`[CACHE HIT] File tree for ${cacheKey}`);
+        return cached.tree;
+      }
     }
 
+    console.log(`[CACHE MISS] Fetching file tree for ${cacheKey}`);
     const sha = await this.getBranchSHA(branch);
-    
+
     const { data } = await this.octokit.rest.git.getTree({
       owner: this.owner,
       repo: this.repo,
@@ -59,15 +99,15 @@ export class GitHubClient {
     });
 
     const tree = this.buildTree(data.tree);
-    
-    // Cache the tree for this session
-    this.fileTreeCache.set(cacheKey, tree);
-    
+
+    // Cache the tree with timestamp
+    FILE_TREE_CACHE.set(cacheKey, { tree, timestamp: Date.now() });
+
     return tree;
   }
 
   clearTreeCache(): void {
-    this.fileTreeCache.clear();
+    FILE_TREE_CACHE.clear();
   }
 
   private async getBranchSHA(branch: string): Promise<string> {
@@ -127,7 +167,19 @@ export class GitHubClient {
   // File Content
   // --------------------------------------------------------------------------
 
-  async getFileContent(path: string, branch: string = 'main'): Promise<RepoFile> {
+  async getFileContent(path: string, branch: string = 'main', useCache: boolean = true): Promise<RepoFile> {
+    const cacheKey = `${this.owner}/${this.repo}/${branch}/${path}`;
+
+    // Return cached content if available and not expired
+    if (useCache) {
+      const cached = FILE_CONTENT_CACHE.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        console.log(`[CACHE HIT] File content for ${path}`);
+        return cached.file;
+      }
+    }
+
+    console.log(`[CACHE MISS] Fetching file content for ${path}`);
     const { data } = await this.octokit.rest.repos.getContent({
       owner: this.owner,
       repo: this.repo,
@@ -140,7 +192,18 @@ export class GitHubClient {
     }
 
     const content = Buffer.from(data.content, 'base64').toString('utf-8');
-    return { path, content, sha: data.sha };
+    const file: RepoFile = { path, content, sha: data.sha };
+
+    // Cache the file content
+    FILE_CONTENT_CACHE.set(cacheKey, { file, timestamp: Date.now() });
+
+    return file;
+  }
+
+  // Invalidate file cache after edits
+  invalidateFileCache(path: string, branch: string = 'main'): void {
+    const cacheKey = `${this.owner}/${this.repo}/${branch}/${path}`;
+    FILE_CONTENT_CACHE.delete(cacheKey);
   }
 
   async getFiles(paths: string[], branch: string = 'main'): Promise<RepoFile[]> {
@@ -376,7 +439,8 @@ export class GitHubClient {
     branch: string
   ): Promise<{ success: boolean; error?: string; additions?: number; deletions?: number }> {
     try {
-      const file = await this.getFileContent(path, branch);
+      // Don't use cache for the file we're about to edit (need fresh content)
+      const file = await this.getFileContent(path, branch, false);
 
       if (!file.content.includes(oldStr)) {
         return {
@@ -395,6 +459,9 @@ export class GitHubClient {
 
       const newContent = file.content.replace(oldStr, newStr);
       await this.updateFile(path, newContent, `Edit ${path}`, branch, file.sha);
+
+      // Invalidate cache after successful edit
+      this.invalidateFileCache(path, branch);
 
       // Calculate line changes
       const oldLines = oldStr.split('\n').length;
@@ -425,6 +492,9 @@ export class GitHubClient {
         content: Buffer.from(content).toString('base64'),
         branch,
       });
+
+      // Invalidate tree cache since we added a new file
+      this.clearTreeCache();
 
       return {
         success: true,
