@@ -624,6 +624,65 @@ export async function PUT(request: NextRequest) {
             });
           }
 
+          // ===============================================================
+          // AUTO-CREATE PR IF FILE CHANGES WERE MADE
+          // ===============================================================
+          let prUrl: string | undefined;
+          let prNumber: number | undefined;
+
+          if (fileChanges.length > 0 && github && hasRepoContext) {
+            try {
+              // Only create PR if we're not on the default branch
+              // (changes on default branch don't need a PR)
+              const repoInfo = await github.getRepository();
+
+              if (repoContext.branch !== repoInfo.defaultBranch) {
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  type: 'text',
+                  content: '\n\n📝 Creating pull request...',
+                }) + '\n'));
+
+                // Generate PR title and body from file changes
+                const prTitle = `Claude: ${fileChanges.length} file${fileChanges.length > 1 ? 's' : ''} changed`;
+                const prBody = `## Changes Made by Claude\n\n${fileChanges.map(f =>
+                  `- **${f.action}** \`${f.path}\`${f.additions ? ` (+${f.additions})` : ''}${f.deletions ? ` (-${f.deletions})` : ''}`
+                ).join('\n')}\n\n---\n*This PR was automatically created by Claude Coder.*`;
+
+                const pr = await github.createPullRequest(
+                  prTitle,
+                  prBody,
+                  repoContext.branch,
+                  repoInfo.defaultBranch
+                );
+
+                prUrl = pr.url;
+                prNumber = pr.number;
+
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  type: 'text',
+                  content: `\n\n✅ **Pull request created:** [PR #${pr.number}](${pr.url})`,
+                }) + '\n'));
+              }
+            } catch (prError) {
+              // PR creation failed - log but don't fail the whole request
+              const errorMsg = prError instanceof Error ? prError.message : 'Unknown error';
+              console.error('PR creation failed:', errorMsg);
+
+              // Check if PR already exists (common error)
+              if (errorMsg.includes('already exists') || errorMsg.includes('A pull request already exists')) {
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  type: 'text',
+                  content: '\n\n⚠️ A pull request already exists for this branch. View it on GitHub.',
+                }) + '\n'));
+              } else {
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  type: 'text',
+                  content: `\n\n⚠️ Could not create PR automatically: ${errorMsg}. You can create one manually on GitHub.`,
+                }) + '\n'));
+              }
+            }
+          }
+
           // Send final done event with all accumulated info
           controller.enqueue(encoder.encode(JSON.stringify({
             type: 'done',
@@ -631,6 +690,8 @@ export async function PUT(request: NextRequest) {
             savedPercent: totalSavedPercent,
             fileChanges: fileChanges.length > 0 ? fileChanges : undefined,
             seenFiles: [...seenFiles],
+            prUrl,
+            prNumber,
           }) + '\n'));
 
           controller.close();

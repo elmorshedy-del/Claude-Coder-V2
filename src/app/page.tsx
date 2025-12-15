@@ -508,6 +508,7 @@ export default function Home() {
       let accumulatedThinking = '';
       let finalCost = 0;
       let finalSavedPercent = 0;
+      let finalPrUrl: string | undefined;
       const allArtifacts: Artifact[] = [];
       const allFileChanges: FileChange[] = [];
 
@@ -558,6 +559,9 @@ export default function Home() {
               if (chunk.fileChanges) {
                 allFileChanges.push(...chunk.fileChanges);
               }
+              if (chunk.prUrl) {
+                finalPrUrl = chunk.prUrl;
+              }
             } else if (chunk.error) {
               throw new Error(chunk.error);
             }
@@ -595,6 +599,7 @@ export default function Home() {
         thinkingContent: accumulatedThinking || undefined,
         artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
         filesChanged: allFileChanges.length > 0 ? allFileChanges : undefined,
+        prUrl: finalPrUrl,
       };
 
       const finalMessages = [...messages, userMessage, updatedAssistant];
