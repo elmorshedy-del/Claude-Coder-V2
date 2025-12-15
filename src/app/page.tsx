@@ -438,7 +438,18 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        throw new Error('API request failed');
+        let errorDetail = 'API request failed';
+        try {
+          const errorBody = await response.json();
+          if (errorBody?.error) {
+            errorDetail = errorBody.error;
+          }
+        } catch {
+          // ignore parse errors and fall back to default message
+        }
+
+        const statusLabel = response.status ? ` (${response.status})` : '';
+        throw new Error(`${errorDetail}${statusLabel}`);
       }
 
       // Process stream
@@ -632,9 +643,14 @@ export default function Home() {
         ));
       } else {
         console.error('Chat error:', error);
+        const fallbackMessage = (error as Error).message || 'Sorry, an error occurred. Please try again.';
+        const isRateLimit = fallbackMessage.toLowerCase().includes('rate limit');
+        const userFriendlyMessage = isRateLimit
+          ? 'We hit the Anthropic rate limit. Please wait a few moments and try again.'
+          : fallbackMessage;
         const errorMessage: Message = {
           ...assistantMessage,
-          content: 'Sorry, an error occurred. Please try again.',
+          content: userFriendlyMessage,
           isStreaming: false,
         };
         setMessages([...messages, userMessage, errorMessage]);
