@@ -699,18 +699,18 @@ export function generateCodeContext(
     ? fileTree.slice(0, MAX_TREE_CHARS) + "\n...[truncated repository tree]"
     : fileTree;
 
-  let context = `## Repository Structure\n\
-\\`\\`\\`\n${clippedTree}\n\\`\\`\\`\n\n`;
+  let context = `## Repository Structure\n\`\`\`\n${clippedTree}\n\`\`\`\n\n`;
   context += `## Loaded Files\n\n`;
 
   for (const file of files) {
     const ext = file.path.split('.').pop() || '';
     const clipped = file.content.length > MAX_FILE_CHARS
-      ? file.content.slice(0, MAX_FILE_CHARS) + `\n\n...[truncated file: ${file.content.length} chars total]`
+      ? file.content.slice(0, MAX_FILE_CHARS) + `
+
+...[truncated file: ${file.content.length} chars total]`
       : file.content;
 
-    context += `### ${file.path}\n\
-\\`\\`\\`${ext}\n${clipped}\n\\`\\`\\`\n\n`;
+    context += `### ${file.path}\n\`\`\`${ext}\n${clipped}\n\`\`\`\n\n`;
   }
 
   context += `\nIf you need to see other files, use the read_file tool.\n`;
