@@ -282,6 +282,15 @@ export function markAllAsRead(store = null) {
   }
 }
 
+// Delete a single notification
+export function deleteNotification(notificationId) {
+  const db = getDb();
+  const stmt = db.prepare('DELETE FROM notifications WHERE id = ?');
+  const result = stmt.run(notificationId);
+  console.log(`[Notification] Deleted notification ${notificationId}`);
+  return result.changes;
+}
+
 // Delete old notifications (older than 7 days)
 export function cleanupOldNotifications() {
   const db = getDb();
