@@ -383,8 +383,12 @@ export const APP_CONSTANTS = {
   MAX_TOOL_RESULT_CHARS: 6000,
 
   // Agentic loop settings - Claude decides when done, but we have safety limits
-  MAX_AGENTIC_ROUNDS: 15, // Safety limit for runaway loops
-  MAX_TOOL_ROUNDS: 15, // Alias for backward compatibility
+  // These are effort-based: low=10 (cost efficient), medium=15, high=25 (complex tasks)
+  MAX_AGENTIC_ROUNDS_LOW: 10,
+  MAX_AGENTIC_ROUNDS_MEDIUM: 15,
+  MAX_AGENTIC_ROUNDS_HIGH: 25,
+  MAX_AGENTIC_ROUNDS: 10, // Default (low) for backward compatibility
+  MAX_TOOL_ROUNDS: 10, // Alias for backward compatibility
 
   // Search limits
   MAX_GREP_RESULTS: 50,

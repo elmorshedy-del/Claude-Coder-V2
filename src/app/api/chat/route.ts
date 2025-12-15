@@ -324,7 +324,8 @@ export async function PUT(request: NextRequest) {
       async start(controller) {
         try {
           const fileChanges: FileChange[] = [];
-          const MAX_ROUNDS = 15; // Safety limit for runaway loops
+          // Dynamic MAX_ROUNDS based on effort: low=10 (cost efficient), medium=15, high=25 (complex tasks)
+          const MAX_ROUNDS = settings.effort === 'high' ? 25 : settings.effort === 'medium' ? 15 : 10;
           let totalCost = 0;
           let totalSavedPercent = 0;
 
