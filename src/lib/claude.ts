@@ -134,9 +134,9 @@ export class ClaudeClient {
 
     // Map effort to max_tokens and thinking budget
     const effortConfig = {
-      low: { maxTokens: 4000, thinkingMultiplier: 0.5 },
-      medium: { maxTokens: 16000, thinkingMultiplier: 1.0 },
-      high: { maxTokens: 32000, thinkingMultiplier: 2.0 },
+      low: { maxTokens: 16000, thinkingMultiplier: 0.5 },
+      medium: { maxTokens: 64000, thinkingMultiplier: 1.0 },
+      high: { maxTokens: 128000, thinkingMultiplier: 2.0 },
     };
     const config = effortConfig[effort] || effortConfig.medium;
     const adjustedThinkingBudget = Math.round(thinkingBudget * config.thinkingMultiplier);
@@ -304,9 +304,9 @@ export class ClaudeClient {
 
     // Map effort to max_tokens and thinking budget
     const effortConfig = {
-      low: { maxTokens: 4000, thinkingMultiplier: 0.5 },
-      medium: { maxTokens: 16000, thinkingMultiplier: 1.0 },
-      high: { maxTokens: 32000, thinkingMultiplier: 2.0 },
+      low: { maxTokens: 16000, thinkingMultiplier: 0.5 },
+      medium: { maxTokens: 64000, thinkingMultiplier: 1.0 },
+      high: { maxTokens: 128000, thinkingMultiplier: 2.0 },
     };
     const config = effortConfig[effort] || effortConfig.medium;
     const adjustedThinkingBudget = Math.round(thinkingBudget * config.thinkingMultiplier);
