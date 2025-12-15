@@ -604,23 +604,14 @@ export async function PUT(request: NextRequest) {
               });
             }
 
-            // ===============================================================
-            // LET CLAUDE THINK - Add reflection nudge after tool results
-            // This makes Claude reason about results instead of just reacting
-            // ===============================================================
-            const reflectionNudge: ContentBlock = {
-              type: 'text',
-              text: '\n\nI\'ve executed the tools above. Please analyze the results and decide your next step. If you need more information, use more tools. If you\'re ready to respond to the user with a complete answer, do so.',
-            };
-
-            // Append the assistant tool-use message + the user tool results with reflection nudge
+            // Append the assistant tool-use message + the user tool results
             convo.push({
               role: 'assistant',
               content: assistantBlocks.length > 0 ? assistantBlocks : [{ type: 'text', text: '' }],
             });
             convo.push({
               role: 'user',
-              content: [...toolResultBlocks, reflectionNudge],
+              content: toolResultBlocks,
             });
           }
 
