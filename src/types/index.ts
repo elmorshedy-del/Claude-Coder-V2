@@ -169,7 +169,6 @@ export interface Settings {
   // Features
   enableWebSearch: boolean;
   webSearchMode: WebSearchMode;
-  webSearchAutoDetect: boolean; // Legacy - use webSearchMode instead
   enableExtendedThinking: boolean;
   thinkingBudget: number;
   enableContextCompaction: boolean;
@@ -329,7 +328,6 @@ export const DEFAULT_SETTINGS: Settings = {
   effort: 'medium',
   enableWebSearch: true,
   webSearchMode: 'auto',
-  webSearchAutoDetect: true, // Legacy
   enableExtendedThinking: false,
   thinkingBudget: 10000,
   enableContextCompaction: true,
@@ -368,6 +366,37 @@ export const MODEL_PRICING: Record<ModelType, { input: number; output: number; c
     cacheWrite: 1.25, // 25% more = $1.25/M
   },
 };
+
+// ----------------------------------------------------------------------------
+// Application Constants
+// ----------------------------------------------------------------------------
+
+export const APP_CONSTANTS = {
+  // Cache settings
+  CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
+  MAX_CACHE_SIZE: 100,
+
+  // File content limits
+  MAX_TREE_CHARS: 12000,
+  MAX_FILE_CHARS: 16000,
+  MAX_FILE_SNIPPET_CHARS: 20000,
+  MAX_TOOL_RESULT_CHARS: 6000,
+
+  // Tool loop settings
+  MAX_TOOL_ROUNDS: 2,
+
+  // Search limits
+  MAX_GREP_RESULTS: 50,
+  MAX_SEARCH_RESULTS: 20,
+  MAX_KEYWORDS: 10,
+
+  // Thinking budget range
+  MIN_THINKING_BUDGET: 1024,
+  MAX_THINKING_BUDGET: 32000,
+
+  // Conversation title length
+  MAX_TITLE_LENGTH: 50,
+} as const;
 
 // Model display names for UI
 export const MODEL_DISPLAY_NAMES: Record<ModelType, { name: string; cost: string; description: string }> = {

@@ -7,11 +7,42 @@ import { ClaudeClient, getSystemPrompt, generateCodeContext, extractKeywords } f
 import { GitHubClient, formatFileTree } from '@/lib/github';
 import { ChatRequest, Settings, RepoFile, FileChange, TokenUsage } from '@/types';
 
-// Store for session-based file tree caching
+// Store for session-based file tree caching with automatic cleanup
 const fileTreeCache = new Map<string, { tree: string; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const MAX_CACHE_SIZE = 100; // Maximum number of cached entries
+
+// Clean up expired entries periodically
+function cleanupFileTreeCache(): void {
+  const now = Date.now();
+  const entriesToDelete: string[] = [];
+
+  for (const [key, value] of fileTreeCache.entries()) {
+    if (now - value.timestamp > CACHE_TTL) {
+      entriesToDelete.push(key);
+    }
+  }
+
+  for (const key of entriesToDelete) {
+    fileTreeCache.delete(key);
+  }
+
+  // If still over limit, remove oldest entries
+  if (fileTreeCache.size > MAX_CACHE_SIZE) {
+    const entries = Array.from(fileTreeCache.entries())
+      .sort((a, b) => a[1].timestamp - b[1].timestamp);
+
+    const toRemove = entries.slice(0, fileTreeCache.size - MAX_CACHE_SIZE);
+    for (const [key] of toRemove) {
+      fileTreeCache.delete(key);
+    }
+  }
+}
 
 export async function POST(request: NextRequest) {
+  // Clean up stale cache entries on each request
+  cleanupFileTreeCache();
+
   try {
     const body = await request.json() as ChatRequest;
     const { settings, repoContext, files } = body;
@@ -202,6 +233,9 @@ export async function POST(request: NextRequest) {
 // Streaming endpoint - FIXED: Execute tools ONCE per message (NO LOOP!)
 // This reduces cost from $1+ to ~$0.03 per message
 export async function PUT(request: NextRequest) {
+  // Clean up stale cache entries on each request
+  cleanupFileTreeCache();
+
   try {
     const body = await request.json() as ChatRequest;
     const { settings, repoContext } = body;
@@ -288,15 +322,21 @@ export async function PUT(request: NextRequest) {
           let totalCost = 0;
           let totalSavedPercent = 0;
 
+          // Content block types for conversation messages
+          type ContentBlock =
+            | { type: 'text'; text: string }
+            | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+            | { type: 'tool_result'; tool_use_id: string; content: string };
+
           // Local conversation buffer in the format Anthropic accepts (string or block arrays).
-          const convo: Array<{ role: 'user' | 'assistant'; content: any }> = messages.map(m => ({
+          const convo: Array<{ role: 'user' | 'assistant'; content: string | ContentBlock[] }> = messages.map(m => ({
             role: m.role,
             content: m.content,
           }));
 
           for (let round = 0; round <= maxToolRounds; round++) {
             const pendingToolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
-            const assistantBlocks: any[] = [];
+            const assistantBlocks: ContentBlock[] = [];
 
             const pushTextBlock = (delta: string) => {
               if (!delta) return;
@@ -310,7 +350,7 @@ export async function PUT(request: NextRequest) {
 
             // Stream Claude's response for this round
             const streamGenerator = claude.streamChat(
-              convo as any,
+              convo,
               systemPrompt,
               codeContext,
               {
@@ -362,7 +402,7 @@ export async function PUT(request: NextRequest) {
             }
 
             // Execute requested tools and build tool_result blocks for the continuation call
-            const toolResultBlocks: any[] = [];
+            const toolResultBlocks: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = [];
 
             for (const toolCall of pendingToolCalls) {
               let result = '';

@@ -97,7 +97,7 @@ export class ClaudeClient {
   // --------------------------------------------------------------------------
 
   async chat(
-    messages: Array<{ role: 'user' | 'assistant'; content: string | Array<any> }>,
+    messages: Array<{ role: 'user' | 'assistant'; content: string | Anthropic.ContentBlockParam[] }>,
     systemPrompt: string,
     codeContext: string,
     options: {
@@ -276,7 +276,7 @@ export class ClaudeClient {
   // --------------------------------------------------------------------------
 
   async *streamChat(
-    messages: Array<{ role: 'user' | 'assistant'; content: string | Array<any> }>,
+    messages: Array<{ role: 'user' | 'assistant'; content: string | Anthropic.ContentBlockParam[] }>,
     systemPrompt: string,
     codeContext: string,
     options: {
