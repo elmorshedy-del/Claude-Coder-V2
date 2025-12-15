@@ -491,6 +491,9 @@ export default function Home() {
                   action: chunk.toolCall.name === 'create_file' ? 'create' : 'edit',
                 });
               }
+            } else if (chunk.type === 'tool_result') {
+              // Tool result received - could display to user if needed
+              // Currently we just track file changes from the done event
             } else if (chunk.type === 'done') {
               finalCost = chunk.cost || 0;
               finalSavedPercent = chunk.savedPercent || 0;
