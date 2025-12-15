@@ -97,7 +97,7 @@ export class ClaudeClient {
   // --------------------------------------------------------------------------
 
   async chat(
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+    messages: Array<{ role: 'user' | 'assistant'; content: string | Array<any> }>,
     systemPrompt: string,
     codeContext: string,
     options: {
@@ -136,7 +136,7 @@ export class ClaudeClient {
     const effortConfig = {
       low: { maxTokens: 4000, thinkingMultiplier: 0.5 },
       medium: { maxTokens: 16000, thinkingMultiplier: 1.0 },
-      high: { maxTokens: 64000, thinkingMultiplier: 2.0 },
+      high: { maxTokens: 32000, thinkingMultiplier: 2.0 },
     };
     const config = effortConfig[effort] || effortConfig.medium;
     const adjustedThinkingBudget = Math.round(thinkingBudget * config.thinkingMultiplier);
@@ -164,29 +164,22 @@ export class ClaudeClient {
       betas.push('interleaved-thinking-2025-05-14');
     }
 
-    // Build system prompts (skip empty values so we don't send blank cache entries)
-    const systemMessages = [
-      systemPrompt?.trim()
-        ? {
-            type: 'text',
-            text: systemPrompt,
-          }
-        : null,
-      codeContext?.trim()
-        ? {
-            type: 'text',
-            text: codeContext,
-            // Enable prompt caching for code context (1-hour extended TTL)
-            cache_control: { type: 'ephemeral' },
-          }
-        : null,
-    ].filter(Boolean) as Anthropic.MessageCreateParams['system'];
-
     // Build request parameters
     const requestParams: Anthropic.MessageCreateParams = {
       model: this.model,
       max_tokens: config.maxTokens,
-      system: systemMessages,
+      system: [
+        {
+          type: 'text',
+          text: systemPrompt,
+        },
+        {
+          type: 'text',
+          text: codeContext,
+          // Enable prompt caching for code context (1-hour extended TTL)
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
       messages: messages.map(m => ({
         role: m.role,
         content: m.content,
@@ -280,7 +273,7 @@ export class ClaudeClient {
   // --------------------------------------------------------------------------
 
   async *streamChat(
-    messages: Array<{ role: 'user' | 'assistant'; content: string | Array<{ type: string; [key: string]: unknown }> }>,
+    messages: Array<{ role: 'user' | 'assistant'; content: string | Array<any> }>,
     systemPrompt: string,
     codeContext: string,
     options: {
@@ -313,7 +306,7 @@ export class ClaudeClient {
     const effortConfig = {
       low: { maxTokens: 4000, thinkingMultiplier: 0.5 },
       medium: { maxTokens: 16000, thinkingMultiplier: 1.0 },
-      high: { maxTokens: 64000, thinkingMultiplier: 2.0 },
+      high: { maxTokens: 32000, thinkingMultiplier: 2.0 },
     };
     const config = effortConfig[effort] || effortConfig.medium;
     const adjustedThinkingBudget = Math.round(thinkingBudget * config.thinkingMultiplier);
@@ -327,30 +320,24 @@ export class ClaudeClient {
       betas.push('interleaved-thinking-2025-05-14');
     }
 
-    const systemMessages = [
-      systemPrompt?.trim()
-        ? {
-            type: 'text',
-            text: systemPrompt,
-          }
-        : null,
-      codeContext?.trim()
-        ? {
-            type: 'text',
-            text: codeContext,
-            cache_control: { type: 'ephemeral' },
-          }
-        : null,
-    ].filter(Boolean) as Anthropic.MessageCreateParams['system'];
-
     const requestParams: Anthropic.MessageCreateParams = {
       model: this.model,
       max_tokens: config.maxTokens,
       stream: true,
-      system: systemMessages,
+      system: [
+        {
+          type: 'text',
+          text: systemPrompt,
+        },
+        {
+          type: 'text',
+          text: codeContext,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
       messages: messages.map(m => ({
         role: m.role,
-        content: m.content as Anthropic.MessageCreateParams['messages'][0]['content'],
+        content: m.content,
       })),
       tools: tools || this.getDefaultTools(),
     };
@@ -705,17 +692,31 @@ export function generateCodeContext(
   fileTree: string,
   files: Array<{ path: string; content: string }>
 ): string {
-  let context = `## Repository Structure\n\`\`\`\n${fileTree}\n\`\`\`\n\n`;
+  const MAX_TREE_CHARS = 12000;
+  const MAX_FILE_CHARS = 16000;
+
+  const clippedTree = fileTree.length > MAX_TREE_CHARS
+    ? fileTree.slice(0, MAX_TREE_CHARS) + "\n...[truncated repository tree]"
+    : fileTree;
+
+  let context = `## Repository Structure\n\
+\\`\\`\\`\n${clippedTree}\n\\`\\`\\`\n\n`;
   context += `## Loaded Files\n\n`;
 
   for (const file of files) {
     const ext = file.path.split('.').pop() || '';
-    context += `### ${file.path}\n\`\`\`${ext}\n${file.content}\n\`\`\`\n\n`;
+    const clipped = file.content.length > MAX_FILE_CHARS
+      ? file.content.slice(0, MAX_FILE_CHARS) + `\n\n...[truncated file: ${file.content.length} chars total]`
+      : file.content;
+
+    context += `### ${file.path}\n\
+\\`\\`\\`${ext}\n${clipped}\n\\`\\`\\`\n\n`;
   }
 
   context += `\nIf you need to see other files, use the read_file tool.\n`;
 
   return context;
+
 }
 
 // ----------------------------------------------------------------------------
@@ -753,3 +754,6 @@ export function extractKeywords(message: string): string[] {
     })
     .slice(0, 10); // Limit to 10 keywords
 }
+
+
+

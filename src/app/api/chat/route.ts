@@ -3,7 +3,6 @@
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { APIError } from '@anthropic-ai/sdk';
 import { ClaudeClient, getSystemPrompt, generateCodeContext, extractKeywords } from '@/lib/claude';
 import { GitHubClient, formatFileTree } from '@/lib/github';
 import { ChatRequest, Settings, RepoFile, FileChange, TokenUsage } from '@/types';
@@ -11,38 +10,6 @@ import { ChatRequest, Settings, RepoFile, FileChange, TokenUsage } from '@/types
 // Store for session-based file tree caching
 const fileTreeCache = new Map<string, { tree: string; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-function hasStatusCode(error: unknown): error is { status: number } {
-  return typeof (error as { status?: unknown }).status === 'number';
-}
-
-function mapClaudeError(error: unknown): { status: number; message: string } {
-  if (error instanceof APIError) {
-    if (error.status === 429 || (error.error && (error.error as { type?: string }).type === 'rate_limit_error')) {
-      return {
-        status: 429,
-        message: 'Anthropic rate limit exceeded. Please wait a moment and try again.',
-      };
-    }
-
-    if (error.status) {
-      return {
-        status: error.status,
-        message: error.message,
-      };
-    }
-  }
-
-  if (error instanceof Error && hasStatusCode(error)) {
-    return {
-      status: error.status,
-      message: error.message,
-    };
-  }
-
-  const message = error instanceof Error ? error.message : 'Unknown error';
-  return { status: 500, message };
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -135,7 +102,7 @@ export async function POST(request: NextRequest) {
       if (m.role === 'user' && files && files.length > 0) {
         // Include file content in the message
         const fileContent = files.map(f => 
-          `\n\n[Attached file: ${f.name}]\n${atob(f.base64)}`
+          `\n\n[Attached file: ${f.name}]\n${Buffer.from(f.base64, 'base64').toString('utf8')}`
         ).join('');
         return { role: m.role, content: m.content + fileContent };
       }
@@ -223,11 +190,11 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Chat API error:', error);
-
-    const mapped = mapClaudeError(error);
+    
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
-      { error: mapped.message },
-      { status: mapped.status }
+      { error: message },
+      { status: 500 }
     );
   }
 }
@@ -237,7 +204,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json() as ChatRequest;
-    const { settings, repoContext, files } = body;
+    const { settings, repoContext } = body;
 
     // Filter out any empty messages to avoid Anthropic validation errors
     const messages = body.messages.filter(m => m.content?.trim());
@@ -305,220 +272,45 @@ export async function PUT(request: NextRequest) {
       : getChatOnlySystemPrompt(settings.enableWebSearch);
 
     // Build tools array - only include repo tools if we have a repo
-    const tools = hasRepoContext ? claude.getDefaultTools() : [];
+    const tools = github ? claude.getDefaultTools() : [];
     if (settings.enableWebSearch) {
       tools.push(claude.getWebSearchTool());
       tools.push(claude.getWebFetchTool());
     }
 
-    // Process files into proper format for Claude API
-    // Files must be included in the last user message for Claude to see them
-    type MessageContent = string | Array<{ type: string; [key: string]: unknown }>;
-    const processedMessages: Array<{ role: 'user' | 'assistant'; content: MessageContent }> = messages.map((m, index) => {
-      // Only add files to the last user message
-      if (m.role === 'user' && files && files.length > 0 && index === messages.length - 1) {
-        const content: Array<{ type: string; [key: string]: unknown }> = [
-          { type: 'text', text: m.content }
-        ];
-
-        for (const file of files) {
-          if (file.type.startsWith('image/')) {
-            // Images - send as image block
-            content.push({
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: file.type,
-                data: file.base64,
-              }
-            });
-          } else if (file.type === 'application/pdf') {
-            // PDFs - send as document block
-            content.push({
-              type: 'document',
-              source: {
-                type: 'base64',
-                media_type: 'application/pdf',
-                data: file.base64,
-              }
-            });
-          } else {
-            // Text/code files - decode and include as text
-            try {
-              const textContent = Buffer.from(file.base64, 'base64').toString('utf-8');
-              content.push({
-                type: 'text',
-                text: `\n\n📎 File: ${file.name}\n\`\`\`\n${textContent}\n\`\`\``
-              });
-            } catch {
-              content.push({
-                type: 'text',
-                text: `\n\n📎 File: ${file.name} (binary file, ${file.size} bytes)`
-              });
-            }
-          }
-        }
-
-        return { role: m.role, content };
-      }
-      return { role: m.role, content: m.content };
-    });
-
-    // Create streaming response - SINGLE PASS, NO LOOP!
+    // Create streaming response - tool loop (bounded) for reliable continuations
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          const pendingToolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
-          const assistantContentBlocks: Array<{ type: string; [key: string]: unknown }> = [];
-          const toolResultBlocks: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = [];
-
-          let bufferedText = '';
-          const flushBufferedText = () => {
-            if (bufferedText.trim().length > 0) {
-              assistantContentBlocks.push({ type: 'text', text: bufferedText });
-              bufferedText = '';
-            }
-          };
-
-          // Stream Claude's response (SINGLE API CALL)
-          const streamGenerator = claude.streamChat(
-            processedMessages,
-            systemPrompt,
-            codeContext,
-            {
-              tools: tools.length > 0 ? tools : undefined,
-              enableThinking: settings.enableExtendedThinking,
-              thinkingBudget: settings.thinkingBudget,
-              effort: settings.effort,
-              enableContextCompaction: settings.enableContextCompaction,
-              enableInterleavedThinking: settings.enableInterleavedThinking,
-            }
-          );
-
+          const fileChanges: FileChange[] = [];
+          const maxToolRounds = 2; // cost safety: at most 2 tool→continue cycles
           let totalCost = 0;
           let totalSavedPercent = 0;
 
-          for await (const chunk of streamGenerator) {
-            // Forward all chunks to client for real-time display
-            controller.enqueue(encoder.encode(JSON.stringify(chunk) + '\n'));
+          // Local conversation buffer in the format Anthropic accepts (string or block arrays).
+          const convo: Array<{ role: 'user' | 'assistant'; content: any }> = messages.map(m => ({
+            role: m.role,
+            content: m.content,
+          }));
 
-            // Collect tool calls for execution AFTER streaming
-            if (chunk.type === 'tool_use' && chunk.toolCall) {
-              flushBufferedText();
-              assistantContentBlocks.push({
-                type: 'tool_use',
-                id: chunk.toolCall.id,
-                name: chunk.toolCall.name,
-                input: chunk.toolCall.input,
-              });
-              pendingToolCalls.push({
-                id: chunk.toolCall.id,
-                name: chunk.toolCall.name,
-                input: chunk.toolCall.input,
-              });
-            } else if (chunk.type === 'text' && chunk.content) {
-              bufferedText += chunk.content;
-            } else if (chunk.type === 'done') {
-              totalCost = chunk.cost || 0;
-              totalSavedPercent = chunk.savedPercent || 0;
-            }
-          }
+          for (let round = 0; round <= maxToolRounds; round++) {
+            const pendingToolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
+            const assistantBlocks: any[] = [];
 
-          flushBufferedText();
-
-          // Execute tools ONCE after streaming (NOT in a loop!)
-          // User sends next message if they need Claude to continue
-          const fileChanges: FileChange[] = [];
-
-          for (const toolCall of pendingToolCalls) {
-            let result = '';
-
-            try {
-              if (toolCall.name === 'read_file' && github) {
-                const input = toolCall.input as { path: string };
-                const file = await github.getFileContent(input.path, repoContext.branch);
-                result = `File content loaded (${file.content.length} chars)`;
-              } else if (toolCall.name === 'search_files' && github) {
-                const input = toolCall.input as { query: string };
-                const paths = await github.searchFiles(input.query);
-                result = paths.length > 0
-                  ? `Found ${paths.length} files:\n${paths.join('\n')}`
-                  : 'No files found matching the query.';
-              } else if (toolCall.name === 'grep_search' && github) {
-                const input = toolCall.input as { pattern: string };
-                const matches = await github.grepSearch(input.pattern, repoContext.branch, {});
-                result = matches.length > 0
-                  ? matches.map(m => `${m.path}:${m.line}: ${m.content}`).join('\n')
-                  : 'No matches found.';
-              } else if (toolCall.name === 'str_replace' && github) {
-                const input = toolCall.input as { path: string; old_str: string; new_str: string };
-                const replaceResult = await github.applyStrReplace(
-                  input.path,
-                  input.old_str,
-                  input.new_str,
-                  repoContext.branch
-                );
-                if (replaceResult.success) {
-                  result = `Successfully replaced text in ${input.path}. Changes: +${replaceResult.additions} -${replaceResult.deletions}`;
-                  fileChanges.push({
-                    path: input.path,
-                    action: 'edit',
-                    additions: replaceResult.additions,
-                    deletions: replaceResult.deletions,
-                  });
-                } else {
-                  result = `Failed to replace: ${replaceResult.error || 'Unknown error'}`;
-                }
-              } else if (toolCall.name === 'create_file' && github) {
-                const input = toolCall.input as { path: string; content: string };
-                const createResult = await github.createFile(
-                  input.path,
-                  input.content,
-                  repoContext.branch
-                );
-                if (createResult.success) {
-                  result = `Successfully created ${input.path}`;
-                  fileChanges.push({
-                    path: input.path,
-                    action: 'create',
-                    additions: createResult.additions,
-                  });
-                } else {
-                  result = `Failed to create file: ${createResult.error || 'Unknown error'}`;
-                }
+            const pushTextBlock = (delta: string) => {
+              if (!delta) return;
+              const last = assistantBlocks[assistantBlocks.length - 1];
+              if (last && last.type === 'text') {
+                last.text += delta;
               } else {
-                result = `Tool ${toolCall.name} executed`;
+                assistantBlocks.push({ type: 'text', text: delta });
               }
-            } catch (error) {
-              result = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
-            }
+            };
 
-            // Stream tool result to client
-            controller.enqueue(encoder.encode(JSON.stringify({
-              type: 'tool_result',
-              toolUseId: toolCall.id,
-              name: toolCall.name,
-              result: result.slice(0, 1000) + (result.length > 1000 ? '...(truncated)' : ''),
-            }) + '\n'));
-
-            toolResultBlocks.push({
-              type: 'tool_result',
-              tool_use_id: toolCall.id,
-              content: result,
-            });
-          }
-
-          // If we have tool results, run a single follow-up Claude call so it can finish the thought
-          if (toolResultBlocks.length > 0) {
-            const followUpMessages = [
-              ...processedMessages,
-              { role: 'assistant' as const, content: assistantContentBlocks },
-              { role: 'user' as const, content: toolResultBlocks },
-            ];
-
-            const followUpStream = claude.streamChat(
-              followUpMessages,
+            // Stream Claude's response for this round
+            const streamGenerator = claude.streamChat(
+              convo as any,
               systemPrompt,
               codeContext,
               {
@@ -531,63 +323,160 @@ export async function PUT(request: NextRequest) {
               }
             );
 
-            for await (const chunk of followUpStream) {
-              controller.enqueue(encoder.encode(JSON.stringify(chunk) + '\n'));
+            for await (const chunk of streamGenerator) {
+              // Forward chunks (but suppress intermediate 'done' chunks)
+              if (chunk.type !== 'done') {
+                controller.enqueue(encoder.encode(JSON.stringify(chunk) + '\n'));
+              }
 
-              if (chunk.type === 'done') {
+              if (chunk.type === 'text') {
+                pushTextBlock(chunk.content || '');
+              } else if (chunk.type === 'tool_use' && chunk.toolCall) {
+                pendingToolCalls.push({
+                  id: chunk.toolCall.id,
+                  name: chunk.toolCall.name,
+                  input: chunk.toolCall.input,
+                });
+                assistantBlocks.push({
+                  type: 'tool_use',
+                  id: chunk.toolCall.id,
+                  name: chunk.toolCall.name,
+                  input: chunk.toolCall.input,
+                });
+              } else if (chunk.type === 'done') {
                 totalCost += chunk.cost || 0;
-                totalSavedPercent = Math.max(totalSavedPercent, chunk.savedPercent || 0);
+                totalSavedPercent = chunk.savedPercent || 0;
               }
             }
-          }
 
-          // Safe Mode: Create PR after file changes
-          let prUrl: string | undefined;
-          let previewUrl: string | undefined;
+            // No tools requested => we're finished
+            if (pendingToolCalls.length === 0) break;
 
-          if (settings.deployMode === 'safe' && fileChanges.length > 0 && github && hasRepoContext) {
-            try {
-              // Generate PR title and body from file changes
-              const changedPaths = fileChanges.map(f => f.path.split('/').pop()).join(', ');
-              const prTitle = `Claude: ${changedPaths}`;
-              const prBody = `## Changes made by Claude\n\n${fileChanges.map(f =>
-                `- ${f.action === 'create' ? '➕ Created' : '✏️ Edited'} \`${f.path}\` (+${f.additions || 0} -${f.deletions || 0})`
-              ).join('\n')}`;
-
-              // Create the PR using the current branch (changes were pushed there)
-              const pr = await github.createPullRequest(
-                prTitle,
-                prBody,
-                repoContext.branch, // head branch where changes were pushed
-                'main' // base branch
-              );
-
-              prUrl = pr.url;
-
-              // Build preview URL if Railway service name is configured
-              if (settings.railwayServiceName) {
-                previewUrl = `https://${settings.railwayServiceName}-pr-${pr.number}.up.railway.app`;
-              }
-            } catch (error) {
-              console.error('Failed to create PR:', error);
-              // Don't fail the whole request, just log it
+            // If tools were requested but we have no GitHub client, stop gracefully
+            if (!github) {
+              controller.enqueue(encoder.encode(JSON.stringify({
+                type: 'text',
+                content: '\n\n[Repo tools requested, but GitHub token is missing/invalid. Please reconnect GitHub and try again.]'
+              }) + '\n'));
+              break;
             }
-          }
 
-          // Send final done event with cost info and PR URLs
+            // Execute requested tools and build tool_result blocks for the continuation call
+            const toolResultBlocks: any[] = [];
+
+            for (const toolCall of pendingToolCalls) {
+              let result = '';
+
+              try {
+                if (toolCall.name === 'read_file') {
+                  const input = toolCall.input as { path: string };
+                  const file = await github.getFileContent(input.path, repoContext.branch);
+                  const MAX = 20000; // chars
+                  const snippet = file.content.slice(0, MAX);
+                  result =
+                    `--- ${input.path} (${file.content.length} chars) ---\n` +
+                    snippet +
+                    (file.content.length > MAX ? '\n\n...[truncated]' : '');
+                } else if (toolCall.name === 'search_files') {
+                  const input = toolCall.input as { query: string };
+                  const paths = await github.searchFiles(input.query);
+                  result = paths.length > 0
+                    ? `Found ${paths.length} files:\n${paths.join('\n')}`
+                    : 'No files found matching the query.';
+                } else if (toolCall.name === 'grep_search') {
+                  const input = toolCall.input as { query: string; file_extensions?: string; max_results?: number };
+                  const fileExtensions = input.file_extensions
+                    ? input.file_extensions.split(',').map(s => s.trim()).filter(Boolean)
+                    : undefined;
+                  const matches = await github.grepSearch(input.query, repoContext.branch, {
+                    maxResults: input.max_results || 50,
+                    fileExtensions,
+                  });
+                  result = matches.length > 0
+                    ? matches.map(m => `${m.path}:${m.line}: ${m.content}`).join('\n')
+                    : 'No matches found.';
+                } else if (toolCall.name === 'str_replace') {
+                  const input = toolCall.input as { path: string; old_str: string; new_str: string };
+                  const replaceResult = await github.applyStrReplace(
+                    input.path,
+                    input.old_str,
+                    input.new_str,
+                    repoContext.branch
+                  );
+                  if (replaceResult.success) {
+                    result = `Successfully replaced text in ${input.path}. Changes: +${replaceResult.additions} -${replaceResult.deletions}`;
+                    fileChanges.push({
+                      path: input.path,
+                      action: 'edit',
+                      additions: replaceResult.additions,
+                      deletions: replaceResult.deletions,
+                    });
+                  } else {
+                    result = `Failed to replace: ${replaceResult.error || 'Unknown error'}`;
+                  }
+                } else if (toolCall.name === 'create_file') {
+                  const input = toolCall.input as { path: string; content: string };
+                  const createResult = await github.createFile(
+                    input.path,
+                    input.content,
+                    repoContext.branch
+                  );
+                  if (createResult.success) {
+                    result = `Successfully created file ${input.path}.`;
+                    fileChanges.push({
+                      path: input.path,
+                      action: 'create',
+                      additions: createResult.additions,
+                    });
+                  } else {
+                    result = `Failed to create file: ${createResult.error || 'Unknown error'}`;
+                  }
+                } else {
+                  result = `Tool ${toolCall.name} executed`;
+                }
+              } catch (error) {
+                result = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+              }
+
+              // Stream tool result to client (slightly larger caps for useful debugging)
+              const cap = toolCall.name === 'read_file' ? 20000 : 6000;
+              const clipped = result.slice(0, cap) + (result.length > cap ? '...(truncated)' : '');
+              controller.enqueue(encoder.encode(JSON.stringify({
+                type: 'tool_result',
+                toolUseId: toolCall.id,
+                name: toolCall.name,
+                result: clipped,
+              }) + '\n'));
+
+              toolResultBlocks.push({
+                type: 'tool_result',
+                tool_use_id: toolCall.id,
+                content: clipped,
+              });
+            }
+
+            // Append the assistant tool-use message + the user tool results, then continue.
+            convo.push({
+              role: 'assistant',
+              content: assistantBlocks.length > 0 ? assistantBlocks : [{ type: 'text', text: '' }],
+            });
+            convo.push({
+              role: 'user',
+              content: toolResultBlocks,
+            });
+          }
+// Send final done event with cost info
           controller.enqueue(encoder.encode(JSON.stringify({
             type: 'done',
             cost: totalCost,
             savedPercent: totalSavedPercent,
             fileChanges: fileChanges.length > 0 ? fileChanges : undefined,
-            prUrl,
-            previewUrl,
           }) + '\n'));
 
           controller.close();
         } catch (error) {
-          const mapped = mapClaudeError(error);
-          controller.enqueue(encoder.encode(JSON.stringify({ error: mapped.message }) + '\n'));
+          const message = error instanceof Error ? error.message : 'Stream error';
+          controller.enqueue(encoder.encode(JSON.stringify({ error: message }) + '\n'));
           controller.close();
         }
       },
@@ -603,8 +492,8 @@ export async function PUT(request: NextRequest) {
 
   } catch (error) {
     console.error('Stream API error:', error);
-    const mapped = mapClaudeError(error);
-    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -623,3 +512,6 @@ You can help with:
 
 If the user wants to connect a GitHub repository for code editing, let them know they can select one from the repository dropdown.`;
 }
+
+
+
