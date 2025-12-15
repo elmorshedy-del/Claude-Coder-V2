@@ -370,6 +370,16 @@ export async function PUT(request: NextRequest) {
       async start(controller) {
         try {
           const pendingToolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
+          const assistantContentBlocks: Array<{ type: string; [key: string]: unknown }> = [];
+          const toolResultBlocks: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = [];
+
+          let bufferedText = '';
+          const flushBufferedText = () => {
+            if (bufferedText.trim().length > 0) {
+              assistantContentBlocks.push({ type: 'text', text: bufferedText });
+              bufferedText = '';
+            }
+          };
 
           // Stream Claude's response (SINGLE API CALL)
           const streamGenerator = claude.streamChat(
@@ -395,16 +405,27 @@ export async function PUT(request: NextRequest) {
 
             // Collect tool calls for execution AFTER streaming
             if (chunk.type === 'tool_use' && chunk.toolCall) {
+              flushBufferedText();
+              assistantContentBlocks.push({
+                type: 'tool_use',
+                id: chunk.toolCall.id,
+                name: chunk.toolCall.name,
+                input: chunk.toolCall.input,
+              });
               pendingToolCalls.push({
                 id: chunk.toolCall.id,
                 name: chunk.toolCall.name,
                 input: chunk.toolCall.input,
               });
+            } else if (chunk.type === 'text' && chunk.content) {
+              bufferedText += chunk.content;
             } else if (chunk.type === 'done') {
               totalCost = chunk.cost || 0;
               totalSavedPercent = chunk.savedPercent || 0;
             }
           }
+
+          flushBufferedText();
 
           // Execute tools ONCE after streaming (NOT in a loop!)
           // User sends next message if they need Claude to continue
@@ -480,6 +501,44 @@ export async function PUT(request: NextRequest) {
               name: toolCall.name,
               result: result.slice(0, 1000) + (result.length > 1000 ? '...(truncated)' : ''),
             }) + '\n'));
+
+            toolResultBlocks.push({
+              type: 'tool_result',
+              tool_use_id: toolCall.id,
+              content: result,
+            });
+          }
+
+          // If we have tool results, run a single follow-up Claude call so it can finish the thought
+          if (toolResultBlocks.length > 0) {
+            const followUpMessages = [
+              ...processedMessages,
+              { role: 'assistant' as const, content: assistantContentBlocks },
+              { role: 'user' as const, content: toolResultBlocks },
+            ];
+
+            const followUpStream = claude.streamChat(
+              followUpMessages,
+              systemPrompt,
+              codeContext,
+              {
+                tools: tools.length > 0 ? tools : undefined,
+                enableThinking: settings.enableExtendedThinking,
+                thinkingBudget: settings.thinkingBudget,
+                effort: settings.effort,
+                enableContextCompaction: settings.enableContextCompaction,
+                enableInterleavedThinking: settings.enableInterleavedThinking,
+              }
+            );
+
+            for await (const chunk of followUpStream) {
+              controller.enqueue(encoder.encode(JSON.stringify(chunk) + '\n'));
+
+              if (chunk.type === 'done') {
+                totalCost += chunk.cost || 0;
+                totalSavedPercent = Math.max(totalSavedPercent, chunk.savedPercent || 0);
+              }
+            }
           }
 
           // Safe Mode: Create PR after file changes
