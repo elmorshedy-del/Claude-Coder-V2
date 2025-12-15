@@ -431,6 +431,8 @@ export interface AgenticStreamChunk {
   savedPercent?: number;
   fileChanges?: FileChange[];
   seenFiles?: string[];
+  prUrl?: string;
+  prNumber?: number;
 }
 
 // Model display names for UI
