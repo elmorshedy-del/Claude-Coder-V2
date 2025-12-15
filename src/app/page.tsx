@@ -12,7 +12,8 @@ import {
   Square,
   Search,
   Brain,
-  Lock
+  Lock,
+  Box,
 } from 'lucide-react';
 import {
   Message,
@@ -114,6 +115,8 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const repoDropdownRef = useRef<HTMLDivElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
 
   // --------------------------------------------------------------------------
   // EFFECTS - Initialize from localStorage
@@ -143,10 +146,12 @@ export default function Home() {
     if (savedConversations) setConversations(JSON.parse(savedConversations));
     if (savedSettings) {
       const parsed = JSON.parse(savedSettings);
-      // Ensure webSearchMode exists for migrating old settings
+      // Migrate old settings: ensure webSearchMode exists
       if (!parsed.webSearchMode) {
         parsed.webSearchMode = parsed.enableWebSearch ? 'auto' : 'off';
       }
+      // Remove deprecated fields if they exist
+      delete parsed.webSearchAutoDetect;
       setSettings(parsed);
     }
     if (savedDarkMode) setDarkMode(savedDarkMode === 'true');
@@ -188,6 +193,34 @@ export default function Home() {
       document.documentElement.classList.remove('dark');
     }
   }, [darkMode]);
+
+  // --------------------------------------------------------------------------
+  // EFFECTS - Click outside to close dropdowns
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      // Close repo dropdown if clicking outside
+      if (
+        showRepoDropdown &&
+        repoDropdownRef.current &&
+        !repoDropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowRepoDropdown(false);
+      }
+
+      // Close model dropdown if clicking outside
+      if (
+        showModelDropdown &&
+        modelDropdownRef.current &&
+        !modelDropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowModelDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showRepoDropdown, showModelDropdown]);
 
   // --------------------------------------------------------------------------
   // EFFECTS - Scroll to bottom on new messages
@@ -296,15 +329,37 @@ export default function Home() {
   };
 
   // --------------------------------------------------------------------------
-  // FUNCTIONS - Select repo (LAZY - NO API CALLS)
+  // FUNCTIONS - Fetch branches for a repo
+  // --------------------------------------------------------------------------
+  const fetchBranches = async (owner: string, repoName: string) => {
+    if (!githubToken) return;
+
+    try {
+      const response = await fetch(
+        `/api/github?action=branches&owner=${owner}&repo=${repoName}`,
+        {
+          headers: { 'x-github-token': githubToken },
+        }
+      );
+      const data = await response.json();
+      if (data.branches) {
+        setBranches(data.branches.map((b: { name: string }) => b.name));
+      }
+    } catch (error) {
+      console.error('Failed to fetch branches:', error);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // FUNCTIONS - Select repo
   // --------------------------------------------------------------------------
   const handleSelectRepo = (repo: Repository | null) => {
     setCurrentRepo(repo);
     if (repo) {
       setCurrentBranch(repo.defaultBranch);
-      // LAZY LOADING: Don't fetch branches here
-      // Branches will be fetched on first message if needed
-      setBranches([repo.defaultBranch]);
+      setBranches([repo.defaultBranch]); // Set default immediately
+      // Fetch all branches asynchronously
+      fetchBranches(repo.owner, repo.name);
     } else {
       setCurrentBranch('main');
       setBranches(['main']);
@@ -386,6 +441,9 @@ export default function Home() {
       timestamp: new Date(),
       isStreaming: true,
     };
+
+    // Save input value for conversation title before clearing
+    const savedInputValue = inputValue;
 
     // Update UI
     const newMessages = [...messages, userMessage, assistantMessage];
@@ -553,7 +611,8 @@ export default function Home() {
         c.id === convId
           ? {
               ...c,
-              title: c.messages.length === 0 ? inputValue.slice(0, 50) : c.title,
+              // Use savedInputValue and check original messages length (before this turn)
+              title: c.title === 'New conversation' || c.messages.length === 0 ? savedInputValue.slice(0, 50) : c.title,
               messages: finalMessages,
               updatedAt: new Date(),
               totalCost: (c.totalCost || 0) + finalCost,
@@ -629,10 +688,16 @@ export default function Home() {
   };
 
   // --------------------------------------------------------------------------
-  // FUNCTIONS - Discard changes
+  // FUNCTIONS - Discard changes (delete working branch)
   // --------------------------------------------------------------------------
-  const handleDiscard = async (branch?: string) => {
-    if (!branch || !currentRepo) return;
+  const handleDiscard = async (branchToDelete?: string) => {
+    const targetBranch = branchToDelete || currentBranch;
+
+    // Don't delete the default branch
+    if (!currentRepo || targetBranch === currentRepo.defaultBranch) {
+      console.warn('Cannot discard default branch');
+      return;
+    }
 
     try {
       await fetch('/api/github', {
@@ -645,9 +710,14 @@ export default function Home() {
           action: 'deleteBranch',
           owner: currentRepo.owner,
           repo: currentRepo.name,
-          branch,
+          branch: targetBranch,
         }),
       });
+
+      // Switch back to default branch after discarding
+      setCurrentBranch(currentRepo.defaultBranch);
+      // Refresh branches list
+      fetchBranches(currentRepo.owner, currentRepo.name);
     } catch (error) {
       console.error('Failed to discard:', error);
     }
@@ -826,7 +896,7 @@ export default function Home() {
             <h1 className="text-lg font-serif text-[var(--claude-text)]">Claude Coder</h1>
 
             {/* Repo selector */}
-            <div className="relative">
+            <div className="relative" ref={repoDropdownRef}>
               <button
                 onClick={() => setShowRepoDropdown(!showRepoDropdown)}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-sm text-[var(--claude-text)] hover:border-[var(--claude-border-strong)] transition-colors"
@@ -901,6 +971,21 @@ export default function Home() {
               sessionTotal={totalCost}
               compact
             />
+
+            {/* Artifacts toggle - only show if there are artifacts */}
+            {artifacts.length > 0 && (
+              <button
+                onClick={() => setShowArtifactsList(!showArtifactsList)}
+                className={`p-2 rounded-lg transition-colors ${
+                  showArtifactsList
+                    ? 'bg-[var(--claude-terracotta-subtle)] text-[var(--claude-terracotta)]'
+                    : 'hover:bg-[var(--claude-sand-light)] text-[var(--claude-text-secondary)]'
+                }`}
+                title={`${showArtifactsList ? 'Hide' : 'Show'} Artifacts (${artifacts.length})`}
+              >
+                <Box className="w-5 h-5" />
+              </button>
+            )}
 
             {/* Dark mode toggle */}
             <button
@@ -1027,7 +1112,7 @@ export default function Home() {
               />
 
               {/* Model dropdown */}
-              <div className="relative">
+              <div className="relative" ref={modelDropdownRef}>
                 <button
                   onClick={() => setShowModelDropdown(!showModelDropdown)}
                   className="flex items-center gap-1 px-3 py-3 rounded-xl bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-sm text-[var(--claude-text)] hover:border-[var(--claude-border-strong)] transition-colors"
@@ -1128,13 +1213,18 @@ export default function Home() {
         </div>
       )}
 
-      {/* Artifacts List */}
+      {/* Artifacts List Sidebar */}
       {showArtifactsList && artifacts.length > 0 && (
-        <ArtifactsList
-          artifacts={artifacts}
-          onSelect={setSelectedArtifact}
-          onDownloadAll={handleDownloadAllArtifacts}
-        />
+        <div className="flex flex-col">
+          <ArtifactsList
+            artifacts={artifacts}
+            onSelect={(artifact) => {
+              setSelectedArtifact(artifact);
+              setShowArtifactsList(false); // Close list when selecting an artifact
+            }}
+            onDownloadAll={handleDownloadAllArtifacts}
+          />
+        </div>
       )}
 
       {/* Settings Panel */}
