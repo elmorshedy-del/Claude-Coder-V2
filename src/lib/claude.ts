@@ -164,16 +164,23 @@ export class ClaudeClient {
       betas.push('interleaved-thinking-2025-05-14');
     }
 
-    // Build system blocks, filtering out empty content
+    // Build system blocks with prompt caching for BOTH system prompt and code context
+    // Cache order matters: put most stable content first (system prompt), then code context
+    // Both get cache_control to maximize cache hits (90% cost savings on cached tokens)
     const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [];
     if (systemPrompt && systemPrompt.trim()) {
-      systemBlocks.push({ type: 'text', text: systemPrompt });
+      systemBlocks.push({
+        type: 'text',
+        text: systemPrompt,
+        // Cache system prompt - it's stable across messages in a conversation
+        cache_control: { type: 'ephemeral' },
+      });
     }
     if (codeContext && codeContext.trim()) {
       systemBlocks.push({
         type: 'text',
         text: codeContext,
-        // Enable prompt caching for code context (1-hour extended TTL)
+        // Cache code context - stable within a session (file tree + loaded files)
         cache_control: { type: 'ephemeral' },
       });
     }
@@ -323,10 +330,14 @@ export class ClaudeClient {
       betas.push('interleaved-thinking-2025-05-14');
     }
 
-    // Build system blocks, filtering out empty content
+    // Build system blocks with prompt caching for BOTH system prompt and code context
     const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [];
     if (systemPrompt && systemPrompt.trim()) {
-      systemBlocks.push({ type: 'text', text: systemPrompt });
+      systemBlocks.push({
+        type: 'text',
+        text: systemPrompt,
+        cache_control: { type: 'ephemeral' },
+      });
     }
     if (codeContext && codeContext.trim()) {
       systemBlocks.push({
