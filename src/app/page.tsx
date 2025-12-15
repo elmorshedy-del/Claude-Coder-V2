@@ -12,8 +12,7 @@ import {
   Square,
   Search,
   Brain,
-  Lock,
-  RefreshCw
+  Lock
 } from 'lucide-react';
 import {
   Message,
@@ -438,18 +437,7 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        let errorDetail = 'API request failed';
-        try {
-          const errorBody = await response.json();
-          if (errorBody?.error) {
-            errorDetail = errorBody.error;
-          }
-        } catch {
-          // ignore parse errors and fall back to default message
-        }
-
-        const statusLabel = response.status ? ` (${response.status})` : '';
-        throw new Error(`${errorDetail}${statusLabel}`);
+        throw new Error('API request failed');
       }
 
       // Process stream
@@ -457,52 +445,27 @@ export default function Home() {
       if (!reader) throw new Error('No response body');
 
       const decoder = new TextDecoder();
+      let buffer = '';
       let accumulatedContent = '';
       let accumulatedThinking = '';
       let finalCost = 0;
       let finalSavedPercent = 0;
-      let prUrl: string | undefined;
-      let previewUrl: string | undefined;
       const allArtifacts: Artifact[] = [];
       const allFileChanges: FileChange[] = [];
-      const toolActions: Array<{
-        id: string;
-        type: 'web_search' | 'web_fetch' | 'read_file' | 'str_replace' | 'create_file' | 'grep_search' | 'search_files';
-        status: 'running' | 'complete' | 'error';
-        summary: string;
-        result?: string;
-      }> = [];
-
-      // Helper function to get tool summary
-      const getToolSummary = (toolName: string, input: Record<string, unknown>): string => {
-        switch (toolName) {
-          case 'web_search':
-            return `Searching the web for "${input.query}"...`;
-          case 'web_fetch':
-            return `Fetching ${input.url}...`;
-          case 'read_file':
-            return `Reading ${input.path}...`;
-          case 'str_replace':
-            return `Editing ${input.path}...`;
-          case 'create_file':
-            return `Creating ${input.path}...`;
-          case 'grep_search':
-            return `Searching for "${input.query || input.pattern}"...`;
-          case 'search_files':
-            return `Finding files matching "${input.query}"...`;
-          default:
-            return `Running ${toolName}...`;
-        }
-      };
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const text = decoder.decode(value, { stream: true });
-        const lines = text.split('\n').filter(line => line.trim());
+        buffer += decoder.decode(value, { stream: true });
 
-        for (const line of lines) {
+        // Process complete JSONL lines; keep any partial line in `buffer`.
+        const parts = buffer.split('\n');
+        buffer = parts.pop() || '';
+
+        for (const line of parts) {
+          if (!line.trim()) continue;
+
           try {
             const chunk = JSON.parse(line);
 
@@ -521,23 +484,6 @@ export default function Home() {
                   : m
               ));
             } else if (chunk.type === 'tool_use') {
-              // Track tool action for ActionBlock display
-              const toolAction = {
-                id: chunk.toolCall?.id || `tool-${Date.now()}`,
-                type: chunk.toolCall?.name as typeof toolActions[0]['type'],
-                status: 'running' as const,
-                summary: getToolSummary(chunk.toolCall?.name || '', chunk.toolCall?.input || {}),
-              };
-              toolActions.push(toolAction);
-
-              // Update message with tool actions
-              setMessages(prev => prev.map(m =>
-                m.id === assistantMessage.id
-                  ? { ...m, toolActions: [...toolActions] }
-                  : m
-              ));
-
-              // Track file changes
               if (chunk.toolCall?.name === 'str_replace' || chunk.toolCall?.name === 'create_file') {
                 const input = chunk.toolCall.input;
                 allFileChanges.push({
@@ -545,37 +491,20 @@ export default function Home() {
                   action: chunk.toolCall.name === 'create_file' ? 'create' : 'edit',
                 });
               }
-            } else if (chunk.type === 'tool_result') {
-              // Update tool action with result
-              const actionIndex = toolActions.findIndex(a => a.id === chunk.toolUseId);
-              if (actionIndex !== -1) {
-                toolActions[actionIndex].status = 'complete';
-                toolActions[actionIndex].result = chunk.result;
-
-                setMessages(prev => prev.map(m =>
-                  m.id === assistantMessage.id
-                    ? { ...m, toolActions: [...toolActions] }
-                    : m
-                ));
-              }
             } else if (chunk.type === 'done') {
               finalCost = chunk.cost || 0;
               finalSavedPercent = chunk.savedPercent || 0;
               if (chunk.fileChanges) {
                 allFileChanges.push(...chunk.fileChanges);
               }
-              // Get PR URLs if available
-              if (chunk.prUrl) {
-                prUrl = chunk.prUrl;
-              }
-              if (chunk.previewUrl) {
-                previewUrl = chunk.previewUrl;
-              }
             } else if (chunk.error) {
               throw new Error(chunk.error);
             }
           } catch (e) {
             if (!(e instanceof SyntaxError)) throw e;
+            // In case we accidentally got a partial line, re-append and wait for more data.
+            buffer = line + '\n' + buffer;
+            break;
           }
         }
       }
@@ -605,9 +534,6 @@ export default function Home() {
         thinkingContent: accumulatedThinking || undefined,
         artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
         filesChanged: allFileChanges.length > 0 ? allFileChanges : undefined,
-        toolActions: toolActions.length > 0 ? toolActions : undefined,
-        prUrl,
-        previewUrl,
       };
 
       const finalMessages = [...messages, userMessage, updatedAssistant];
@@ -643,14 +569,9 @@ export default function Home() {
         ));
       } else {
         console.error('Chat error:', error);
-        const fallbackMessage = (error as Error).message || 'Sorry, an error occurred. Please try again.';
-        const isRateLimit = fallbackMessage.toLowerCase().includes('rate limit');
-        const userFriendlyMessage = isRateLimit
-          ? 'We hit the Anthropic rate limit. Please wait a few moments and try again.'
-          : fallbackMessage;
         const errorMessage: Message = {
           ...assistantMessage,
-          content: userFriendlyMessage,
+          content: 'Sorry, an error occurred. Please try again.',
           isStreaming: false,
         };
         setMessages([...messages, userMessage, errorMessage]);
@@ -968,26 +889,6 @@ export default function Home() {
                 {settings.deployMode === 'safe' ? '🛡 Safe' : '⚡ Direct'}
               </span>
             )}
-
-            {/* Refresh button (only if repo selected) */}
-            {currentRepo && (
-              <button
-                onClick={async () => {
-                  // Clear cache and trigger refresh indicator
-                  try {
-                    await fetch(`/api/github?action=clearCache&owner=${currentRepo.owner}&repo=${currentRepo.name}&branch=${currentBranch}`, {
-                      headers: { 'x-github-token': githubToken }
-                    });
-                  } catch (e) {
-                    console.error('Refresh failed:', e);
-                  }
-                }}
-                className="p-2 rounded-lg hover:bg-[var(--claude-sand-light)] text-[var(--claude-text-secondary)] transition-colors"
-                title="Refresh file tree"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </button>
-            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -1251,3 +1152,6 @@ export default function Home() {
     </div>
   );
 }
+
+
+
