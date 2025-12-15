@@ -230,8 +230,12 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Streaming endpoint - FIXED: Execute tools ONCE per message (NO LOOP!)
-// This reduces cost from $1+ to ~$0.03 per message
+// ============================================================================
+// AGENTIC STREAMING ENDPOINT
+// The key insight: Claude decides when it's done, not our code.
+// stop_reason === 'end_turn' means Claude is satisfied
+// stop_reason === 'tool_use' means Claude wants more
+// ============================================================================
 export async function PUT(request: NextRequest) {
   // Clean up stale cache entries on each request
   cleanupFileTreeCache();
@@ -312,15 +316,25 @@ export async function PUT(request: NextRequest) {
       tools.push(claude.getWebFetchTool());
     }
 
-    // Create streaming response - tool loop (bounded) for reliable continuations
+    // ========================================================================
+    // AGENTIC LOOP - Claude decides when done, with safety limits
+    // ========================================================================
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
           const fileChanges: FileChange[] = [];
-          const maxToolRounds = 2; // cost safety: at most 2 tool→continue cycles
+          const MAX_ROUNDS = 15; // Safety limit for runaway loops
           let totalCost = 0;
           let totalSavedPercent = 0;
+
+          // Smart context accumulation - track files Claude has seen
+          const seenFiles = new Set<string>();
+
+          // Stuck detection - track last tool calls to detect loops
+          let lastToolCallsSignature = '';
+          let repeatCount = 0;
+          const MAX_REPEATS = 2; // Allow same tools twice before intervention
 
           // Content block types for conversation messages
           type ContentBlock =
@@ -328,15 +342,26 @@ export async function PUT(request: NextRequest) {
             | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
             | { type: 'tool_result'; tool_use_id: string; content: string };
 
-          // Local conversation buffer in the format Anthropic accepts (string or block arrays).
+          // Local conversation buffer
           const convo: Array<{ role: 'user' | 'assistant'; content: string | ContentBlock[] }> = messages.map(m => ({
             role: m.role,
             content: m.content,
           }));
 
-          for (let round = 0; round <= maxToolRounds; round++) {
+          // =================================================================
+          // THE AGENTIC LOOP - Claude decides when to stop
+          // =================================================================
+          for (let round = 0; round < MAX_ROUNDS; round++) {
             const pendingToolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
             const assistantBlocks: ContentBlock[] = [];
+
+            // Stream round start for UI feedback
+            controller.enqueue(encoder.encode(JSON.stringify({
+              type: 'round_start',
+              round: round + 1,
+              message: round === 0 ? 'Starting...' : `Continuing (round ${round + 1})...`,
+              seenFiles: [...seenFiles],
+            }) + '\n'));
 
             const pushTextBlock = (delta: string) => {
               if (!delta) return;
@@ -364,14 +389,28 @@ export async function PUT(request: NextRequest) {
             );
 
             for await (const chunk of streamGenerator) {
-              // Forward chunks (but suppress intermediate 'done' chunks)
-              if (chunk.type !== 'done') {
-                controller.enqueue(encoder.encode(JSON.stringify(chunk) + '\n'));
-              }
-
+              // Forward chunks with enhanced info
               if (chunk.type === 'text') {
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  ...chunk,
+                  round: round + 1,
+                }) + '\n'));
                 pushTextBlock(chunk.content || '');
+              } else if (chunk.type === 'thinking') {
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  ...chunk,
+                  round: round + 1,
+                }) + '\n'));
               } else if (chunk.type === 'tool_use' && chunk.toolCall) {
+                // Stream tool_start with human-friendly message
+                const toolMessage = getToolStartMessage(chunk.toolCall.name, chunk.toolCall.input);
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  type: 'tool_start',
+                  round: round + 1,
+                  toolCall: chunk.toolCall,
+                  message: toolMessage,
+                }) + '\n'));
+
                 pendingToolCalls.push({
                   id: chunk.toolCall.id,
                   name: chunk.toolCall.name,
@@ -389,19 +428,68 @@ export async function PUT(request: NextRequest) {
               }
             }
 
-            // No tools requested => we're finished
-            if (pendingToolCalls.length === 0) break;
+            // ===============================================================
+            // CHECK STOP CONDITION: No tools = Claude is DONE
+            // This is the key insight - stop_reason === 'end_turn'
+            // ===============================================================
+            if (pendingToolCalls.length === 0) {
+              // Claude is satisfied and done!
+              break;
+            }
 
             // If tools were requested but we have no GitHub client, stop gracefully
             if (!github) {
               controller.enqueue(encoder.encode(JSON.stringify({
                 type: 'text',
-                content: '\n\n[Repo tools requested, but GitHub token is missing/invalid. Please reconnect GitHub and try again.]'
+                content: '\n\n[Repo tools requested, but GitHub token is missing/invalid. Please reconnect GitHub and try again.]',
+                round: round + 1,
               }) + '\n'));
               break;
             }
 
-            // Execute requested tools and build tool_result blocks for the continuation call
+            // ===============================================================
+            // STUCK DETECTION - Prevent infinite loops
+            // ===============================================================
+            const currentToolCallsSignature = pendingToolCalls
+              .map(t => `${t.name}:${JSON.stringify(t.input)}`)
+              .sort()
+              .join('|');
+
+            if (currentToolCallsSignature === lastToolCallsSignature) {
+              repeatCount++;
+              if (repeatCount >= MAX_REPEATS) {
+                // Claude is stuck - nudge it
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  type: 'stuck_warning',
+                  round: round + 1,
+                  message: 'Detected repeated actions. Asking Claude to try a different approach...',
+                }) + '\n'));
+
+                // Add a nudge to the conversation
+                convo.push({
+                  role: 'assistant',
+                  content: assistantBlocks.length > 0 ? assistantBlocks : [{ type: 'text', text: '' }],
+                });
+                convo.push({
+                  role: 'user',
+                  content: [{
+                    type: 'tool_result',
+                    tool_use_id: pendingToolCalls[0].id,
+                    content: 'You seem to be repeating the same actions. Please try a different approach or explain what\'s blocking you from completing the task.'
+                  }],
+                });
+                lastToolCallsSignature = '';
+                repeatCount = 0;
+                continue;
+              }
+            } else {
+              lastToolCallsSignature = currentToolCallsSignature;
+              repeatCount = 0;
+            }
+
+            // ===============================================================
+            // EXECUTE TOOLS
+            // ===============================================================
             const toolResultBlocks: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = [];
 
             for (const toolCall of pendingToolCalls) {
@@ -413,10 +501,15 @@ export async function PUT(request: NextRequest) {
                   const file = await github.getFileContent(input.path, repoContext.branch);
                   const MAX = 20000; // chars
                   const snippet = file.content.slice(0, MAX);
+
+                  // Smart context accumulation - track seen files
+                  seenFiles.add(input.path);
+
                   result =
                     `--- ${input.path} (${file.content.length} chars) ---\n` +
                     snippet +
-                    (file.content.length > MAX ? '\n\n...[truncated]' : '');
+                    (file.content.length > MAX ? '\n\n...[truncated]' : '') +
+                    `\n\n[You have now seen ${seenFiles.size} files: ${[...seenFiles].join(', ')}]`;
                 } else if (toolCall.name === 'search_files') {
                   const input = toolCall.input as { query: string };
                   const paths = await github.searchFiles(input.query);
@@ -444,7 +537,7 @@ export async function PUT(request: NextRequest) {
                     repoContext.branch
                   );
                   if (replaceResult.success) {
-                    result = `Successfully replaced text in ${input.path}. Changes: +${replaceResult.additions} -${replaceResult.deletions}`;
+                    result = `✓ Successfully replaced text in ${input.path}. Changes: +${replaceResult.additions} -${replaceResult.deletions}\n\nIMPORTANT: Use verify_edit to confirm this change was applied correctly.`;
                     fileChanges.push({
                       path: input.path,
                       action: 'edit',
@@ -452,7 +545,7 @@ export async function PUT(request: NextRequest) {
                       deletions: replaceResult.deletions,
                     });
                   } else {
-                    result = `Failed to replace: ${replaceResult.error || 'Unknown error'}`;
+                    result = `✗ Failed to replace: ${replaceResult.error || 'Unknown error'}\n\nTry using more surrounding context to make old_str unique.`;
                   }
                 } else if (toolCall.name === 'create_file') {
                   const input = toolCall.input as { path: string; content: string };
@@ -462,14 +555,28 @@ export async function PUT(request: NextRequest) {
                     repoContext.branch
                   );
                   if (createResult.success) {
-                    result = `Successfully created file ${input.path}.`;
+                    result = `✓ Successfully created file ${input.path}.`;
                     fileChanges.push({
                       path: input.path,
                       action: 'create',
                       additions: createResult.additions,
                     });
                   } else {
-                    result = `Failed to create file: ${createResult.error || 'Unknown error'}`;
+                    result = `✗ Failed to create file: ${createResult.error || 'Unknown error'}`;
+                  }
+                } else if (toolCall.name === 'verify_edit') {
+                  // Verification tool - read file and check for expected content
+                  const input = toolCall.input as { path: string; expected_content: string };
+                  try {
+                    const file = await github.getFileContent(input.path, repoContext.branch);
+                    if (file.content.includes(input.expected_content)) {
+                      result = `✓ VERIFIED: The expected content was found in ${input.path}. Your edit was applied correctly.`;
+                    } else {
+                      result = `✗ VERIFICATION FAILED: The expected content was NOT found in ${input.path}. The edit may not have been applied correctly. Please check the file and try again.`;
+                    }
+                    seenFiles.add(input.path);
+                  } catch (error) {
+                    result = `✗ Could not verify: ${error instanceof Error ? error.message : 'File not found'}`;
                   }
                 } else {
                   result = `Tool ${toolCall.name} executed`;
@@ -478,11 +585,12 @@ export async function PUT(request: NextRequest) {
                 result = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
               }
 
-              // Stream tool result to client (slightly larger caps for useful debugging)
+              // Stream tool result to client
               const cap = toolCall.name === 'read_file' ? 20000 : 6000;
               const clipped = result.slice(0, cap) + (result.length > cap ? '...(truncated)' : '');
               controller.enqueue(encoder.encode(JSON.stringify({
                 type: 'tool_result',
+                round: round + 1,
                 toolUseId: toolCall.id,
                 name: toolCall.name,
                 result: clipped,
@@ -495,22 +603,33 @@ export async function PUT(request: NextRequest) {
               });
             }
 
-            // Append the assistant tool-use message + the user tool results, then continue.
+            // ===============================================================
+            // LET CLAUDE THINK - Add reflection nudge after tool results
+            // This makes Claude reason about results instead of just reacting
+            // ===============================================================
+            const reflectionNudge: ContentBlock = {
+              type: 'text',
+              text: '\n\nI\'ve executed the tools above. Please analyze the results and decide your next step. If you need more information, use more tools. If you\'re ready to respond to the user with a complete answer, do so.',
+            };
+
+            // Append the assistant tool-use message + the user tool results with reflection nudge
             convo.push({
               role: 'assistant',
               content: assistantBlocks.length > 0 ? assistantBlocks : [{ type: 'text', text: '' }],
             });
             convo.push({
               role: 'user',
-              content: toolResultBlocks,
+              content: [...toolResultBlocks, reflectionNudge],
             });
           }
-// Send final done event with cost info
+
+          // Send final done event with all accumulated info
           controller.enqueue(encoder.encode(JSON.stringify({
             type: 'done',
             cost: totalCost,
             savedPercent: totalSavedPercent,
             fileChanges: fileChanges.length > 0 ? fileChanges : undefined,
+            seenFiles: [...seenFiles],
           }) + '\n'));
 
           controller.close();
@@ -534,6 +653,30 @@ export async function PUT(request: NextRequest) {
     console.error('Stream API error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+// Helper function to generate human-friendly tool start messages
+function getToolStartMessage(toolName: string, input: Record<string, unknown>): string {
+  switch (toolName) {
+    case 'read_file':
+      return `📖 Reading ${input.path}...`;
+    case 'search_files':
+      return `🔍 Searching for "${input.query}"...`;
+    case 'grep_search':
+      return `🔎 Searching inside files for "${input.query}"...`;
+    case 'str_replace':
+      return `✏️ Editing ${input.path}...`;
+    case 'create_file':
+      return `📝 Creating ${input.path}...`;
+    case 'verify_edit':
+      return `✅ Verifying edit in ${input.path}...`;
+    case 'web_search':
+      return `🌐 Searching the web for "${input.query}"...`;
+    case 'web_fetch':
+      return `🌐 Fetching ${input.url}...`;
+    default:
+      return `⚙️ Running ${toolName}...`;
   }
 }
 

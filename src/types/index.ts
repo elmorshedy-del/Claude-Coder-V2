@@ -31,7 +31,7 @@ export interface Message {
 // Tool action for displaying tool usage in ActionBlock
 export interface ToolAction {
   id: string;
-  type: 'web_search' | 'web_fetch' | 'read_file' | 'str_replace' | 'create_file' | 'grep_search' | 'search_files';
+  type: 'web_search' | 'web_fetch' | 'read_file' | 'str_replace' | 'create_file' | 'grep_search' | 'search_files' | 'verify_edit';
   status: 'running' | 'complete' | 'error';
   summary: string;
   details?: string;
@@ -382,8 +382,9 @@ export const APP_CONSTANTS = {
   MAX_FILE_SNIPPET_CHARS: 20000,
   MAX_TOOL_RESULT_CHARS: 6000,
 
-  // Tool loop settings
-  MAX_TOOL_ROUNDS: 2,
+  // Agentic loop settings - Claude decides when done, but we have safety limits
+  MAX_AGENTIC_ROUNDS: 15, // Safety limit for runaway loops
+  MAX_TOOL_ROUNDS: 15, // Alias for backward compatibility
 
   // Search limits
   MAX_GREP_RESULTS: 50,
@@ -396,7 +397,37 @@ export const APP_CONSTANTS = {
 
   // Conversation title length
   MAX_TITLE_LENGTH: 50,
+
+  // Stuck detection - how many times same tool calls can repeat
+  MAX_REPEATED_TOOL_CALLS: 2,
 } as const;
+
+// ----------------------------------------------------------------------------
+// Agentic Loop Types
+// ----------------------------------------------------------------------------
+
+export interface AgenticState {
+  round: number;
+  seenFiles: Set<string>;
+  lastToolCalls: string[];
+  isStuck: boolean;
+  stuckReason?: string;
+}
+
+export interface AgenticStreamChunk {
+  type: 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'tool_start' | 'round_start' | 'stuck_warning' | 'done' | 'error';
+  content?: string;
+  round?: number;
+  toolCall?: { id: string; name: string; input: Record<string, unknown> };
+  toolUseId?: string;
+  name?: string;
+  result?: string;
+  message?: string; // Human-friendly message
+  cost?: number;
+  savedPercent?: number;
+  fileChanges?: FileChange[];
+  seenFiles?: string[];
+}
 
 // Model display names for UI
 export const MODEL_DISPLAY_NAMES: Record<ModelType, { name: string; cost: string; description: string }> = {
