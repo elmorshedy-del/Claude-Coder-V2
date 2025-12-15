@@ -21,6 +21,21 @@ export interface Message {
   thinkingContent?: string;
   artifacts?: Artifact[];
   citations?: Citation[];
+  // Tool action tracking for ActionBlock display
+  toolActions?: ToolAction[];
+  // PR info for Safe Mode
+  prUrl?: string;
+  previewUrl?: string;
+}
+
+// Tool action for displaying tool usage in ActionBlock
+export interface ToolAction {
+  id: string;
+  type: 'web_search' | 'web_fetch' | 'read_file' | 'str_replace' | 'create_file' | 'grep_search' | 'search_files';
+  status: 'running' | 'complete' | 'error';
+  summary: string;
+  details?: string;
+  result?: string;
 }
 
 export interface TokenUsage {
@@ -145,6 +160,7 @@ export type WebSearchMode = 'off' | 'manual' | 'auto';
 export interface Settings {
   // Deployment
   deployMode: 'safe' | 'direct';
+  railwayServiceName: string; // For building preview URLs
 
   // Model
   model: ModelType;
@@ -308,6 +324,7 @@ export interface ToolProperty {
 
 export const DEFAULT_SETTINGS: Settings = {
   deployMode: 'safe',
+  railwayServiceName: '', // Empty by default, user sets in settings
   model: 'claude-sonnet-4-5-20250929',
   effort: 'medium',
   enableWebSearch: true,

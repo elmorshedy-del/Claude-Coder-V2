@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import { User, Sparkles } from 'lucide-react';
 import { Message } from '@/types';
 import ThinkingBlock from './ThinkingBlock';
+import ActionBlock from './ActionBlock';
 import CodeBlock from './CodeBlock';
 import CostTracker from './CostTracker';
 import PostEditActions from './PostEditActions';
@@ -53,6 +54,11 @@ export default function ChatMessage({ message, onViewPR, onDiscard }: ChatMessag
               />
             )}
 
+            {/* Tool actions */}
+            {message.toolActions && message.toolActions.length > 0 && (
+              <ActionBlock actions={message.toolActions} />
+            )}
+
             {/* Message content */}
             <div className="prose max-w-none">
               <ReactMarkdown
@@ -98,9 +104,11 @@ export default function ChatMessage({ message, onViewPR, onDiscard }: ChatMessag
                   filesChanged: message.filesChanged,
                   totalAdditions: message.filesChanged.reduce((sum, f) => sum + (f.additions || 0), 0),
                   totalDeletions: message.filesChanged.reduce((sum, f) => sum + (f.deletions || 0), 0),
-                  status: 'pushed',
+                  prUrl: message.prUrl,
+                  previewUrl: message.previewUrl,
+                  status: message.prUrl ? 'pr_created' : 'pushed',
                 }}
-                onViewPR={onViewPR}
+                onViewPR={message.prUrl ? () => window.open(message.prUrl, '_blank') : onViewPR}
                 onDiscard={onDiscard}
               />
             )}

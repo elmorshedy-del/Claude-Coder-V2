@@ -87,6 +87,24 @@ export default function SettingsPanel({
                 color="warning"
               />
             </div>
+
+            {/* Railway Service Name for Preview URLs */}
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-[var(--claude-text-secondary)] mb-2">
+                Railway Service Name
+                <span className="text-[var(--claude-text-muted)]"> (for preview URLs)</span>
+              </label>
+              <input
+                type="text"
+                value={settings.railwayServiceName || ''}
+                onChange={(e) => updateSetting('railwayServiceName', e.target.value)}
+                placeholder="my-app-name"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-[var(--claude-text)] placeholder:text-[var(--claude-text-muted)] focus:outline-none focus:border-[var(--claude-terracotta)] text-sm"
+              />
+              <p className="mt-1 text-xs text-[var(--claude-text-muted)]">
+                Preview URL: https://{'{name}'}-pr-{'{number}'}.up.railway.app
+              </p>
+            </div>
           </SettingSection>
 
           {/* Model */}
