@@ -11,12 +11,13 @@ import {
   FilePlus,
   Loader2,
   Check,
-  AlertCircle
+  AlertCircle,
+  CheckCircle2
 } from 'lucide-react';
 
 export interface ToolAction {
   id: string;
-  type: 'web_search' | 'web_fetch' | 'read_file' | 'str_replace' | 'create_file' | 'grep_search' | 'search_files';
+  type: 'web_search' | 'web_fetch' | 'read_file' | 'str_replace' | 'create_file' | 'grep_search' | 'search_files' | 'verify_edit';
   status: 'running' | 'complete' | 'error';
   summary: string;
   details?: string;
@@ -89,6 +90,7 @@ function SingleAction({ action, compact = false }: { action: ToolAction; compact
     create_file: <FilePlus className="w-4 h-4" />,
     grep_search: <Search className="w-4 h-4" />,
     search_files: <Search className="w-4 h-4" />,
+    verify_edit: <CheckCircle2 className="w-4 h-4" />,
   };
 
   const statusColors = {

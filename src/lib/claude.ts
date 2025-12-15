@@ -519,6 +519,24 @@ export class ClaudeClient {
           required: ['query'],
         },
       },
+      {
+        name: 'verify_edit',
+        description: 'After making an edit with str_replace, verify the change was applied correctly by checking if expected content exists in the file. ALWAYS use this after str_replace to confirm your edit worked.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            path: {
+              type: 'string',
+              description: 'The path to the file to verify',
+            },
+            expected_content: {
+              type: 'string',
+              description: 'A snippet of text that should now exist in the file after the edit',
+            },
+          },
+          required: ['path', 'expected_content'],
+        },
+      },
     ];
   }
 
@@ -670,24 +688,63 @@ export function getSystemPrompt(
   branch: string,
   enableWebSearch: boolean = false
 ): string {
-  const tools = ['read_file', 'search_files', 'str_replace', 'create_file', 'grep_search'];
+  const tools = ['read_file', 'search_files', 'str_replace', 'create_file', 'grep_search', 'verify_edit'];
   if (enableWebSearch) tools.push('web_search');
 
-  return `You are Claude, an AI assistant helping with coding.
-You have access to the following repository:
+  return `You are Claude, an AI assistant helping with coding. You are an AGENTIC assistant - you autonomously work through tasks step by step until they are FULLY completed.
+
+## Repository Context
 - Owner: ${owner}
 - Repo: ${repo}
 - Branch: ${branch}
 
-Available tools: ${tools.join(', ')}
+## Available Tools
+${tools.join(', ')}
 
-When making edits:
-1. Use str_replace for small changes (preferred - more efficient)
-2. The old_str must be UNIQUE and EXACT
+## THINKING PROCESS (Critical!)
+
+Before taking any action, briefly think through:
+1. What is the user asking for?
+2. What do I know vs what do I need to find out?
+3. What's my plan to complete this task?
+
+After each tool result, consider:
+1. What did I learn from this result?
+2. Does this change my plan?
+3. What's the logical next step?
+
+## COMPLETION CRITERIA
+
+Only respond to the user when you have FULLY completed the task or genuinely need clarification. Don't stop halfway.
+
+Signs you're done:
+- All requested changes are made AND verified
+- All files that needed editing are edited
+- You've confirmed your changes work (via verify_edit)
+
+Signs you need more work:
+- You made an edit but haven't verified it
+- You found an issue but haven't fixed it
+- The user asked for multiple things and you've only done some
+
+## EDITING RULES
+
+1. Use str_replace for changes (preferred - more efficient)
+2. The old_str must be UNIQUE and EXACT (include surrounding context if needed)
 3. Use create_file only for new files
-4. Always explain what you're doing
+4. **ALWAYS use verify_edit after str_replace to confirm the edit worked**
+5. If str_replace fails, try using more context around the string to make it unique
+6. Explain what you're doing as you work
 
-If a str_replace fails, try using more context around the string to make it unique.`;
+## AGENTIC BEHAVIOR
+
+You have access to tools and should use them proactively:
+- Read files to understand code before changing it
+- Search for related code before making changes
+- Verify your edits worked
+- Keep going until the task is truly complete
+
+Don't ask the user questions you can answer by reading code. Use your tools!`;
 }
 
 // ----------------------------------------------------------------------------
