@@ -157,6 +157,7 @@ export interface PullRequest {
 // ----------------------------------------------------------------------------
 
 export type WebSearchMode = 'off' | 'manual' | 'auto';
+export type ToolExecutionMode = 'direct' | 'hybrid' | 'programmatic';
 
 export interface Settings {
   // Deployment
@@ -166,6 +167,9 @@ export interface Settings {
   // Model
   model: ModelType;
   effort: EffortLevel;
+  
+  // Tool Execution
+  toolExecutionMode: ToolExecutionMode;
 
   // Features
   enableWebSearch: boolean;
@@ -327,6 +331,7 @@ export const DEFAULT_SETTINGS: Settings = {
   railwayServiceName: '', // Empty by default, user sets in settings
   model: 'claude-sonnet-4-5-20250929',
   effort: 'medium',
+  toolExecutionMode: 'hybrid',
   enableWebSearch: true,
   webSearchMode: 'auto',
   enableExtendedThinking: false,

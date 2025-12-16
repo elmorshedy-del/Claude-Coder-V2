@@ -16,6 +16,7 @@ import {
   Artifact,
   ArtifactType,
   Citation,
+  ToolExecutionMode,
 } from '@/types';
 
 // ----------------------------------------------------------------------------
@@ -114,6 +115,7 @@ export class ClaudeClient {
       enableMemory?: boolean;
       enableContextCompaction?: boolean;
       enableInterleavedThinking?: boolean;
+      toolExecutionMode?: ToolExecutionMode;
     } = {}
   ): Promise<{
     content: string;
@@ -135,6 +137,7 @@ export class ClaudeClient {
       enableMemory = false,
       enableContextCompaction = false,
       enableInterleavedThinking = false,
+      toolExecutionMode = 'direct',
     } = options;
 
     // Map effort to max_tokens and thinking budget
@@ -147,7 +150,7 @@ export class ClaudeClient {
     const adjustedThinkingBudget = Math.round(thinkingBudget * config.thinkingMultiplier);
 
     // Build tools array with special tools
-    const allTools: Array<ClaudeTool | { type: string; name: string }> = [...(tools || this.getDefaultTools())];
+    const allTools: Array<ClaudeTool | { type: string; name: string }> = [...(tools || this.getDefaultTools(toolExecutionMode))];
     
     if (enableCodeExecution) {
       allTools.push(this.getCodeExecutionTool());
@@ -167,6 +170,9 @@ export class ClaudeClient {
     }
     if (enableInterleavedThinking) {
       betas.push('interleaved-thinking-2025-05-14');
+    }
+    if (toolExecutionMode !== 'direct') {
+      betas.push('advanced-tool-use-2025-11-20');
     }
 
     // Build system blocks with prompt caching for BOTH system prompt and code context
@@ -298,6 +304,7 @@ export class ClaudeClient {
       effort?: EffortLevel;
       enableContextCompaction?: boolean;
       enableInterleavedThinking?: boolean;
+      toolExecutionMode?: ToolExecutionMode;
     } = {}
   ): AsyncGenerator<{
     type: 'text' | 'thinking' | 'tool_use' | 'citation' | 'done';
@@ -315,6 +322,7 @@ export class ClaudeClient {
       effort = 'medium',
       enableContextCompaction = false,
       enableInterleavedThinking = false,
+      toolExecutionMode = 'direct',
     } = options;
 
     // Map effort to max_tokens and thinking budget
@@ -333,6 +341,9 @@ export class ClaudeClient {
     }
     if (enableInterleavedThinking) {
       betas.push('interleaved-thinking-2025-05-14');
+    }
+    if (toolExecutionMode !== 'direct') {
+      betas.push('advanced-tool-use-2025-11-20');
     }
 
     // Build system blocks with prompt caching for BOTH system prompt and code context
@@ -361,7 +372,7 @@ export class ClaudeClient {
         role: m.role,
         content: m.content,
       })),
-      tools: tools || this.getDefaultTools(),
+      tools: tools || this.getDefaultTools(toolExecutionMode),
     };
 
     if (enableThinking && (this.model.includes('opus') || this.model.includes('sonnet'))) {
@@ -447,7 +458,23 @@ export class ClaudeClient {
   // Default Tools
   // --------------------------------------------------------------------------
 
-    getDefaultTools(): ClaudeTool[] {
+  getDefaultTools(toolExecutionMode: ToolExecutionMode = 'direct'): ClaudeTool[] {
+    // Configure allowed_callers based on tool execution mode
+    const getAllowedCallers = () => {
+      switch (toolExecutionMode) {
+        case 'direct':
+          return ['direct'];
+        case 'hybrid':
+          return ['direct', 'code_execution_20250825'];
+        case 'programmatic':
+          return ['code_execution_20250825'];
+        default:
+          return ['direct'];
+      }
+    };
+    
+    const allowedCallers = getAllowedCallers();
+    
     return [
       {
         name: 'read_file',
@@ -462,6 +489,7 @@ export class ClaudeClient {
           },
           required: ['path'],
         },
+        ...(toolExecutionMode !== 'direct' && { allowed_callers: allowedCallers }),
       },
       {
         name: 'str_replace',
@@ -484,6 +512,7 @@ export class ClaudeClient {
           },
           required: ['path', 'old_str', 'new_str'],
         },
+        ...(toolExecutionMode !== 'direct' && { allowed_callers: allowedCallers }),
       },
       {
         name: 'create_file',
@@ -502,6 +531,7 @@ export class ClaudeClient {
           },
           required: ['path', 'content'],
         },
+        ...(toolExecutionMode !== 'direct' && { allowed_callers: allowedCallers }),
       },
       {
         name: 'search_files',
@@ -516,6 +546,7 @@ export class ClaudeClient {
           },
           required: ['query'],
         },
+        ...(toolExecutionMode !== 'direct' && { allowed_callers: allowedCallers }),
       },
       {
         name: 'grep_search',
@@ -534,6 +565,7 @@ export class ClaudeClient {
           },
           required: ['query'],
         },
+        ...(toolExecutionMode !== 'direct' && { allowed_callers: allowedCallers }),
       },
       {
         name: 'verify_edit',
@@ -552,6 +584,7 @@ export class ClaudeClient {
           },
           required: ['path', 'expected_content'],
         },
+        ...(toolExecutionMode !== 'direct' && { allowed_callers: allowedCallers }),
       },
     ];
   }
@@ -562,7 +595,7 @@ export class ClaudeClient {
 
   getCodeExecutionTool(): { type: string; name: string } {
     return {
-      type: 'code_execution_20250522',
+      type: 'code_execution_20250825',
       name: 'code_execution',
     };
   }

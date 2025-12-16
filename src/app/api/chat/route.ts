@@ -150,14 +150,22 @@ export async function POST(request: NextRequest) {
       settings.enableWebSearch
     );
 
-    // Build tools array - only add web search if explicitly needed
-    const tools = claude['getDefaultTools']();
+    // Build tools array with programmatic tool calling support
+    const tools = claude['getDefaultTools'](settings.toolExecutionMode);
     const needsWebSearch = settings.enableWebSearch && 
       messages.some(m => /\b(search|latest|current|2024|2025|news|price)\b/i.test(m.content));
     
     if (needsWebSearch) {
       tools.push(claude.getWebSearchTool());
       tools.push(claude.getWebFetchTool());
+    }
+    
+    // Add code execution tool if programmatic mode is enabled
+    if (settings.toolExecutionMode !== 'direct') {
+      tools.push({
+        type: 'code_execution_20250825',
+        name: 'code_execution'
+      });
     }
 
     // Prepare messages with file uploads if any
@@ -172,7 +180,7 @@ export async function POST(request: NextRequest) {
       return { role: m.role, content: m.content };
     });
 
-    // Call Claude
+    // Call Claude with programmatic tool calling support
     const response = await claude.chat(
       apiMessages,
       systemPrompt,
@@ -186,6 +194,7 @@ export async function POST(request: NextRequest) {
         enableMemory: settings.enableMemory,
         enableContextCompaction: settings.enableContextCompaction,
         enableInterleavedThinking: settings.enableInterleavedThinking,
+        toolExecutionMode: settings.toolExecutionMode,
       }
     );
 
@@ -373,14 +382,22 @@ export async function PUT(request: NextRequest) {
         )
       : getChatOnlySystemPrompt(settings.enableWebSearch);
 
-    // Build tools array - only include repo tools if we have a repo
-    const tools = hasRepoContext ? claude.getDefaultTools() : [];
+    // Build tools array with programmatic tool calling support
+    const tools = hasRepoContext ? claude.getDefaultTools(settings.toolExecutionMode) : [];
     const needsWebSearch = settings.enableWebSearch && 
       messages.some(m => /\b(search|latest|current|2024|2025|news|price)\b/i.test(m.content));
     
     if (needsWebSearch) {
       tools.push(claude.getWebSearchTool());
       tools.push(claude.getWebFetchTool());
+    }
+    
+    // Add code execution tool if programmatic mode is enabled
+    if (settings.toolExecutionMode !== 'direct') {
+      tools.push({
+        type: 'code_execution_20250825',
+        name: 'code_execution'
+      });
     }
 
     // ========================================================================
@@ -453,6 +470,7 @@ export async function PUT(request: NextRequest) {
                 effort: settings.effort,
                 enableContextCompaction: settings.enableContextCompaction,
                 enableInterleavedThinking: settings.enableInterleavedThinking,
+                toolExecutionMode: settings.toolExecutionMode,
               }
             );
 

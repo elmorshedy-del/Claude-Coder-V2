@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Shield, Zap, Globe, Brain, Gauge, DollarSign, Moon, Sun, Terminal, Database, FileUp, Key, Eye, EyeOff, Check, LogOut, Github } from 'lucide-react';
-import { Settings, ModelType, EffortLevel, WebSearchMode, MODEL_DISPLAY_NAMES } from '@/types';
+import { X, Shield, Zap, Globe, Brain, Gauge, DollarSign, Moon, Sun, Terminal, Database, FileUp, Key, Eye, EyeOff, Check, LogOut, Github, Cpu } from 'lucide-react';
+import { Settings, ModelType, EffortLevel, WebSearchMode, ToolExecutionMode, MODEL_DISPLAY_NAMES } from '@/types';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -158,6 +158,36 @@ export default function SettingsPanel({
                   {level}
                 </button>
               ))}
+            </div>
+          </SettingSection>
+
+          {/* Tool Execution Mode */}
+          <SettingSection
+            icon={<Cpu className="w-5 h-5" />}
+            title="Tool Execution"
+            description="How Claude executes file operations"
+          >
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                {(['direct', 'hybrid', 'programmatic'] as ToolExecutionMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => updateSetting('toolExecutionMode', mode)}
+                    className={`px-3 py-2 rounded-xl text-sm font-medium capitalize transition-all ${
+                      settings.toolExecutionMode === mode
+                        ? 'bg-[var(--claude-terracotta)] text-white'
+                        : 'bg-[var(--claude-surface-sunken)] text-[var(--claude-text-secondary)] hover:bg-[var(--claude-sand-light)]'
+                    }`}
+                  >
+                    {mode === 'programmatic' ? 'Batch' : mode}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-[var(--claude-text-muted)]">
+                {settings.toolExecutionMode === 'direct' && 'Traditional tool calls (current behavior)'}
+                {settings.toolExecutionMode === 'hybrid' && 'Claude chooses best approach per task (recommended)'}
+                {settings.toolExecutionMode === 'programmatic' && 'Batch operations for maximum cost savings'}
+              </p>
             </div>
           </SettingSection>
 
