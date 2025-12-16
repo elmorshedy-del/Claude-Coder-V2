@@ -11,6 +11,10 @@ export class GitHubClient {
   private owner: string;
   private repo: string;
   private fileTreeCache: Map<string, RepoTree[]> = new Map();
+  private fileContentCache: Map<string, { content: RepoFile; timestamp: number }> = new Map();
+  private searchCache: Map<string, { results: string[]; timestamp: number }> = new Map();
+  private readonly CONTENT_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+  private readonly SEARCH_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
   constructor(token: string, owner: string, repo: string) {
     this.octokit = new Octokit({ auth: token });
@@ -68,6 +72,29 @@ export class GitHubClient {
 
   clearTreeCache(): void {
     this.fileTreeCache.clear();
+  }
+
+  clearAllCaches(): void {
+    this.fileTreeCache.clear();
+    this.fileContentCache.clear();
+    this.searchCache.clear();
+  }
+
+  // Clean expired cache entries
+  cleanupCaches(): void {
+    const now = Date.now();
+    
+    for (const [key, value] of this.fileContentCache.entries()) {
+      if (now - value.timestamp > this.CONTENT_CACHE_TTL) {
+        this.fileContentCache.delete(key);
+      }
+    }
+    
+    for (const [key, value] of this.searchCache.entries()) {
+      if (now - value.timestamp > this.SEARCH_CACHE_TTL) {
+        this.searchCache.delete(key);
+      }
+    }
   }
 
   private async getBranchSHA(branch: string): Promise<string> {
@@ -128,6 +155,13 @@ export class GitHubClient {
   // --------------------------------------------------------------------------
 
   async getFileContent(path: string, branch: string = 'main'): Promise<RepoFile> {
+    const cacheKey = `${this.owner}/${this.repo}/${branch}:${path}`;
+    const cached = this.fileContentCache.get(cacheKey);
+    
+    if (cached && Date.now() - cached.timestamp < this.CONTENT_CACHE_TTL) {
+      return cached.content;
+    }
+
     const { data } = await this.octokit.rest.repos.getContent({
       owner: this.owner,
       repo: this.repo,
@@ -140,7 +174,12 @@ export class GitHubClient {
     }
 
     const content = Buffer.from(data.content, 'base64').toString('utf-8');
-    return { path, content, sha: data.sha };
+    const file = { path, content, sha: data.sha };
+    
+    // Cache the result
+    this.fileContentCache.set(cacheKey, { content: file, timestamp: Date.now() });
+    
+    return file;
   }
 
   async getFiles(paths: string[], branch: string = 'main'): Promise<RepoFile[]> {
@@ -157,34 +196,34 @@ export class GitHubClient {
   async getFilesWithImports(
     entryPaths: string[],
     branch: string = 'main',
-    maxDepth: number = 2
+    maxDepth: number = 1 // Reduced default depth
   ): Promise<RepoFile[]> {
     const loaded = new Set<string>();
     const files: RepoFile[] = [];
+    const maxFiles = 8; // Limit total files loaded
 
     const loadFile = async (path: string, depth: number): Promise<void> => {
+      if (files.length >= maxFiles) return; // Stop if we have enough files
+      
       const possiblePaths = [
         path,
         `${path}.ts`,
         `${path}.tsx`,
         `${path}.js`,
         `${path}.jsx`,
-        `${path}/index.ts`,
-        `${path}/index.tsx`,
-        `${path}/index.js`,
-      ];
+      ]; // Removed index file variants to reduce API calls
 
       for (const p of possiblePaths) {
-        if (loaded.has(p)) return;
+        if (loaded.has(p) || files.length >= maxFiles) return;
 
         try {
           const file = await this.getFileContent(p, branch);
           loaded.add(p);
           files.push(file);
 
-          // Parse and follow imports if not at max depth
-          if (depth < maxDepth) {
-            const imports = this.parseImports(file.content, p);
+          // Only follow imports for first level and if file is small
+          if (depth < maxDepth && file.content.length < 5000) {
+            const imports = this.parseImports(file.content, p).slice(0, 3); // Limit imports
             await Promise.all(imports.map(imp => loadFile(imp, depth + 1)));
           }
           return;
@@ -194,7 +233,7 @@ export class GitHubClient {
       }
     };
 
-    await Promise.all(entryPaths.map(p => loadFile(p, 0)));
+    await Promise.all(entryPaths.slice(0, 3).map(p => loadFile(p, 0))); // Limit entry paths
     return files;
   }
 
@@ -288,12 +327,22 @@ export class GitHubClient {
   // --------------------------------------------------------------------------
 
   async searchFiles(query: string): Promise<string[]> {
+    const cacheKey = `${this.owner}/${this.repo}:${query}`;
+    const cached = this.searchCache.get(cacheKey);
+    
+    if (cached && Date.now() - cached.timestamp < this.SEARCH_CACHE_TTL) {
+      return cached.results;
+    }
+
     const { data } = await this.octokit.rest.search.code({
       q: `${query} repo:${this.owner}/${this.repo}`,
-      per_page: 20,
+      per_page: 15, // Reduced from 20
     });
 
-    return data.items.map(item => item.path);
+    const results = data.items.map(item => item.path);
+    this.searchCache.set(cacheKey, { results, timestamp: Date.now() });
+    
+    return results;
   }
 
   // --------------------------------------------------------------------------

@@ -7,9 +7,12 @@ import { ClaudeClient, getSystemPrompt, generateCodeContext, extractKeywords } f
 import { GitHubClient, formatFileTree } from '@/lib/github';
 import { ChatRequest, Settings, RepoFile, FileChange, TokenUsage } from '@/types';
 
-// Store for session-based file tree caching
+// Enhanced caching for cost optimization
 const fileTreeCache = new Map<string, { tree: string; timestamp: number }>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const fileContentCache = new Map<string, { content: string; timestamp: number }>();
+const searchCache = new Map<string, { results: string[]; timestamp: number }>();
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour for real sessions
+const CONTENT_CACHE_TTL = 30 * 60 * 1000; // 30 min for file contents
 
 export async function POST(request: NextRequest) {
   try {
@@ -56,7 +59,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Smart file loading based on keywords
+    // Optimized file loading - only when context changes
     let loadedFiles: RepoFile[] = repoContext.loadedFiles || [];
     
     if (loadedFiles.length === 0 && messages.length > 0) {
@@ -65,15 +68,49 @@ export async function POST(request: NextRequest) {
         const keywords = extractKeywords(lastUserMessage.content);
         
         if (keywords.length > 0) {
-          // Try to find relevant files
-          const searchPromises = keywords.slice(0, 3).map(kw => 
-            github.searchFiles(kw).catch(() => [])
-          );
-          const searchResults = await Promise.all(searchPromises);
-          const uniquePaths = [...new Set(searchResults.flat())].slice(0, 5);
+          // Use cached search results
+          const searchKey = keywords.slice(0, 2).join('|');
+          const cached = searchCache.get(searchKey);
+          let uniquePaths: string[] = [];
+          
+          if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+            uniquePaths = cached.results;
+          } else {
+            const results = await github.searchFiles(keywords[0]).catch(() => []);
+            uniquePaths = results.slice(0, 3); // Reduced from 5
+            searchCache.set(searchKey, { results: uniquePaths, timestamp: Date.now() });
+          }
           
           if (uniquePaths.length > 0) {
-            loadedFiles = await github.getFilesWithImports(uniquePaths, repoContext.branch, 2);
+            // Load files with content caching
+            const cachedFiles: RepoFile[] = [];
+            const uncachedPaths: string[] = [];
+            
+            for (const path of uniquePaths) {
+              const contentKey = `${cacheKey}:${path}`;
+              const cachedContent = fileContentCache.get(contentKey);
+              
+              if (cachedContent && Date.now() - cachedContent.timestamp < CONTENT_CACHE_TTL) {
+                cachedFiles.push({ path, content: cachedContent.content });
+              } else {
+                uncachedPaths.push(path);
+              }
+            }
+            
+            // Only fetch uncached files
+            if (uncachedPaths.length > 0) {
+              const newFiles = await github.getFilesWithImports(uncachedPaths, repoContext.branch, 1); // Reduced depth
+              
+              // Cache new content
+              for (const file of newFiles) {
+                const contentKey = `${cacheKey}:${file.path}`;
+                fileContentCache.set(contentKey, { content: file.content, timestamp: Date.now() });
+              }
+              
+              loadedFiles = [...cachedFiles, ...newFiles];
+            } else {
+              loadedFiles = cachedFiles;
+            }
           }
         }
       }
@@ -90,9 +127,12 @@ export async function POST(request: NextRequest) {
       settings.enableWebSearch
     );
 
-    // Build tools array
+    // Build tools array - only add web search if explicitly needed
     const tools = claude['getDefaultTools']();
-    if (settings.enableWebSearch) {
+    const needsWebSearch = settings.enableWebSearch && 
+      messages.some(m => /\b(search|latest|current|2024|2025|news|price)\b/i.test(m.content));
+    
+    if (needsWebSearch) {
       tools.push(claude.getWebSearchTool());
       tools.push(claude.getWebFetchTool());
     }
@@ -244,14 +284,46 @@ export async function PUT(request: NextRequest) {
         fileTreeCache.set(cacheKey, { tree: fileTree, timestamp: Date.now() });
       }
 
-      // Smart file loading based on keywords
+      // Optimized file loading with caching
       const lastMessage = messages[messages.length - 1];
       if (lastMessage?.role === 'user') {
         const keywords = extractKeywords(lastMessage.content);
         if (keywords.length > 0) {
-          const paths = await github.searchFiles(keywords[0]).catch(() => []);
+          const searchKey = keywords[0];
+          const cached = searchCache.get(searchKey);
+          let paths: string[] = [];
+          
+          if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+            paths = cached.results;
+          } else {
+            paths = await github.searchFiles(keywords[0]).catch(() => []);
+            searchCache.set(searchKey, { results: paths, timestamp: Date.now() });
+          }
+          
           if (paths.length > 0) {
-            loadedFiles = await github.getFilesWithImports(paths.slice(0, 3), repoContext.branch, 2);
+            // Use cached file contents
+            const cachedFiles: RepoFile[] = [];
+            const uncachedPaths = paths.slice(0, 2); // Reduced
+            
+            for (const path of uncachedPaths) {
+              const contentKey = `${cacheKey}:${path}`;
+              const cachedContent = fileContentCache.get(contentKey);
+              
+              if (cachedContent && Date.now() - cachedContent.timestamp < CONTENT_CACHE_TTL) {
+                cachedFiles.push({ path, content: cachedContent.content });
+              }
+            }
+            
+            if (cachedFiles.length > 0) {
+              loadedFiles = cachedFiles;
+            } else {
+              loadedFiles = await github.getFilesWithImports(uncachedPaths, repoContext.branch, 1);
+              // Cache results
+              for (const file of loadedFiles) {
+                const contentKey = `${cacheKey}:${file.path}`;
+                fileContentCache.set(contentKey, { content: file.content, timestamp: Date.now() });
+              }
+            }
           }
         }
       }
@@ -273,7 +345,10 @@ export async function PUT(request: NextRequest) {
 
     // Build tools array - only include repo tools if we have a repo
     const tools = hasRepoContext ? claude.getDefaultTools() : [];
-    if (settings.enableWebSearch) {
+    const needsWebSearch = settings.enableWebSearch && 
+      messages.some(m => /\b(search|latest|current|2024|2025|news|price)\b/i.test(m.content));
+    
+    if (needsWebSearch) {
       tools.push(claude.getWebSearchTool());
       tools.push(claude.getWebFetchTool());
     }

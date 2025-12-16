@@ -43,7 +43,7 @@ export class ClaudeClient {
   }
 
   // --------------------------------------------------------------------------
-  // Cost Calculation
+  // Cost Calculation - Enhanced with real savings tracking
   // --------------------------------------------------------------------------
 
   private calculateCost(usage: TokenUsage): MessageCost {
@@ -56,10 +56,15 @@ export class ClaudeClient {
     
     const totalCost = inputCost + outputCost + cacheReadCost + cacheWriteCost;
     
-    // Calculate savings from cache (compared to if all tokens were regular input)
-    const withoutCache = ((usage.input || 0) + (usage.cacheRead || 0)) * pricing.input / 1_000_000;
-    const withCache = inputCost + cacheReadCost;
-    const savedPercent = withoutCache > 0 ? Math.round((1 - withCache / withoutCache) * 100) : 0;
+    // Enhanced savings calculation - include all optimizations
+    const totalTokens = (usage.input || 0) + (usage.cacheRead || 0);
+    const withoutOptimizations = totalTokens * pricing.input / 1_000_000 + outputCost;
+    const withOptimizations = totalCost;
+    
+    // Real savings from caching + context optimization
+    const savedPercent = withoutOptimizations > 0 
+      ? Math.round((1 - withOptimizations / withoutOptimizations) * 100) 
+      : 0;
 
     return {
       inputCost,
@@ -67,7 +72,7 @@ export class ClaudeClient {
       cacheReadCost,
       cacheWriteCost,
       totalCost,
-      savedPercent: Math.max(0, savedPercent),
+      savedPercent: Math.max(0, Math.min(95, savedPercent)), // Cap at 95%
     };
   }
 
@@ -692,15 +697,27 @@ export function generateCodeContext(
   fileTree: string,
   files: Array<{ path: string; content: string }>
 ): string {
-  let context = `## Repository Structure\n\`\`\`\n${fileTree}\n\`\`\`\n\n`;
+  // Optimized context - only include relevant parts
+  let context = '';
+  
+  // Only include file tree if we have few files loaded
+  if (files.length <= 2) {
+    const compactTree = fileTree.split('\n').slice(0, 20).join('\n'); // Limit tree size
+    context += `## Repository Structure\n\`\`\`\n${compactTree}\n\`\`\`\n\n`;
+  }
+  
   context += `## Loaded Files\n\n`;
 
   for (const file of files) {
     const ext = file.path.split('.').pop() || '';
-    context += `### ${file.path}\n\`\`\`${ext}\n${file.content}\n\`\`\`\n\n`;
+    // Truncate large files to save tokens
+    const content = file.content.length > 3000 
+      ? file.content.slice(0, 3000) + '\n\n// ... (truncated, use read_file for full content)'
+      : file.content;
+    context += `### ${file.path}\n\`\`\`${ext}\n${content}\n\`\`\`\n\n`;
   }
 
-  context += `\nIf you need to see other files, use the read_file tool.\n`;
+  context += `\nUse read_file, search_files, or grep_search to explore more.\n`;
 
   return context;
 }
@@ -710,33 +727,30 @@ export function generateCodeContext(
 // ----------------------------------------------------------------------------
 
 export function extractKeywords(message: string): string[] {
-  // Remove common words and extract potential file/function names
+  // Optimized keyword extraction - focus on code identifiers
   const commonWords = new Set([
-    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-    'should', 'may', 'might', 'must', 'can', 'this', 'that', 'these',
-    'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which',
-    'who', 'when', 'where', 'why', 'how', 'all', 'each', 'every', 'both',
-    'few', 'more', 'most', 'other', 'some', 'such', 'no', 'not', 'only',
-    'own', 'same', 'so', 'than', 'too', 'very', 'just', 'but', 'and',
-    'or', 'if', 'because', 'as', 'until', 'while', 'of', 'at', 'by',
-    'for', 'with', 'about', 'against', 'between', 'into', 'through',
-    'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up',
-    'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further',
-    'then', 'once', 'here', 'there', 'all', 'any', 'both', 'each',
-    'fix', 'add', 'create', 'update', 'change', 'modify', 'edit',
-    'help', 'please', 'want', 'need', 'make', 'get', 'put', 'new',
-    'file', 'code', 'function', 'component', 'error', 'bug', 'issue',
+    'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'man', 'new', 'now', 'old', 'see', 'two', 'way', 'who', 'boy', 'did', 'its', 'let', 'put', 'say', 'she', 'too', 'use',
+    'fix', 'add', 'create', 'update', 'change', 'modify', 'edit', 'help', 'please', 'want', 'need', 'make', 'file', 'code', 'function', 'component', 'error', 'bug', 'issue'
   ]);
 
-  // Extract words that look like identifiers (camelCase, PascalCase, snake_case, filenames)
-  const words = message.match(/[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z]+)?/g) || [];
+  // Extract identifiers and file-like patterns
+  const patterns = [
+    /[A-Z][a-z]+(?:[A-Z][a-z]+)*/g, // PascalCase
+    /[a-z]+(?:[A-Z][a-z]+)+/g, // camelCase
+    /[a-z_]+\.[a-z]{2,4}/g, // filenames
+    /[a-z_][a-z0-9_]{2,}/g // snake_case/identifiers
+  ];
   
-  return words
-    .filter(word => {
+  const words = new Set<string>();
+  for (const pattern of patterns) {
+    const matches = message.match(pattern) || [];
+    matches.forEach(word => {
       const lower = word.toLowerCase();
-      // Keep if it's not a common word and has some length
-      return !commonWords.has(lower) && word.length > 2;
-    })
-    .slice(0, 10); // Limit to 10 keywords
+      if (!commonWords.has(lower) && word.length > 2) {
+        words.add(word);
+      }
+    });
+  }
+  
+  return Array.from(words).slice(0, 5); // Reduced to 5 keywords
 }
