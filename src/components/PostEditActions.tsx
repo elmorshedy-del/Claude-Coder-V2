@@ -6,7 +6,7 @@ import { PostEditState, FileChange } from '@/types';
 
 interface PostEditActionsProps {
   state: PostEditState;
-  onViewPR?: () => void;
+  onViewPR?: (prUrl?: string) => void;
   onDiscard?: () => void;
   onConfirm?: () => void;
   onCancel?: () => void;
@@ -20,6 +20,14 @@ export default function PostEditActions({
   onCancel,
 }: PostEditActionsProps) {
   const { mode, branch, filesChanged, totalAdditions, totalDeletions, prUrl, previewUrl, status } = state;
+
+  const handleViewPR = () => {
+    if (onViewPR) {
+      onViewPR(prUrl);
+    } else if (prUrl) {
+      window.open(prUrl, '_blank');
+    }
+  };
 
   return (
     <div className="rounded-2xl border border-[var(--claude-border)] bg-[var(--claude-surface)] p-5 shadow-sm animate-fade-in-up">
@@ -102,7 +110,7 @@ export default function PostEditActions({
         {mode === 'safe' ? (
           <>
             <button
-              onClick={() => prUrl ? window.open(prUrl, '_blank') : onViewPR?.()}
+              onClick={handleViewPR}
               disabled={!prUrl && !onViewPR}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--claude-terracotta)] text-white font-medium hover:bg-[var(--claude-terracotta-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >

@@ -13,7 +13,7 @@ import Citations from './Citations';
 
 interface ChatMessageProps {
   message: Message;
-  onViewPR?: () => void;
+  onViewPR?: (prUrl?: string) => void;
   onDiscard?: () => void;
 }
 
@@ -108,7 +108,13 @@ export default function ChatMessage({ message, onViewPR, onDiscard }: ChatMessag
                   previewUrl: message.previewUrl,
                   status: message.prUrl ? 'pr_created' : 'pushed',
                 }}
-                onViewPR={message.prUrl ? () => window.open(message.prUrl, '_blank') : onViewPR}
+                onViewPR={(prUrl) => {
+                  if (onViewPR) {
+                    onViewPR(prUrl ?? message.prUrl);
+                  } else if (message.prUrl) {
+                    window.open(message.prUrl, '_blank');
+                  }
+                }}
                 onDiscard={onDiscard}
               />
             )}

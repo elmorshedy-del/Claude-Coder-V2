@@ -686,9 +686,105 @@ export default function Home() {
   // --------------------------------------------------------------------------
   // FUNCTIONS - View PR
   // --------------------------------------------------------------------------
-  const handleViewPR = (prUrl?: string) => {
+  const handleViewPR = async (prUrl?: string) => {
     if (prUrl) {
       window.open(prUrl, '_blank');
+      return;
+    }
+
+    if (!currentRepo) {
+      alert('Connect a GitHub repository to create a pull request.');
+      return;
+    }
+
+    if (!githubToken) {
+      alert('Add a GitHub token in Settings to create a pull request.');
+      return;
+    }
+
+    if (!currentBranch || currentBranch === currentRepo.defaultBranch) {
+      alert('Switch to a feature branch before creating a pull request.');
+      return;
+    }
+
+    const latestChangeMessage = [...messages].reverse().find(m =>
+      m.role === 'assistant' && m.filesChanged && m.filesChanged.length > 0
+    );
+
+    const filesChanged = latestChangeMessage?.filesChanged || [];
+    const changeSummary = filesChanged
+      .map(f =>
+        `- **${f.action}** \`${f.path}\`${f.additions ? ` (+${f.additions})` : ''}${
+          f.deletions ? ` (-${f.deletions})` : ''
+        }`
+      )
+      .join('\n');
+
+    const prTitle = filesChanged.length
+      ? `Claude: ${filesChanged.length} file${filesChanged.length === 1 ? '' : 's'} changed`
+      : `Claude: Updates from ${currentBranch}`;
+
+    const prBody = filesChanged.length
+      ? `## Changes\n\n${changeSummary}\n\n---\nPull request created from Claude Coder's View PR action.`
+      : `Pull request created from branch ${currentBranch} via Claude Coder's View PR action.`;
+
+    try {
+      const response = await fetch('/api/github', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-github-token': githubToken,
+        },
+        body: JSON.stringify({
+          action: 'createPR',
+          owner: currentRepo.owner,
+          repo: currentRepo.name,
+          title: prTitle,
+          body: prBody,
+          head: currentBranch,
+          base: currentRepo.defaultBranch,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create pull request');
+      }
+
+      const createdPrUrl: string | undefined = data.pr?.url;
+      const createdPrNumber: number | undefined = data.pr?.number;
+
+      if (createdPrUrl) {
+        setMessages(prev => {
+          const updated = [...prev];
+          for (let i = updated.length - 1; i >= 0; i--) {
+            const message = updated[i];
+            if (message.role === 'assistant' && message.filesChanged && message.filesChanged.length > 0) {
+              updated[i] = { ...message, prUrl: createdPrUrl, prNumber: createdPrNumber };
+              break;
+            }
+          }
+
+          if (currentConversationId) {
+            setConversations(curr =>
+              curr.map(conv =>
+                conv.id === currentConversationId
+                  ? { ...conv, messages: updated }
+                  : conv
+              )
+            );
+          }
+
+          return updated;
+        });
+
+        window.open(createdPrUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('View PR failed:', error);
+      const fallbackUrl = `https://github.com/${currentRepo.owner}/${currentRepo.name}/pulls`;
+      alert(`Could not create a pull request: ${(error as Error).message}. Opening GitHub pulls page instead.`);
+      window.open(fallbackUrl, '_blank');
     }
   };
 
@@ -1020,12 +1116,7 @@ export default function Home() {
               <ChatMessage
                 key={message.id}
                 message={message}
-                onViewPR={() => {
-                  const prUrl = currentRepo
-                    ? `https://github.com/${currentRepo.owner}/${currentRepo.name}/pulls`
-                    : undefined;
-                  handleViewPR(prUrl);
-                }}
+                onViewPR={(prUrl?: string) => handleViewPR(prUrl)}
                 onDiscard={() => handleDiscard()}
               />
               ))}
