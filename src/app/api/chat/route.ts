@@ -576,18 +576,19 @@ export async function PUT(request: NextRequest) {
                   message: 'Detected repeated actions. Asking Claude to try a different approach...',
                 }) + '\n'));
 
-                // Add a nudge to the conversation
+                // Add a nudge - provide tool_result for ALL pending tool calls
+                const nudgeResults: ContentBlock[] = pendingToolCalls.map(tc => ({
+                  type: 'tool_result',
+                  tool_use_id: tc.id,
+                  content: 'You seem to be repeating the same actions. Stop analyzing and START MAKING EDITS NOW. Use str_replace or create_file to actually fix the issues.'
+                }));
                 convo.push({
                   role: 'assistant',
                   content: assistantBlocks.length > 0 ? assistantBlocks : [{ type: 'text', text: '' }],
                 });
                 convo.push({
                   role: 'user',
-                  content: [{
-                    type: 'tool_result',
-                    tool_use_id: pendingToolCalls[0].id,
-                    content: 'You seem to be repeating the same actions. Stop analyzing and START MAKING EDITS NOW. Use str_replace or create_file to actually fix the issues.'
-                  }],
+                  content: nudgeResults,
                 });
                 lastToolCallsSignature = '';
                 repeatCount = 0;
@@ -601,17 +602,19 @@ export async function PUT(request: NextRequest) {
                 message: 'Claude is analyzing without making changes. Nudging to take action...',
               }) + '\n'));
 
+              // Provide tool_result for ALL pending tool calls
+              const analysisNudgeResults: ContentBlock[] = pendingToolCalls.map(tc => ({
+                type: 'tool_result',
+                tool_use_id: tc.id,
+                content: 'STOP SEARCHING. You have enough information. Make the actual code changes NOW using str_replace or create_file. Do not search or read more files.'
+              }));
               convo.push({
                 role: 'assistant',
                 content: assistantBlocks.length > 0 ? assistantBlocks : [{ type: 'text', text: '' }],
               });
               convo.push({
                 role: 'user',
-                content: [{
-                  type: 'tool_result',
-                  tool_use_id: pendingToolCalls[0].id,
-                  content: 'STOP SEARCHING. You have enough information. Make the actual code changes NOW using str_replace or create_file. Do not search or read more files.'
-                }],
+                content: analysisNudgeResults,
               });
               lastToolCallsSignature = '';
               repeatCount = 0;
