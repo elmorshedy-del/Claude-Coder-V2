@@ -945,7 +945,7 @@ export default function Home() {
               <Lock className="w-8 h-8 text-[var(--claude-terracotta)]" />
             </div>
             <h1 className="text-2xl font-serif text-[var(--claude-text)]">🚀 Claude Coder</h1>
-            <p className="text-[var(--claude-text-secondary)] mt-1">Enter password to continue</p>
+            <p className="text-[var(--claude-text-secondary)] mt-1">Enter password to proceed in login</p>
           </div>
 
           <div className="space-y-4">
