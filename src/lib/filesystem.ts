@@ -2,27 +2,28 @@
 // LOCAL FILESYSTEM CLIENT - Direct file access (fast!)
 // ============================================================================
 
-import fs from 'fs/promises';
 import path from 'path';
-import { execSync } from 'child_process';
 
 export class LocalFileSystem {
   constructor(private workspaceRoot: string) {}
 
   // Read file from local disk
   async readFile(filePath: string): Promise<string> {
+    const fs = await import('fs/promises');
     const fullPath = path.join(this.workspaceRoot, filePath);
     return fs.readFile(fullPath, 'utf-8');
   }
 
   // Write file to local disk
   async writeFile(filePath: string, content: string): Promise<void> {
+    const fs = await import('fs/promises');
     const fullPath = path.join(this.workspaceRoot, filePath);
     await fs.writeFile(fullPath, content, 'utf-8');
   }
 
   // List all files (like file tree)
   async listFiles(dir: string = ''): Promise<string[]> {
+    const fs = await import('fs/promises');
     const fullPath = path.join(this.workspaceRoot, dir);
     const entries = await fs.readdir(fullPath, { withFileTypes: true });
     
@@ -47,6 +48,7 @@ export class LocalFileSystem {
   // Grep search (fast!)
   async grepSearch(query: string, extensions?: string[]): Promise<Array<{ path: string; line: number; content: string }>> {
     try {
+      const { execSync } = await import('child_process');
       const extFlag = extensions ? `--include="*.{${extensions.join(',')}}"` : '';
       const cmd = `grep -rn ${extFlag} "${query}" ${this.workspaceRoot} 2>/dev/null || true`;
       const output = execSync(cmd, { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 });
