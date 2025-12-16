@@ -162,10 +162,7 @@ export async function POST(request: NextRequest) {
     
     // Add code execution tool if programmatic mode is enabled
     if (settings.toolExecutionMode !== 'direct') {
-      tools.push({
-        type: 'code_execution_20250825',
-        name: 'code_execution'
-      });
+      tools.push(claude.getCodeExecutionTool() as any);
     }
 
     // Prepare messages with file uploads if any
@@ -394,10 +391,7 @@ export async function PUT(request: NextRequest) {
     
     // Add code execution tool if programmatic mode is enabled
     if (settings.toolExecutionMode !== 'direct') {
-      tools.push({
-        type: 'code_execution_20250825',
-        name: 'code_execution'
-      });
+      tools.push(claude.getCodeExecutionTool() as any);
     }
 
     // ========================================================================
