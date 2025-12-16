@@ -465,9 +465,9 @@ export class ClaudeClient {
         case 'direct':
           return ['direct'];
         case 'hybrid':
-          return ['direct', 'code_execution_20250825'];
+          return ['direct', 'bash_20250124'];
         case 'programmatic':
-          return ['code_execution_20250825'];
+          return ['bash_20250124'];
         default:
           return ['direct'];
       }
@@ -595,8 +595,8 @@ export class ClaudeClient {
 
   getCodeExecutionTool(): { type: string; name: string } {
     return {
-      type: 'code_execution_20250825',
-      name: 'code_execution',
+      type: 'bash_20250124',
+      name: 'bash',
     };
   }
 
