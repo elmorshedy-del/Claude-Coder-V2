@@ -115,6 +115,19 @@ export interface Session {
 }
 
 // ----------------------------------------------------------------------------
+// Notification Types
+// ----------------------------------------------------------------------------
+
+export interface Notification {
+  id: string;
+  source: string;
+  message: string;
+  createdAt: string;
+  channel?: string;
+  rawPayload?: Record<string, unknown>;
+}
+
+// ----------------------------------------------------------------------------
 // GitHub Types
 // ----------------------------------------------------------------------------
 
