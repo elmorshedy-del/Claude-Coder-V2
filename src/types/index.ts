@@ -25,6 +25,7 @@ export interface Message {
   toolActions?: ToolAction[];
   // PR info for Safe Mode
   prUrl?: string;
+  prNumber?: number;
   previewUrl?: string;
 }
 
