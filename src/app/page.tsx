@@ -944,7 +944,7 @@ export default function Home() {
             <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[var(--claude-terracotta-subtle)] flex items-center justify-center">
               <Lock className="w-8 h-8 text-[var(--claude-terracotta)]" />
             </div>
-            <h1 className="text-2xl font-serif text-[var(--claude-text)]">Claude Coder</h1>
+            <h1 className="text-2xl font-serif text-[var(--claude-text)]">🚀 Claude Coder</h1>
             <p className="text-[var(--claude-text-secondary)] mt-1">Enter password to continue</p>
           </div>
 
