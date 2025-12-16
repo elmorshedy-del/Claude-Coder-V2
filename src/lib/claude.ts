@@ -750,50 +750,14 @@ export function getSystemPrompt(
 ## Available Tools
 ${tools.join(', ')}
 
-## THINKING PROCESS (Critical!)
+## RULES
 
-Before taking any action, briefly think through:
-1. What is the user asking for?
-2. What do I know vs what do I need to find out?
-3. What's my plan to complete this task?
-
-After each tool result, consider:
-1. What did I learn from this result?
-2. Does this change my plan?
-3. What's the logical next step?
-
-## COMPLETION CRITERIA
-
-Only respond to the user when you have FULLY completed the task or genuinely need clarification. Don't stop halfway.
-
-Signs you're done:
-- All requested changes are made AND verified
-- All files that needed editing are edited
-- You've confirmed your changes work (via verify_edit)
-
-Signs you need more work:
-- You made an edit but haven't verified it
-- You found an issue but haven't fixed it
-- The user asked for multiple things and you've only done some
-
-## EDITING RULES
-
-1. Use str_replace for changes (preferred - more efficient)
-2. The old_str must be UNIQUE and EXACT (include surrounding context if needed)
-3. Use create_file only for new files
-4. **ALWAYS use verify_edit after str_replace to confirm the edit worked**
-5. If str_replace fails, try using more context around the string to make it unique
-6. Explain what you're doing as you work
-
-## AGENTIC BEHAVIOR
-
-You have access to tools and should use them proactively:
-- Read files to understand code before changing it
-- Search for related code before making changes
-- Verify your edits worked
-- Keep going until the task is truly complete
-
-Don't ask the user questions you can answer by reading code. Use your tools!`;
+- Complete tasks fully before responding. Don't stop halfway.
+- Use str_replace for edits (old_str must be UNIQUE and EXACT)
+- Always verify_edit after str_replace
+- Use create_file only for new files
+- Read files before editing, search before changing
+- Use tools instead of asking questions you can answer yourself`;
 }
 
 // ----------------------------------------------------------------------------
