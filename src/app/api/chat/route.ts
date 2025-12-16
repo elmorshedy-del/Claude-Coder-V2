@@ -389,7 +389,7 @@ export async function PUT(request: NextRequest) {
           repoContext?.repo || '',
           repoContext?.branch || 'main',
           settings.enableWebSearch,
-          isLocalMode
+          !!isLocalMode
         )
       : getChatOnlySystemPrompt(settings.enableWebSearch);
 
