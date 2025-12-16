@@ -802,6 +802,8 @@ export async function PUT(request: NextRequest) {
             seenFiles: [...seenFiles],
             prUrl,
             prNumber,
+            fileTree: hasRepoContext ? fileTree : undefined,
+            loadedFiles: hasRepoContext && loadedFiles.length > 0 ? loadedFiles.map(f => ({ path: f.path, content: f.content })) : undefined,
           }) + '\n'));
 
           controller.close();

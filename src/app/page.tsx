@@ -119,6 +119,15 @@ export default function Home() {
   const modelDropdownRef = useRef<HTMLDivElement>(null);
 
   // --------------------------------------------------------------------------
+  // STATE - Repo Cache
+  // --------------------------------------------------------------------------
+  const [repoCache, setRepoCache] = useState<{
+    fileTree: string;
+    loadedFiles: Array<{ path: string; content: string }>;
+    timestamp: number;
+  } | null>(null);
+
+  // --------------------------------------------------------------------------
   // EFFECTS - Initialize from localStorage
   // --------------------------------------------------------------------------
   useEffect(() => {
@@ -167,6 +176,39 @@ export default function Home() {
       }
     }
   }, []);
+
+  // --------------------------------------------------------------------------
+  // EFFECTS - Load repo cache when repo/branch changes
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    if (!currentRepo) {
+      setRepoCache(null);
+      return;
+    }
+
+    const cacheKey = `repo_cache_${currentRepo.owner}_${currentRepo.name}_${currentBranch}`;
+    const cached = localStorage.getItem(cacheKey);
+    
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        const age = Date.now() - parsed.timestamp;
+        const TTL = 24 * 60 * 60 * 1000; // 24 hours
+        
+        if (age < TTL) {
+          setRepoCache(parsed);
+          console.log(`✅ Loaded repo cache (${Math.round(age / 1000 / 60)}min old)`);
+        } else {
+          localStorage.removeItem(cacheKey);
+          setRepoCache(null);
+        }
+      } catch {
+        setRepoCache(null);
+      }
+    } else {
+      setRepoCache(null);
+    }
+  }, [currentRepo, currentBranch]);
 
   // --------------------------------------------------------------------------
   // EFFECTS - Save to localStorage
@@ -401,6 +443,18 @@ export default function Home() {
   };
 
   // --------------------------------------------------------------------------
+  // FUNCTIONS - Refresh repo cache
+  // --------------------------------------------------------------------------
+  const handleRefreshRepo = async () => {
+    if (!currentRepo || !githubToken) return;
+    
+    const cacheKey = `repo_cache_${currentRepo.owner}_${currentRepo.name}_${currentBranch}`;
+    localStorage.removeItem(cacheKey);
+    setRepoCache(null);
+    alert('Repo cache cleared. It will reload on next message.');
+  };
+
+  // --------------------------------------------------------------------------
   // FUNCTIONS - Send message
   // --------------------------------------------------------------------------
   const handleSendMessage = async () => {
@@ -488,6 +542,8 @@ export default function Home() {
             owner: currentRepo.owner,
             repo: currentRepo.name,
             branch: currentBranch,
+            fileTree: repoCache?.fileTree,
+            loadedFiles: repoCache?.loadedFiles,
           } : { owner: '', repo: '', branch: '' },
           files: userMessage.files,
         }),
@@ -511,6 +567,8 @@ export default function Home() {
       let finalPrUrl: string | undefined;
       const allArtifacts: Artifact[] = [];
       const allFileChanges: FileChange[] = [];
+      let newFileTree: string | undefined;
+      let newLoadedFiles: Array<{ path: string; content: string }> | undefined;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -562,6 +620,12 @@ export default function Home() {
               if (chunk.prUrl) {
                 finalPrUrl = chunk.prUrl;
               }
+              if (chunk.fileTree) {
+                newFileTree = chunk.fileTree;
+              }
+              if (chunk.loadedFiles) {
+                newLoadedFiles = chunk.loadedFiles;
+              }
             } else if (chunk.error) {
               throw new Error(chunk.error);
             }
@@ -611,6 +675,19 @@ export default function Home() {
 
       setSessionCost(prev => prev + finalCost);
       setTotalCost(prev => prev + finalCost);
+
+      // Save repo cache if we got new data
+      if (currentRepo && (newFileTree || newLoadedFiles)) {
+        const cacheKey = `repo_cache_${currentRepo.owner}_${currentRepo.name}_${currentBranch}`;
+        const cacheData = {
+          fileTree: newFileTree || repoCache?.fileTree || '',
+          loadedFiles: newLoadedFiles || repoCache?.loadedFiles || [],
+          timestamp: Date.now(),
+        };
+        localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+        setRepoCache(cacheData);
+        console.log('✅ Saved repo cache');
+      }
 
       setConversations(prev => prev.map(c =>
         c.id === convId
@@ -1046,15 +1123,28 @@ export default function Home() {
 
             {/* Branch selector (only if repo selected) */}
             {currentRepo && (
-              <select
-                value={currentBranch}
-                onChange={(e) => setCurrentBranch(e.target.value)}
-                className="px-3 py-1.5 rounded-lg bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-sm text-[var(--claude-text)] focus:outline-none"
-              >
-                {branches.map((branch) => (
-                  <option key={branch} value={branch}>{branch}</option>
-                ))}
-              </select>
+              <>
+                <select
+                  value={currentBranch}
+                  onChange={(e) => setCurrentBranch(e.target.value)}
+                  className="px-3 py-1.5 rounded-lg bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-sm text-[var(--claude-text)] focus:outline-none"
+                >
+                  {branches.map((branch) => (
+                    <option key={branch} value={branch}>{branch}</option>
+                  ))}
+                </select>
+                
+                {/* Repo cache indicator */}
+                {repoCache && (
+                  <button
+                    onClick={handleRefreshRepo}
+                    className="text-xs px-2 py-1 rounded bg-[var(--claude-success)]/10 text-[var(--claude-success)] hover:bg-[var(--claude-success)]/20 transition-colors"
+                    title={`Cached ${Math.round((Date.now() - repoCache.timestamp) / 1000 / 60)}min ago. Click to refresh.`}
+                  >
+                    ⚡ Cached
+                  </button>
+                )}
+              </>
             )}
 
             {/* Mode badge */}
