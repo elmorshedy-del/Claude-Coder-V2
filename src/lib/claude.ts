@@ -767,7 +767,7 @@ export function getSystemPrompt(
   enableWebSearch: boolean = false,
   isLocalMode: boolean = false
 ): string {
-  const tools = ['read_file', 'search_files', 'str_replace', 'create_file', 'grep_search', 'verify_edit', 'run_command'];
+  const tools = ['read_file', 'search_files', 'grep_search', 'run_command'];
   if (enableWebSearch) tools.push('web_search', 'web_fetch');
 
   const repoInfo = isLocalMode
@@ -777,6 +777,31 @@ You have direct access to the local filesystem. All file operations work on the 
 - Owner: ${owner}
 - Repo: ${repo}
 - Branch: ${branch}`;
+
+  const editingInstructions = isLocalMode
+    ? `## Editing Files (Local Mode)
+**CRITICAL: You MUST use run_command with bash for ALL file edits**
+
+1. **To edit files:** Use run_command with sed/perl/awk
+   Example: run_command({command: "sed -i 's/old text/new text/' src/file.ts"})
+
+2. **To create files:** Use run_command with echo or cat
+   Example: run_command({command: "echo 'content' > newfile.ts"})
+
+3. **To commit changes:** Use run_command with git
+   Example: run_command({command: "git add . && git commit -m 'message'"})
+
+4. **To push changes:** Use run_command with git push
+   Example: run_command({command: "git push"})
+
+**DO NOT use str_replace or create_file tools - they don't work in local mode!**
+Only run_command works for file modifications.`
+    : `## Editing Files (GitHub Mode)
+1. Use str_replace (preferred)
+2. old_str must be UNIQUE and EXACT
+3. ALWAYS verify_edit after str_replace
+4. Use create_file for new files
+5. Use run_command for bash operations (tests, git, npm, etc.)`;
 
   return `You are Claude, an AI assistant helping with coding.
 
@@ -793,12 +818,7 @@ Work silently. Use tools, then report results concisely.
 2. Need clarification
 3. Found blocking issue
 
-## Editing Rules
-1. Use str_replace (preferred)
-2. old_str must be UNIQUE and EXACT
-3. ALWAYS verify_edit after str_replace
-4. Use create_file for new files
-5. Use run_command for bash operations (tests, git, npm, etc.)
+${editingInstructions}
 
 ## Final Response Format
 **Fixed [issue]:**
