@@ -57,14 +57,15 @@ export class ClaudeClient {
     
     const totalCost = inputCost + outputCost + cacheReadCost + cacheWriteCost;
     
-    // Enhanced savings calculation - include all optimizations
-    const totalTokens = (usage.input || 0) + (usage.cacheRead || 0);
-    const withoutOptimizations = totalTokens * pricing.input / 1_000_000 + outputCost;
-    const withOptimizations = totalCost;
+    // Accurate savings: what we WOULD have paid if cacheRead tokens were charged at full input price
+    const cacheReadTokens = usage.cacheRead || 0;
+    const costIfNoCache = cacheReadTokens * pricing.input / 1_000_000;
+    const actualCacheReadCost = cacheReadCost;
+    const savedAmount = costIfNoCache - actualCacheReadCost;
     
-    // Real savings from caching + context optimization
-    const savedPercent = withoutOptimizations > 0 
-      ? Math.round((1 - withOptimizations / withoutOptimizations) * 100) 
+    // Calculate savings percentage based on what cache saved us
+    const savedPercent = costIfNoCache > 0
+      ? Math.round((savedAmount / (totalCost + savedAmount)) * 100)
       : 0;
 
     return {
@@ -73,7 +74,7 @@ export class ClaudeClient {
       cacheReadCost,
       cacheWriteCost,
       totalCost,
-      savedPercent: Math.max(0, Math.min(95, savedPercent)), // Cap at 95%
+      savedPercent: Math.max(0, Math.min(95, savedPercent)),
     };
   }
 
