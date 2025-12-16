@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
     const cacheKey = `${repoContext.owner}/${repoContext.repo}/${repoContext.branch}`;
     let fileTree = repoContext.fileTree || '';
 
-    if (!fileTree) {
+    if (!fileTree && github) {
       const cached = fileTreeCache.get(cacheKey);
       if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
         fileTree = cached.tree;
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
           
           if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
             uniquePaths = cached.results;
-          } else {
+          } else if (github) {
             const results = await github.searchFiles(keywords[0]).catch(() => []);
             uniquePaths = results.slice(0, 3); // Reduced from 5
             searchCache.set(searchKey, { results: uniquePaths, timestamp: Date.now() });
@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
             }
             
             // Only fetch uncached files
-            if (uncachedPaths.length > 0) {
+            if (uncachedPaths.length > 0 && github) {
               const newFiles = await github.getFilesWithImports(uncachedPaths, repoContext.branch, 1); // Reduced depth
               
               // Cache new content
@@ -207,7 +207,7 @@ export async function POST(request: NextRequest) {
     // Process tool calls if any
     let fileChanges: FileChange[] = [];
     
-    if (response.toolCalls) {
+    if (response.toolCalls && github) {
       for (const toolCall of response.toolCalls) {
         if (toolCall.name === 'str_replace') {
           const input = toolCall.input as { path: string; old_str: string; new_str: string };
