@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
               const cachedContent = fileContentCache.get(contentKey);
               
               if (cachedContent && Date.now() - cachedContent.timestamp < CONTENT_CACHE_TTL) {
-                cachedFiles.push({ path, content: cachedContent.content });
+                cachedFiles.push({ path, content: cachedContent.content, sha: '' });
               } else {
                 uncachedPaths.push(path);
               }
@@ -340,7 +340,7 @@ export async function PUT(request: NextRequest) {
               const cachedContent = fileContentCache.get(contentKey);
               
               if (cachedContent && Date.now() - cachedContent.timestamp < CONTENT_CACHE_TTL) {
-                cachedFiles.push({ path, content: cachedContent.content });
+                cachedFiles.push({ path, content: cachedContent.content, sha: '' });
               }
             }
             
