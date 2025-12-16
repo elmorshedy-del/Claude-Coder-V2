@@ -57,18 +57,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!githubToken) {
-      return NextResponse.json(
-        { error: 'GitHub token required' },
-        { status: 401 }
-      );
-    }
-
     // Initialize clients based on file access mode
     const claude = new ClaudeClient(anthropicKey, settings.model);
     const isLocalMode = settings.fileAccessMode === 'local' && settings.localWorkspacePath;
     
-    const github = isLocalMode ? null : new GitHubClient(githubToken, repoContext.owner, repoContext.repo);
+    // GitHub token only required for GitHub mode
+    if (!isLocalMode && !githubToken) {
+      return NextResponse.json(
+        { error: 'GitHub token required for GitHub API mode' },
+        { status: 401 }
+      );
+    }
+    
+    const github = isLocalMode ? null : new GitHubClient(githubToken!, repoContext.owner, repoContext.repo);
     const localFs = isLocalMode ? new LocalFileSystem(settings.localWorkspacePath!) : null;
 
     // Get or cache file tree
