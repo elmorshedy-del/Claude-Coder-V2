@@ -995,7 +995,7 @@ export default function Home() {
       <div className="min-h-screen flex items-center justify-center p-8 bg-[var(--claude-bg)]">
         <div className="w-full max-w-md space-y-6 animate-fade-in-up">
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-serif text-[var(--claude-text)] mb-2">Claude Coder</h1>
+            <h1 className="text-3xl font-serif text-[var(--claude-text)] mb-2">🚀 Claude Coder</h1>
             <p className="text-[var(--claude-text-secondary)]">Setup required - add your API keys</p>
           </div>
 
@@ -1079,7 +1079,7 @@ export default function Home() {
         {/* Header */}
         <header className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-[var(--claude-border)] bg-[var(--claude-surface)]">
           <div className="flex items-center gap-4">
-            <h1 className="text-lg font-serif text-[var(--claude-text)]">Claude Coder</h1>
+            <h1 className="text-lg font-serif text-[var(--claude-text)]">🚀 Claude Coder</h1>
 
             {/* Repo selector */}
             <div className="relative" ref={repoDropdownRef}>
