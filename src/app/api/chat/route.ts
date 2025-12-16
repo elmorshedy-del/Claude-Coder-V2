@@ -528,12 +528,20 @@ export async function PUT(request: NextRequest) {
             }
 
             // ===============================================================
-            // STUCK DETECTION - Prevent infinite loops
+            // STUCK DETECTION - Prevent infinite loops and analysis paralysis
             // ===============================================================
             const currentToolCallsSignature = pendingToolCalls
               .map(t => `${t.name}:${JSON.stringify(t.input)}`)
               .sort()
               .join('|');
+
+            // Detect analysis paralysis: only reading/searching without editing
+            const hasEditTools = pendingToolCalls.some(t => 
+              t.name === 'str_replace' || t.name === 'create_file'
+            );
+            const onlyAnalysisTools = pendingToolCalls.every(t => 
+              t.name === 'read_file' || t.name === 'search_files' || t.name === 'grep_search'
+            );
 
             if (currentToolCallsSignature === lastToolCallsSignature) {
               repeatCount++;
@@ -555,13 +563,36 @@ export async function PUT(request: NextRequest) {
                   content: [{
                     type: 'tool_result',
                     tool_use_id: pendingToolCalls[0].id,
-                    content: 'You seem to be repeating the same actions. Please try a different approach or explain what\'s blocking you from completing the task.'
+                    content: 'You seem to be repeating the same actions. Stop analyzing and START MAKING EDITS NOW. Use str_replace or create_file to actually fix the issues.'
                   }],
                 });
                 lastToolCallsSignature = '';
                 repeatCount = 0;
                 continue;
               }
+            } else if (onlyAnalysisTools && round >= 3 && fileChanges.length === 0) {
+              // Analysis paralysis: 3+ rounds of only reading without any edits
+              controller.enqueue(encoder.encode(JSON.stringify({
+                type: 'stuck_warning',
+                round: round + 1,
+                message: 'Claude is analyzing without making changes. Nudging to take action...',
+              }) + '\n'));
+
+              convo.push({
+                role: 'assistant',
+                content: assistantBlocks.length > 0 ? assistantBlocks : [{ type: 'text', text: '' }],
+              });
+              convo.push({
+                role: 'user',
+                content: [{
+                  type: 'tool_result',
+                  tool_use_id: pendingToolCalls[0].id,
+                  content: 'STOP SEARCHING. You have enough information. Make the actual code changes NOW using str_replace or create_file. Do not search or read more files.'
+                }],
+              });
+              lastToolCallsSignature = '';
+              repeatCount = 0;
+              continue;
             } else {
               lastToolCallsSignature = currentToolCallsSignature;
               repeatCount = 0;
