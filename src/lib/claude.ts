@@ -459,23 +459,7 @@ export class ClaudeClient {
   // --------------------------------------------------------------------------
 
   getDefaultTools(toolExecutionMode: ToolExecutionMode = 'direct'): ClaudeTool[] {
-    // Configure allowed_callers based on tool execution mode
-    const getAllowedCallers = () => {
-      switch (toolExecutionMode) {
-        case 'direct':
-          return ['direct'];
-        case 'hybrid':
-          return ['direct', 'code_execution_20250825'];
-        case 'programmatic':
-          return ['code_execution_20250825'];
-        default:
-          return ['direct'];
-      }
-    };
-    
-    const allowedCallers = getAllowedCallers();
-    
-    return [
+    const baseTools = [
       {
         name: 'read_file',
         description: 'Read the contents of a file from the repository',
@@ -489,7 +473,6 @@ export class ClaudeClient {
           },
           required: ['path'],
         },
-        ...(toolExecutionMode !== 'direct' && { allowed_callers: allowedCallers }),
       },
       {
         name: 'str_replace',
@@ -512,7 +495,6 @@ export class ClaudeClient {
           },
           required: ['path', 'old_str', 'new_str'],
         },
-        ...(toolExecutionMode !== 'direct' && { allowed_callers: allowedCallers }),
       },
       {
         name: 'create_file',
@@ -531,7 +513,6 @@ export class ClaudeClient {
           },
           required: ['path', 'content'],
         },
-        ...(toolExecutionMode !== 'direct' && { allowed_callers: allowedCallers }),
       },
       {
         name: 'search_files',
@@ -546,7 +527,6 @@ export class ClaudeClient {
           },
           required: ['query'],
         },
-        ...(toolExecutionMode !== 'direct' && { allowed_callers: allowedCallers }),
       },
       {
         name: 'grep_search',
@@ -565,7 +545,6 @@ export class ClaudeClient {
           },
           required: ['query'],
         },
-        ...(toolExecutionMode !== 'direct' && { allowed_callers: allowedCallers }),
       },
       {
         name: 'verify_edit',
@@ -584,9 +563,22 @@ export class ClaudeClient {
           },
           required: ['path', 'expected_content'],
         },
-        ...(toolExecutionMode !== 'direct' && { allowed_callers: allowedCallers }),
       },
     ];
+
+    // Only add allowed_callers for non-direct modes
+    if (toolExecutionMode === 'direct') {
+      return baseTools;
+    }
+
+    const allowedCallers = toolExecutionMode === 'hybrid' 
+      ? ['direct', 'code_execution_20250825']
+      : ['code_execution_20250825'];
+
+    return baseTools.map(tool => ({
+      ...tool,
+      allowed_callers: allowedCallers,
+    }));
   }
 
   // --------------------------------------------------------------------------

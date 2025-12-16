@@ -331,7 +331,7 @@ export const DEFAULT_SETTINGS: Settings = {
   railwayServiceName: '', // Empty by default, user sets in settings
   model: 'claude-sonnet-4-5-20250929',
   effort: 'medium',
-  toolExecutionMode: 'hybrid',
+  toolExecutionMode: 'direct', // Fastest - use hybrid/programmatic for cost optimization
   enableWebSearch: true,
   webSearchMode: 'auto',
   enableExtendedThinking: false,
