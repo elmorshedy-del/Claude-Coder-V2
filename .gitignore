@@ -22,6 +22,7 @@ build/
 .next/
 out/
 .vite/
+data/
 
 # caches
 .cache/

@@ -7,6 +7,7 @@ import {
   Plus,
   GitBranch,
   ChevronDown,
+  Bell,
   Moon,
   Sun,
   Square,
@@ -40,6 +41,7 @@ import FileUpload from '@/components/FileUpload';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import CostTracker from '@/components/CostTracker';
 import QuickSettings from '@/components/QuickSettings';
+import NotificationCenter from '@/components/NotificationCenter';
 
 // ============================================================================
 // MAIN PAGE COMPONENT
@@ -85,6 +87,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
   const [quickSettingsOpen, setQuickSettingsOpen] = useState<boolean>(false);
+  const [notificationCenterOpen, setNotificationCenterOpen] = useState<boolean>(false);
   const [darkMode, setDarkMode] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
@@ -1170,6 +1173,25 @@ export default function Home() {
               sessionTotal={totalCost}
               compact
             />
+
+            {/* Notification centre */}
+            <div className="relative">
+              <button
+                onClick={() => setNotificationCenterOpen(!notificationCenterOpen)}
+                className={`p-2 rounded-lg transition-colors ${
+                  notificationCenterOpen
+                    ? 'bg-[var(--claude-terracotta-subtle)] text-[var(--claude-terracotta)]'
+                    : 'hover:bg-[var(--claude-sand-light)] text-[var(--claude-text-secondary)]'
+                }`}
+                title="Notification centre"
+              >
+                <Bell className="w-5 h-5" />
+              </button>
+              <NotificationCenter
+                isOpen={notificationCenterOpen}
+                onClose={() => setNotificationCenterOpen(false)}
+              />
+            </div>
 
             {/* Artifacts toggle - only show if there are artifacts */}
             {artifacts.length > 0 && (
