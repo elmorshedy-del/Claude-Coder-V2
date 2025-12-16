@@ -527,7 +527,8 @@ export default function Home() {
         'Content-Type': 'application/json',
         'x-anthropic-key': anthropicKey,
       };
-      if (githubToken) {
+      // Only add GitHub token if NOT in local mode or if we have a token
+      if (githubToken && settings.fileAccessMode !== 'local') {
         headers['x-github-token'] = githubToken;
       }
 
@@ -545,13 +546,13 @@ export default function Home() {
         body: JSON.stringify({
           messages: apiMessages,
           settings: effectiveSettings,
-          repoContext: currentRepo ? {
-            owner: currentRepo.owner,
-            repo: currentRepo.name,
-            branch: currentBranch,
+          repoContext: (settings.fileAccessMode === 'local' || currentRepo) ? {
+            owner: currentRepo?.owner || '',
+            repo: currentRepo?.name || '',
+            branch: currentBranch || 'main',
             fileTree: repoCache?.fileTree,
             loadedFiles: repoCache?.loadedFiles,
-          } : { owner: '', repo: '', branch: '' },
+          } : undefined,
           files: userMessage.files,
         }),
         signal: abortControllerRef.current.signal,

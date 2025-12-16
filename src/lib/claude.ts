@@ -764,17 +764,23 @@ export function getSystemPrompt(
   owner: string,
   repo: string,
   branch: string,
-  enableWebSearch: boolean = false
+  enableWebSearch: boolean = false,
+  isLocalMode: boolean = false
 ): string {
-  const tools = ['read_file', 'search_files', 'str_replace', 'create_file', 'grep_search', 'verify_edit'];
-  if (enableWebSearch) tools.push('web_search');
+  const tools = ['read_file', 'search_files', 'str_replace', 'create_file', 'grep_search', 'verify_edit', 'run_command'];
+  if (enableWebSearch) tools.push('web_search', 'web_fetch');
+
+  const repoInfo = isLocalMode
+    ? `## Local Filesystem Mode
+You have direct access to the local filesystem. All file operations work on the user's local machine.`
+    : `## Repository Context
+- Owner: ${owner}
+- Repo: ${repo}
+- Branch: ${branch}`;
 
   return `You are Claude, an AI assistant helping with coding.
 
-## Repository Context
-- Owner: ${owner}
-- Repo: ${repo}
-- Branch: ${branch}
+${repoInfo}
 
 ## Available Tools
 ${tools.join(', ')}
@@ -792,6 +798,7 @@ Work silently. Use tools, then report results concisely.
 2. old_str must be UNIQUE and EXACT
 3. ALWAYS verify_edit after str_replace
 4. Use create_file for new files
+5. Use run_command for bash operations (tests, git, npm, etc.)
 
 ## Final Response Format
 **Fixed [issue]:**

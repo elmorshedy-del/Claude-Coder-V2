@@ -383,12 +383,13 @@ export async function PUT(request: NextRequest) {
       ? generateCodeContext(fileTree, loadedFiles)
       : '';
 
-    const systemPrompt = hasRepoContext
+    const systemPrompt = hasRepoContext || isLocalMode
       ? getSystemPrompt(
-          repoContext.owner,
-          repoContext.repo,
-          repoContext.branch,
-          settings.enableWebSearch
+          repoContext?.owner || '',
+          repoContext?.repo || '',
+          repoContext?.branch || 'main',
+          settings.enableWebSearch,
+          isLocalMode
         )
       : getChatOnlySystemPrompt(settings.enableWebSearch);
 
@@ -548,11 +549,14 @@ export async function PUT(request: NextRequest) {
               break;
             }
 
-            // If tools were requested but we have no GitHub client, stop gracefully
-            if (!github) {
+            // If tools were requested but we have no filesystem access, stop gracefully
+            if (!github && !localFs) {
+              const message = isLocalMode
+                ? '\n\n[File tools requested, but local workspace path is not configured. Please set the workspace path in Settings.]'
+                : '\n\n[Repo tools requested, but GitHub token is missing/invalid. Please reconnect GitHub and try again.]';
               controller.enqueue(encoder.encode(JSON.stringify({
                 type: 'text',
-                content: '\n\n[Repo tools requested, but GitHub token is missing/invalid. Please reconnect GitHub and try again.]',
+                content: message,
                 round: round + 1,
               }) + '\n'));
               break;
