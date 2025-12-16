@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img">
+  <defs>
+    <linearGradient id="ember" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#ffbb5a" />
+      <stop offset="50%" stop-color="#ff8c42" />
+      <stop offset="100%" stop-color="#f15b2a" />
+    </linearGradient>
+    <linearGradient id="ember-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2a1a4a" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#0c0f1a" stop-opacity="0.95" />
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="14" fill="#0d111a" />
+  <rect width="64" height="64" rx="14" fill="url(#ember-glow)" />
+
+  <path
+    d="M12 32c0-11.046 8.954-20 20-20 6.87 0 13.45 3.606 17.064 9.382a2 2 0 01-3.428 2.036C42.98 18.7 38.108 16 32 16c-8.837 0-16 7.163-16 16s7.163 16 16 16c6.039 0 10.836-2.64 13.723-7.63a2 2 0 013.514 1.956C46.533 48.544 39.828 52 32 52c-11.046 0-20-8.954-20-20z"
+    fill="#f7f7f9"
+    fill-opacity="0.08"
+  />
+
+  <path
+    d="M22.5 32c0-5.247 4.253-9.5 9.5-9.5 3.145 0 6.048 1.548 7.972 3.927a2 2 0 003.059-2.57C40.133 20.282 36.286 18 32 18c-7.18 0-13 5.82-13 13s5.82 13 13 13c4.362 0 8.17-2.211 10.357-5.598a2 2 0 10-3.373-2.175C37.917 38.39 35.124 40 32 40c-5.247 0-9.5-4.253-9.5-9.5z"
+    fill="url(#ember)"
+  />
+
+  <circle cx="41.5" cy="22.5" r="4" fill="#ffffff" fill-opacity="0.16" />
+  <circle cx="22" cy="42" r="5" fill="#ffffff" fill-opacity="0.08" />
+</svg>
