@@ -173,12 +173,15 @@ export async function POST(request: NextRequest) {
     // Prepare messages with file uploads if any
     const apiMessages = messages.map(m => {
       if (m.role === 'user' && files && files.length > 0) {
-        // Include file content in the message
+        // Include file content in the message as text
         const fileContent = files.map(f => {
           try {
-            const decoded = Buffer.from(f.base64, 'base64').toString('utf-8');
+            // Ensure base64 string is clean (no data URL prefix)
+            const base64Data = f.base64.replace(/^data:[^;]+;base64,/, '');
+            const decoded = Buffer.from(base64Data, 'base64').toString('utf-8');
             return `\n\n[Attached file: ${f.name}]\n${decoded}`;
           } catch (e) {
+            console.error('Failed to decode file:', e);
             return `\n\n[Attached file: ${f.name}] (failed to decode)`;
           }
         }).join('');
