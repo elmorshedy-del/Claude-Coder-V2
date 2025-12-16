@@ -102,7 +102,7 @@ export class ClaudeClient {
   // --------------------------------------------------------------------------
 
   async chat(
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+    messages: Array<{ role: 'user' | 'assistant'; content: string | Anthropic.ContentBlockParam[] }>,
     systemPrompt: string,
     codeContext: string,
     options: {
@@ -169,22 +169,32 @@ export class ClaudeClient {
       betas.push('interleaved-thinking-2025-05-14');
     }
 
+    // Build system blocks with prompt caching for BOTH system prompt and code context
+    // Cache order matters: put most stable content first (system prompt), then code context
+    // Both get cache_control to maximize cache hits (90% cost savings on cached tokens)
+    const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [];
+    if (systemPrompt && systemPrompt.trim()) {
+      systemBlocks.push({
+        type: 'text',
+        text: systemPrompt,
+        // Cache system prompt - it's stable across messages in a conversation
+        cache_control: { type: 'ephemeral' },
+      });
+    }
+    if (codeContext && codeContext.trim()) {
+      systemBlocks.push({
+        type: 'text',
+        text: codeContext,
+        // Cache code context - stable within a session (file tree + loaded files)
+        cache_control: { type: 'ephemeral' },
+      });
+    }
+
     // Build request parameters
     const requestParams: Anthropic.MessageCreateParams = {
       model: this.model,
       max_tokens: config.maxTokens,
-      system: [
-        {
-          type: 'text',
-          text: systemPrompt,
-        },
-        {
-          type: 'text',
-          text: codeContext,
-          // Enable prompt caching for code context (1-hour extended TTL)
-          cache_control: { type: 'ephemeral' },
-        },
-      ],
+      system: systemBlocks.length > 0 ? systemBlocks : undefined,
       messages: messages.map(m => ({
         role: m.role,
         content: m.content,
@@ -278,7 +288,7 @@ export class ClaudeClient {
   // --------------------------------------------------------------------------
 
   async *streamChat(
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+    messages: Array<{ role: 'user' | 'assistant'; content: string | Anthropic.ContentBlockParam[] }>,
     systemPrompt: string,
     codeContext: string,
     options: {
@@ -325,21 +335,28 @@ export class ClaudeClient {
       betas.push('interleaved-thinking-2025-05-14');
     }
 
+    // Build system blocks with prompt caching for BOTH system prompt and code context
+    const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [];
+    if (systemPrompt && systemPrompt.trim()) {
+      systemBlocks.push({
+        type: 'text',
+        text: systemPrompt,
+        cache_control: { type: 'ephemeral' },
+      });
+    }
+    if (codeContext && codeContext.trim()) {
+      systemBlocks.push({
+        type: 'text',
+        text: codeContext,
+        cache_control: { type: 'ephemeral' },
+      });
+    }
+
     const requestParams: Anthropic.MessageCreateParams = {
       model: this.model,
       max_tokens: config.maxTokens,
       stream: true,
-      system: [
-        {
-          type: 'text',
-          text: systemPrompt,
-        },
-        {
-          type: 'text',
-          text: codeContext,
-          cache_control: { type: 'ephemeral' },
-        },
-      ],
+      system: systemBlocks.length > 0 ? systemBlocks : undefined,
       messages: messages.map(m => ({
         role: m.role,
         content: m.content,
@@ -518,6 +535,24 @@ export class ClaudeClient {
           required: ['query'],
         },
       },
+      {
+        name: 'verify_edit',
+        description: 'After making an edit with str_replace, verify the change was applied correctly by checking if expected content exists in the file. ALWAYS use this after str_replace to confirm your edit worked.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            path: {
+              type: 'string',
+              description: 'The path to the file to verify',
+            },
+            expected_content: {
+              type: 'string',
+              description: 'A snippet of text that should now exist in the file after the edit',
+            },
+          },
+          required: ['path', 'expected_content'],
+        },
+      },
     ];
   }
 
@@ -669,24 +704,63 @@ export function getSystemPrompt(
   branch: string,
   enableWebSearch: boolean = false
 ): string {
-  const tools = ['read_file', 'search_files', 'str_replace', 'create_file', 'grep_search'];
+  const tools = ['read_file', 'search_files', 'str_replace', 'create_file', 'grep_search', 'verify_edit'];
   if (enableWebSearch) tools.push('web_search');
 
-  return `You are Claude, an AI assistant helping with coding.
-You have access to the following repository:
+  return `You are Claude, an AI assistant helping with coding. You are an AGENTIC assistant - you autonomously work through tasks step by step until they are FULLY completed.
+
+## Repository Context
 - Owner: ${owner}
 - Repo: ${repo}
 - Branch: ${branch}
 
-Available tools: ${tools.join(', ')}
+## Available Tools
+${tools.join(', ')}
 
-When making edits:
-1. Use str_replace for small changes (preferred - more efficient)
-2. The old_str must be UNIQUE and EXACT
+## THINKING PROCESS (Critical!)
+
+Before taking any action, briefly think through:
+1. What is the user asking for?
+2. What do I know vs what do I need to find out?
+3. What's my plan to complete this task?
+
+After each tool result, consider:
+1. What did I learn from this result?
+2. Does this change my plan?
+3. What's the logical next step?
+
+## COMPLETION CRITERIA
+
+Only respond to the user when you have FULLY completed the task or genuinely need clarification. Don't stop halfway.
+
+Signs you're done:
+- All requested changes are made AND verified
+- All files that needed editing are edited
+- You've confirmed your changes work (via verify_edit)
+
+Signs you need more work:
+- You made an edit but haven't verified it
+- You found an issue but haven't fixed it
+- The user asked for multiple things and you've only done some
+
+## EDITING RULES
+
+1. Use str_replace for changes (preferred - more efficient)
+2. The old_str must be UNIQUE and EXACT (include surrounding context if needed)
 3. Use create_file only for new files
-4. Always explain what you're doing
+4. **ALWAYS use verify_edit after str_replace to confirm the edit worked**
+5. If str_replace fails, try using more context around the string to make it unique
+6. Explain what you're doing as you work
 
-If a str_replace fails, try using more context around the string to make it unique.`;
+## AGENTIC BEHAVIOR
+
+You have access to tools and should use them proactively:
+- Read files to understand code before changing it
+- Search for related code before making changes
+- Verify your edits worked
+- Keep going until the task is truly complete
+
+Don't ask the user questions you can answer by reading code. Use your tools!`;
 }
 
 // ----------------------------------------------------------------------------
@@ -697,6 +771,7 @@ export function generateCodeContext(
   fileTree: string,
   files: Array<{ path: string; content: string }>
 ): string {
+<<<<<<< HEAD
   // Optimized context - only include relevant parts
   let context = '';
   
@@ -706,15 +781,41 @@ export function generateCodeContext(
     context += `## Repository Structure\n\`\`\`\n${compactTree}\n\`\`\`\n\n`;
   }
   
+=======
+  const MAX_TREE_CHARS = 12000;
+  const MAX_FILE_CHARS = 16000;
+
+  // Escape code fences inside content to prevent markdown breakage
+  const escapeCodeFences = (content: string): string => {
+    // Replace ``` with an escaped version that won't break markdown parsing
+    return content.replace(/```/g, '\\`\\`\\`');
+  };
+
+  const clippedTree = fileTree.length > MAX_TREE_CHARS
+    ? fileTree.slice(0, MAX_TREE_CHARS) + "\n...[truncated repository tree]"
+    : fileTree;
+
+  let context = `## Repository Structure\n\`\`\`\n${escapeCodeFences(clippedTree)}\n\`\`\`\n\n`;
+>>>>>>> d007959d5bc24d25775ab5aef85b4740eb9bf414
   context += `## Loaded Files\n\n`;
 
   for (const file of files) {
     const ext = file.path.split('.').pop() || '';
+<<<<<<< HEAD
     // Truncate large files to save tokens
     const content = file.content.length > 3000 
       ? file.content.slice(0, 3000) + '\n\n// ... (truncated, use read_file for full content)'
       : file.content;
     context += `### ${file.path}\n\`\`\`${ext}\n${content}\n\`\`\`\n\n`;
+=======
+    const clipped = file.content.length > MAX_FILE_CHARS
+      ? file.content.slice(0, MAX_FILE_CHARS) + `
+
+...[truncated file: ${file.content.length} chars total]`
+      : file.content;
+
+    context += `### ${file.path}\n\`\`\`${ext}\n${escapeCodeFences(clipped)}\n\`\`\`\n\n`;
+>>>>>>> d007959d5bc24d25775ab5aef85b4740eb9bf414
   }
 
   context += `\nUse read_file, search_files, or grep_search to explore more.\n`;
@@ -754,3 +855,6 @@ export function extractKeywords(message: string): string[] {
   
   return Array.from(words).slice(0, 5); // Reduced to 5 keywords
 }
+
+
+

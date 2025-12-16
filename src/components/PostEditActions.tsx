@@ -1,12 +1,12 @@
 'use client';
 
 import React from 'react';
-import { ExternalLink, Trash2, Check, X, GitBranch, FileCode, Plus, Minus } from 'lucide-react';
+import { ExternalLink, Trash2, Check, X, GitBranch, FileCode, Plus, Minus, Eye } from 'lucide-react';
 import { PostEditState, FileChange } from '@/types';
 
 interface PostEditActionsProps {
   state: PostEditState;
-  onViewPR?: () => void;
+  onViewPR?: (prUrl?: string) => void;
   onDiscard?: () => void;
   onConfirm?: () => void;
   onCancel?: () => void;
@@ -20,6 +20,14 @@ export default function PostEditActions({
   onCancel,
 }: PostEditActionsProps) {
   const { mode, branch, filesChanged, totalAdditions, totalDeletions, prUrl, previewUrl, status } = state;
+
+  const handleViewPR = () => {
+    if (onViewPR) {
+      onViewPR(prUrl);
+    } else if (prUrl) {
+      window.open(prUrl, '_blank');
+    }
+  };
 
   return (
     <div className="rounded-2xl border border-[var(--claude-border)] bg-[var(--claude-surface)] p-5 shadow-sm animate-fade-in-up">
@@ -102,12 +110,23 @@ export default function PostEditActions({
         {mode === 'safe' ? (
           <>
             <button
-              onClick={onViewPR}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--claude-terracotta)] text-white font-medium hover:bg-[var(--claude-terracotta-hover)] transition-colors"
+              onClick={handleViewPR}
+              disabled={!prUrl && !onViewPR}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--claude-terracotta)] text-white font-medium hover:bg-[var(--claude-terracotta-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <ExternalLink className="w-4 h-4" />
               View PR
             </button>
+            {/* View Preview button - only shows when previewUrl is available */}
+            {previewUrl && (
+              <button
+                onClick={() => window.open(previewUrl, '_blank')}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--claude-success)] text-white font-medium hover:bg-[var(--claude-success)]/80 transition-colors"
+              >
+                <Eye className="w-4 h-4" />
+                Preview
+              </button>
+            )}
             <button
               onClick={onDiscard}
               className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-[var(--claude-border)] text-[var(--claude-text-secondary)] hover:bg-[var(--claude-surface-sunken)] transition-colors"

@@ -12,7 +12,8 @@ import {
   Square,
   Search,
   Brain,
-  Lock
+  Lock,
+  Box,
 } from 'lucide-react';
 import {
   Message,
@@ -114,6 +115,8 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const repoDropdownRef = useRef<HTMLDivElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
 
   // --------------------------------------------------------------------------
   // EFFECTS - Initialize from localStorage
@@ -143,10 +146,12 @@ export default function Home() {
     if (savedConversations) setConversations(JSON.parse(savedConversations));
     if (savedSettings) {
       const parsed = JSON.parse(savedSettings);
-      // Ensure webSearchMode exists for migrating old settings
+      // Migrate old settings: ensure webSearchMode exists
       if (!parsed.webSearchMode) {
         parsed.webSearchMode = parsed.enableWebSearch ? 'auto' : 'off';
       }
+      // Remove deprecated fields if they exist
+      delete parsed.webSearchAutoDetect;
       setSettings(parsed);
     }
     if (savedDarkMode) setDarkMode(savedDarkMode === 'true');
@@ -188,6 +193,34 @@ export default function Home() {
       document.documentElement.classList.remove('dark');
     }
   }, [darkMode]);
+
+  // --------------------------------------------------------------------------
+  // EFFECTS - Click outside to close dropdowns
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      // Close repo dropdown if clicking outside
+      if (
+        showRepoDropdown &&
+        repoDropdownRef.current &&
+        !repoDropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowRepoDropdown(false);
+      }
+
+      // Close model dropdown if clicking outside
+      if (
+        showModelDropdown &&
+        modelDropdownRef.current &&
+        !modelDropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowModelDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showRepoDropdown, showModelDropdown]);
 
   // --------------------------------------------------------------------------
   // EFFECTS - Scroll to bottom on new messages
@@ -296,15 +329,37 @@ export default function Home() {
   };
 
   // --------------------------------------------------------------------------
-  // FUNCTIONS - Select repo (LAZY - NO API CALLS)
+  // FUNCTIONS - Fetch branches for a repo
+  // --------------------------------------------------------------------------
+  const fetchBranches = async (owner: string, repoName: string) => {
+    if (!githubToken) return;
+
+    try {
+      const response = await fetch(
+        `/api/github?action=branches&owner=${owner}&repo=${repoName}`,
+        {
+          headers: { 'x-github-token': githubToken },
+        }
+      );
+      const data = await response.json();
+      if (data.branches) {
+        setBranches(data.branches.map((b: { name: string }) => b.name));
+      }
+    } catch (error) {
+      console.error('Failed to fetch branches:', error);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // FUNCTIONS - Select repo
   // --------------------------------------------------------------------------
   const handleSelectRepo = (repo: Repository | null) => {
     setCurrentRepo(repo);
     if (repo) {
       setCurrentBranch(repo.defaultBranch);
-      // LAZY LOADING: Don't fetch branches here
-      // Branches will be fetched on first message if needed
-      setBranches([repo.defaultBranch]);
+      setBranches([repo.defaultBranch]); // Set default immediately
+      // Fetch all branches asynchronously
+      fetchBranches(repo.owner, repo.name);
     } else {
       setCurrentBranch('main');
       setBranches(['main']);
@@ -387,6 +442,9 @@ export default function Home() {
       isStreaming: true,
     };
 
+    // Save input value for conversation title before clearing
+    const savedInputValue = inputValue;
+
     // Update UI
     const newMessages = [...messages, userMessage, assistantMessage];
     setMessages(newMessages);
@@ -445,10 +503,12 @@ export default function Home() {
       if (!reader) throw new Error('No response body');
 
       const decoder = new TextDecoder();
+      let buffer = '';
       let accumulatedContent = '';
       let accumulatedThinking = '';
       let finalCost = 0;
       let finalSavedPercent = 0;
+      let finalPrUrl: string | undefined;
       const allArtifacts: Artifact[] = [];
       const allFileChanges: FileChange[] = [];
 
@@ -456,10 +516,15 @@ export default function Home() {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const text = decoder.decode(value, { stream: true });
-        const lines = text.split('\n').filter(line => line.trim());
+        buffer += decoder.decode(value, { stream: true });
 
-        for (const line of lines) {
+        // Process complete JSONL lines; keep any partial line in `buffer`.
+        const parts = buffer.split('\n');
+        buffer = parts.pop() || '';
+
+        for (const line of parts) {
+          if (!line.trim()) continue;
+
           try {
             const chunk = JSON.parse(line);
 
@@ -485,17 +550,26 @@ export default function Home() {
                   action: chunk.toolCall.name === 'create_file' ? 'create' : 'edit',
                 });
               }
+            } else if (chunk.type === 'tool_result') {
+              // Tool result received - could display to user if needed
+              // Currently we just track file changes from the done event
             } else if (chunk.type === 'done') {
               finalCost = chunk.cost || 0;
               finalSavedPercent = chunk.savedPercent || 0;
               if (chunk.fileChanges) {
                 allFileChanges.push(...chunk.fileChanges);
               }
+              if (chunk.prUrl) {
+                finalPrUrl = chunk.prUrl;
+              }
             } else if (chunk.error) {
               throw new Error(chunk.error);
             }
           } catch (e) {
             if (!(e instanceof SyntaxError)) throw e;
+            // In case we accidentally got a partial line, re-append and wait for more data.
+            buffer = line + '\n' + buffer;
+            break;
           }
         }
       }
@@ -525,6 +599,7 @@ export default function Home() {
         thinkingContent: accumulatedThinking || undefined,
         artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
         filesChanged: allFileChanges.length > 0 ? allFileChanges : undefined,
+        prUrl: finalPrUrl,
       };
 
       const finalMessages = [...messages, userMessage, updatedAssistant];
@@ -541,7 +616,8 @@ export default function Home() {
         c.id === convId
           ? {
               ...c,
-              title: c.messages.length === 0 ? inputValue.slice(0, 50) : c.title,
+              // Use savedInputValue and check original messages length (before this turn)
+              title: c.title === 'New conversation' || c.messages.length === 0 ? savedInputValue.slice(0, 50) : c.title,
               messages: finalMessages,
               updatedAt: new Date(),
               totalCost: (c.totalCost || 0) + finalCost,
@@ -610,17 +686,119 @@ export default function Home() {
   // --------------------------------------------------------------------------
   // FUNCTIONS - View PR
   // --------------------------------------------------------------------------
-  const handleViewPR = (prUrl?: string) => {
+  const handleViewPR = async (prUrl?: string) => {
     if (prUrl) {
       window.open(prUrl, '_blank');
+      return;
+    }
+
+    if (!currentRepo) {
+      alert('Connect a GitHub repository to create a pull request.');
+      return;
+    }
+
+    if (!githubToken) {
+      alert('Add a GitHub token in Settings to create a pull request.');
+      return;
+    }
+
+    if (!currentBranch || currentBranch === currentRepo.defaultBranch) {
+      alert('Switch to a feature branch before creating a pull request.');
+      return;
+    }
+
+    const latestChangeMessage = [...messages].reverse().find(m =>
+      m.role === 'assistant' && m.filesChanged && m.filesChanged.length > 0
+    );
+
+    const filesChanged = latestChangeMessage?.filesChanged || [];
+    const changeSummary = filesChanged
+      .map(f =>
+        `- **${f.action}** \`${f.path}\`${f.additions ? ` (+${f.additions})` : ''}${
+          f.deletions ? ` (-${f.deletions})` : ''
+        }`
+      )
+      .join('\n');
+
+    const prTitle = filesChanged.length
+      ? `Claude: ${filesChanged.length} file${filesChanged.length === 1 ? '' : 's'} changed`
+      : `Claude: Updates from ${currentBranch}`;
+
+    const prBody = filesChanged.length
+      ? `## Changes\n\n${changeSummary}\n\n---\nPull request created from Claude Coder's View PR action.`
+      : `Pull request created from branch ${currentBranch} via Claude Coder's View PR action.`;
+
+    try {
+      const response = await fetch('/api/github', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-github-token': githubToken,
+        },
+        body: JSON.stringify({
+          action: 'createPR',
+          owner: currentRepo.owner,
+          repo: currentRepo.name,
+          title: prTitle,
+          body: prBody,
+          head: currentBranch,
+          base: currentRepo.defaultBranch,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create pull request');
+      }
+
+      const createdPrUrl: string | undefined = data.pr?.url;
+      const createdPrNumber: number | undefined = data.pr?.number;
+
+      if (createdPrUrl) {
+        setMessages(prev => {
+          const updated = [...prev];
+          for (let i = updated.length - 1; i >= 0; i--) {
+            const message = updated[i];
+            if (message.role === 'assistant' && message.filesChanged && message.filesChanged.length > 0) {
+              updated[i] = { ...message, prUrl: createdPrUrl, prNumber: createdPrNumber };
+              break;
+            }
+          }
+
+          if (currentConversationId) {
+            setConversations(curr =>
+              curr.map(conv =>
+                conv.id === currentConversationId
+                  ? { ...conv, messages: updated }
+                  : conv
+              )
+            );
+          }
+
+          return updated;
+        });
+
+        window.open(createdPrUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('View PR failed:', error);
+      const fallbackUrl = `https://github.com/${currentRepo.owner}/${currentRepo.name}/pulls`;
+      alert(`Could not create a pull request: ${(error as Error).message}. Opening GitHub pulls page instead.`);
+      window.open(fallbackUrl, '_blank');
     }
   };
 
   // --------------------------------------------------------------------------
-  // FUNCTIONS - Discard changes
+  // FUNCTIONS - Discard changes (delete working branch)
   // --------------------------------------------------------------------------
-  const handleDiscard = async (branch?: string) => {
-    if (!branch || !currentRepo) return;
+  const handleDiscard = async (branchToDelete?: string) => {
+    const targetBranch = branchToDelete || currentBranch;
+
+    // Don't delete the default branch
+    if (!currentRepo || targetBranch === currentRepo.defaultBranch) {
+      console.warn('Cannot discard default branch');
+      return;
+    }
 
     try {
       await fetch('/api/github', {
@@ -633,9 +811,14 @@ export default function Home() {
           action: 'deleteBranch',
           owner: currentRepo.owner,
           repo: currentRepo.name,
-          branch,
+          branch: targetBranch,
         }),
       });
+
+      // Switch back to default branch after discarding
+      setCurrentBranch(currentRepo.defaultBranch);
+      // Refresh branches list
+      fetchBranches(currentRepo.owner, currentRepo.name);
     } catch (error) {
       console.error('Failed to discard:', error);
     }
@@ -814,7 +997,7 @@ export default function Home() {
             <h1 className="text-lg font-serif text-[var(--claude-text)]">Claude Coder</h1>
 
             {/* Repo selector */}
-            <div className="relative">
+            <div className="relative" ref={repoDropdownRef}>
               <button
                 onClick={() => setShowRepoDropdown(!showRepoDropdown)}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-sm text-[var(--claude-text)] hover:border-[var(--claude-border-strong)] transition-colors"
@@ -890,6 +1073,21 @@ export default function Home() {
               compact
             />
 
+            {/* Artifacts toggle - only show if there are artifacts */}
+            {artifacts.length > 0 && (
+              <button
+                onClick={() => setShowArtifactsList(!showArtifactsList)}
+                className={`p-2 rounded-lg transition-colors ${
+                  showArtifactsList
+                    ? 'bg-[var(--claude-terracotta-subtle)] text-[var(--claude-terracotta)]'
+                    : 'hover:bg-[var(--claude-sand-light)] text-[var(--claude-text-secondary)]'
+                }`}
+                title={`${showArtifactsList ? 'Hide' : 'Show'} Artifacts (${artifacts.length})`}
+              >
+                <Box className="w-5 h-5" />
+              </button>
+            )}
+
             {/* Dark mode toggle */}
             <button
               onClick={() => setDarkMode(!darkMode)}
@@ -918,12 +1116,7 @@ export default function Home() {
               <ChatMessage
                 key={message.id}
                 message={message}
-                onViewPR={() => {
-                  const prUrl = currentRepo
-                    ? `https://github.com/${currentRepo.owner}/${currentRepo.name}/pulls`
-                    : undefined;
-                  handleViewPR(prUrl);
-                }}
+                onViewPR={(prUrl?: string) => handleViewPR(prUrl)}
                 onDiscard={() => handleDiscard()}
               />
               ))}
@@ -1015,7 +1208,7 @@ export default function Home() {
               />
 
               {/* Model dropdown */}
-              <div className="relative">
+              <div className="relative" ref={modelDropdownRef}>
                 <button
                   onClick={() => setShowModelDropdown(!showModelDropdown)}
                   className="flex items-center gap-1 px-3 py-3 rounded-xl bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-sm text-[var(--claude-text)] hover:border-[var(--claude-border-strong)] transition-colors"
@@ -1116,13 +1309,18 @@ export default function Home() {
         </div>
       )}
 
-      {/* Artifacts List */}
+      {/* Artifacts List Sidebar */}
       {showArtifactsList && artifacts.length > 0 && (
-        <ArtifactsList
-          artifacts={artifacts}
-          onSelect={setSelectedArtifact}
-          onDownloadAll={handleDownloadAllArtifacts}
-        />
+        <div className="flex flex-col">
+          <ArtifactsList
+            artifacts={artifacts}
+            onSelect={(artifact) => {
+              setSelectedArtifact(artifact);
+              setShowArtifactsList(false); // Close list when selecting an artifact
+            }}
+            onDownloadAll={handleDownloadAllArtifacts}
+          />
+        </div>
       )}
 
       {/* Settings Panel */}
@@ -1143,3 +1341,6 @@ export default function Home() {
     </div>
   );
 }
+
+
+

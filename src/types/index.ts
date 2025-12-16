@@ -21,6 +21,22 @@ export interface Message {
   thinkingContent?: string;
   artifacts?: Artifact[];
   citations?: Citation[];
+  // Tool action tracking for ActionBlock display
+  toolActions?: ToolAction[];
+  // PR info for Safe Mode
+  prUrl?: string;
+  prNumber?: number;
+  previewUrl?: string;
+}
+
+// Tool action for displaying tool usage in ActionBlock
+export interface ToolAction {
+  id: string;
+  type: 'web_search' | 'web_fetch' | 'read_file' | 'str_replace' | 'create_file' | 'grep_search' | 'search_files' | 'verify_edit';
+  status: 'running' | 'complete' | 'error';
+  summary: string;
+  details?: string;
+  result?: string;
 }
 
 export interface TokenUsage {
@@ -145,6 +161,7 @@ export type WebSearchMode = 'off' | 'manual' | 'auto';
 export interface Settings {
   // Deployment
   deployMode: 'safe' | 'direct';
+  railwayServiceName: string; // For building preview URLs
 
   // Model
   model: ModelType;
@@ -153,7 +170,6 @@ export interface Settings {
   // Features
   enableWebSearch: boolean;
   webSearchMode: WebSearchMode;
-  webSearchAutoDetect: boolean; // Legacy - use webSearchMode instead
   enableExtendedThinking: boolean;
   thinkingBudget: number;
   enableContextCompaction: boolean;
@@ -308,11 +324,11 @@ export interface ToolProperty {
 
 export const DEFAULT_SETTINGS: Settings = {
   deployMode: 'safe',
+  railwayServiceName: '', // Empty by default, user sets in settings
   model: 'claude-sonnet-4-5-20250929',
   effort: 'medium',
   enableWebSearch: true,
   webSearchMode: 'auto',
-  webSearchAutoDetect: true, // Legacy
   enableExtendedThinking: false,
   thinkingBudget: 10000,
   enableContextCompaction: true,
@@ -351,6 +367,74 @@ export const MODEL_PRICING: Record<ModelType, { input: number; output: number; c
     cacheWrite: 1.25, // 25% more = $1.25/M
   },
 };
+
+// ----------------------------------------------------------------------------
+// Application Constants
+// ----------------------------------------------------------------------------
+
+export const APP_CONSTANTS = {
+  // Cache settings
+  CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
+  MAX_CACHE_SIZE: 100,
+
+  // File content limits
+  MAX_TREE_CHARS: 12000,
+  MAX_FILE_CHARS: 16000,
+  MAX_FILE_SNIPPET_CHARS: 20000,
+  MAX_TOOL_RESULT_CHARS: 6000,
+
+  // Agentic loop settings - Claude decides when done, but we have safety limits
+  // These are effort-based: low=10 (cost efficient), medium=15, high=25 (complex tasks)
+  MAX_AGENTIC_ROUNDS_LOW: 10,
+  MAX_AGENTIC_ROUNDS_MEDIUM: 15,
+  MAX_AGENTIC_ROUNDS_HIGH: 25,
+  MAX_AGENTIC_ROUNDS: 10, // Default (low) for backward compatibility
+  MAX_TOOL_ROUNDS: 10, // Alias for backward compatibility
+
+  // Search limits
+  MAX_GREP_RESULTS: 50,
+  MAX_SEARCH_RESULTS: 20,
+  MAX_KEYWORDS: 10,
+
+  // Thinking budget range
+  MIN_THINKING_BUDGET: 1024,
+  MAX_THINKING_BUDGET: 32000,
+
+  // Conversation title length
+  MAX_TITLE_LENGTH: 50,
+
+  // Stuck detection - how many times same tool calls can repeat
+  MAX_REPEATED_TOOL_CALLS: 2,
+} as const;
+
+// ----------------------------------------------------------------------------
+// Agentic Loop Types
+// ----------------------------------------------------------------------------
+
+export interface AgenticState {
+  round: number;
+  seenFiles: Set<string>;
+  lastToolCalls: string[];
+  isStuck: boolean;
+  stuckReason?: string;
+}
+
+export interface AgenticStreamChunk {
+  type: 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'tool_start' | 'round_start' | 'stuck_warning' | 'done' | 'error';
+  content?: string;
+  round?: number;
+  toolCall?: { id: string; name: string; input: Record<string, unknown> };
+  toolUseId?: string;
+  name?: string;
+  result?: string;
+  message?: string; // Human-friendly message
+  cost?: number;
+  savedPercent?: number;
+  fileChanges?: FileChange[];
+  seenFiles?: string[];
+  prUrl?: string;
+  prNumber?: number;
+}
 
 // Model display names for UI
 export const MODEL_DISPLAY_NAMES: Record<ModelType, { name: string; cost: string; description: string }> = {

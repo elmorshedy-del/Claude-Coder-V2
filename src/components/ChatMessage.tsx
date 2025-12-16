@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import { User, Sparkles } from 'lucide-react';
 import { Message } from '@/types';
 import ThinkingBlock from './ThinkingBlock';
+import ActionBlock from './ActionBlock';
 import CodeBlock from './CodeBlock';
 import CostTracker from './CostTracker';
 import PostEditActions from './PostEditActions';
@@ -12,7 +13,7 @@ import Citations from './Citations';
 
 interface ChatMessageProps {
   message: Message;
-  onViewPR?: () => void;
+  onViewPR?: (prUrl?: string) => void;
   onDiscard?: () => void;
 }
 
@@ -51,6 +52,11 @@ export default function ChatMessage({ message, onViewPR, onDiscard }: ChatMessag
                 content={message.thinkingContent}
                 isStreaming={message.isStreaming}
               />
+            )}
+
+            {/* Tool actions */}
+            {message.toolActions && message.toolActions.length > 0 && (
+              <ActionBlock actions={message.toolActions} />
             )}
 
             {/* Message content */}
@@ -98,9 +104,17 @@ export default function ChatMessage({ message, onViewPR, onDiscard }: ChatMessag
                   filesChanged: message.filesChanged,
                   totalAdditions: message.filesChanged.reduce((sum, f) => sum + (f.additions || 0), 0),
                   totalDeletions: message.filesChanged.reduce((sum, f) => sum + (f.deletions || 0), 0),
-                  status: 'pushed',
+                  prUrl: message.prUrl,
+                  previewUrl: message.previewUrl,
+                  status: message.prUrl ? 'pr_created' : 'pushed',
                 }}
-                onViewPR={onViewPR}
+                onViewPR={(prUrl) => {
+                  if (onViewPR) {
+                    onViewPR(prUrl ?? message.prUrl);
+                  } else if (message.prUrl) {
+                    window.open(message.prUrl, '_blank');
+                  }
+                }}
                 onDiscard={onDiscard}
               />
             )}

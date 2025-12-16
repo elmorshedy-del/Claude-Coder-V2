@@ -21,6 +21,8 @@ export default function FileUpload({
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB limit for images (API restriction)
+
   const handleFiles = async (fileList: FileList | null) => {
     if (!fileList) return;
     setError(null);
@@ -34,7 +36,13 @@ export default function FileUpload({
         break;
       }
 
-      // Check file size
+      // Check image size limit (5MB API restriction)
+      if (file.type.startsWith('image/') && file.size > MAX_IMAGE_SIZE) {
+        setError(`Image "${file.name}" exceeds 5MB limit. Please use a smaller image.`);
+        continue;
+      }
+
+      // Check general file size
       if (file.size > maxSizeMB * 1024 * 1024) {
         setError(`File ${file.name} exceeds ${maxSizeMB}MB limit`);
         continue;

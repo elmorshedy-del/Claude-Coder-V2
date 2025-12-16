@@ -7,14 +7,51 @@ import { ClaudeClient, getSystemPrompt, generateCodeContext, extractKeywords } f
 import { GitHubClient, formatFileTree } from '@/lib/github';
 import { ChatRequest, Settings, RepoFile, FileChange, TokenUsage } from '@/types';
 
+<<<<<<< HEAD
 // Enhanced caching for cost optimization
 const fileTreeCache = new Map<string, { tree: string; timestamp: number }>();
 const fileContentCache = new Map<string, { content: string; timestamp: number }>();
 const searchCache = new Map<string, { results: string[]; timestamp: number }>();
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour for real sessions
 const CONTENT_CACHE_TTL = 30 * 60 * 1000; // 30 min for file contents
+=======
+// Store for session-based file tree caching with automatic cleanup
+const fileTreeCache = new Map<string, { tree: string; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const MAX_CACHE_SIZE = 100; // Maximum number of cached entries
+
+// Clean up expired entries periodically
+function cleanupFileTreeCache(): void {
+  const now = Date.now();
+  const entriesToDelete: string[] = [];
+
+  for (const [key, value] of fileTreeCache.entries()) {
+    if (now - value.timestamp > CACHE_TTL) {
+      entriesToDelete.push(key);
+    }
+  }
+
+  for (const key of entriesToDelete) {
+    fileTreeCache.delete(key);
+  }
+
+  // If still over limit, remove oldest entries
+  if (fileTreeCache.size > MAX_CACHE_SIZE) {
+    const entries = Array.from(fileTreeCache.entries())
+      .sort((a, b) => a[1].timestamp - b[1].timestamp);
+
+    const toRemove = entries.slice(0, fileTreeCache.size - MAX_CACHE_SIZE);
+    for (const [key] of toRemove) {
+      fileTreeCache.delete(key);
+    }
+  }
+}
+>>>>>>> d007959d5bc24d25775ab5aef85b4740eb9bf414
 
 export async function POST(request: NextRequest) {
+  // Clean up stale cache entries on each request
+  cleanupFileTreeCache();
+
   try {
     const body = await request.json() as ChatRequest;
     const { settings, repoContext, files } = body;
@@ -142,7 +179,7 @@ export async function POST(request: NextRequest) {
       if (m.role === 'user' && files && files.length > 0) {
         // Include file content in the message
         const fileContent = files.map(f => 
-          `\n\n[Attached file: ${f.name}]\n${atob(f.base64)}`
+          `\n\n[Attached file: ${f.name}]\n${Buffer.from(f.base64, 'base64').toString('utf8')}`
         ).join('');
         return { role: m.role, content: m.content + fileContent };
       }
@@ -239,9 +276,16 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Streaming endpoint - FIXED: Execute tools ONCE per message (NO LOOP!)
-// This reduces cost from $1+ to ~$0.03 per message
+// ============================================================================
+// AGENTIC STREAMING ENDPOINT
+// The key insight: Claude decides when it's done, not our code.
+// stop_reason === 'end_turn' means Claude is satisfied
+// stop_reason === 'tool_use' means Claude wants more
+// ============================================================================
 export async function PUT(request: NextRequest) {
+  // Clean up stale cache entries on each request
+  cleanupFileTreeCache();
+
   try {
     const body = await request.json() as ChatRequest;
     const { settings, repoContext } = body;
@@ -344,139 +388,396 @@ export async function PUT(request: NextRequest) {
       : getChatOnlySystemPrompt(settings.enableWebSearch);
 
     // Build tools array - only include repo tools if we have a repo
+<<<<<<< HEAD
     const tools = hasRepoContext ? claude.getDefaultTools() : [];
     const needsWebSearch = settings.enableWebSearch && 
       messages.some(m => /\b(search|latest|current|2024|2025|news|price)\b/i.test(m.content));
     
     if (needsWebSearch) {
+=======
+    const tools = github ? claude.getDefaultTools() : [];
+    if (settings.enableWebSearch) {
+>>>>>>> d007959d5bc24d25775ab5aef85b4740eb9bf414
       tools.push(claude.getWebSearchTool());
       tools.push(claude.getWebFetchTool());
     }
 
-    // Create streaming response - SINGLE PASS, NO LOOP!
+    // ========================================================================
+    // AGENTIC LOOP - Claude decides when done, with safety limits
+    // ========================================================================
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          const pendingToolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
-
-          // Stream Claude's response (SINGLE API CALL)
-          const streamGenerator = claude.streamChat(
-            messages,
-            systemPrompt,
-            codeContext,
-            {
-              tools: tools.length > 0 ? tools : undefined,
-              enableThinking: settings.enableExtendedThinking,
-              thinkingBudget: settings.thinkingBudget,
-              effort: settings.effort,
-              enableContextCompaction: settings.enableContextCompaction,
-              enableInterleavedThinking: settings.enableInterleavedThinking,
-            }
-          );
-
+          const fileChanges: FileChange[] = [];
+          // Dynamic MAX_ROUNDS based on effort: low=10 (cost efficient), medium=15, high=25 (complex tasks)
+          const MAX_ROUNDS = settings.effort === 'high' ? 25 : settings.effort === 'medium' ? 15 : 10;
           let totalCost = 0;
           let totalSavedPercent = 0;
 
-          for await (const chunk of streamGenerator) {
-            // Forward all chunks to client for real-time display
-            controller.enqueue(encoder.encode(JSON.stringify(chunk) + '\n'));
+          // Smart context accumulation - track files Claude has seen
+          const seenFiles = new Set<string>();
 
-            // Collect tool calls for execution AFTER streaming
-            if (chunk.type === 'tool_use' && chunk.toolCall) {
-              pendingToolCalls.push({
-                id: chunk.toolCall.id,
-                name: chunk.toolCall.name,
-                input: chunk.toolCall.input,
-              });
-            } else if (chunk.type === 'done') {
-              totalCost = chunk.cost || 0;
-              totalSavedPercent = chunk.savedPercent || 0;
-            }
-          }
+          // Stuck detection - track last tool calls to detect loops
+          let lastToolCallsSignature = '';
+          let repeatCount = 0;
+          const MAX_REPEATS = 2; // Allow same tools twice before intervention
 
-          // Execute tools ONCE after streaming (NOT in a loop!)
-          // User sends next message if they need Claude to continue
-          const fileChanges: FileChange[] = [];
+          // Content block types for conversation messages
+          type ContentBlock =
+            | { type: 'text'; text: string }
+            | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+            | { type: 'tool_result'; tool_use_id: string; content: string };
 
-          for (const toolCall of pendingToolCalls) {
-            let result = '';
+          // Local conversation buffer
+          const convo: Array<{ role: 'user' | 'assistant'; content: string | ContentBlock[] }> = messages.map(m => ({
+            role: m.role,
+            content: m.content,
+          }));
 
-            try {
-              if (toolCall.name === 'read_file' && github) {
-                const input = toolCall.input as { path: string };
-                const file = await github.getFileContent(input.path, repoContext.branch);
-                result = `File content loaded (${file.content.length} chars)`;
-              } else if (toolCall.name === 'search_files' && github) {
-                const input = toolCall.input as { query: string };
-                const paths = await github.searchFiles(input.query);
-                result = paths.length > 0
-                  ? `Found ${paths.length} files:\n${paths.join('\n')}`
-                  : 'No files found matching the query.';
-              } else if (toolCall.name === 'grep_search' && github) {
-                const input = toolCall.input as { pattern: string };
-                const matches = await github.grepSearch(input.pattern, repoContext.branch, {});
-                result = matches.length > 0
-                  ? matches.map(m => `${m.path}:${m.line}: ${m.content}`).join('\n')
-                  : 'No matches found.';
-              } else if (toolCall.name === 'str_replace' && github) {
-                const input = toolCall.input as { path: string; old_str: string; new_str: string };
-                const replaceResult = await github.applyStrReplace(
-                  input.path,
-                  input.old_str,
-                  input.new_str,
-                  repoContext.branch
-                );
-                if (replaceResult.success) {
-                  result = `Successfully replaced text in ${input.path}. Changes: +${replaceResult.additions} -${replaceResult.deletions}`;
-                  fileChanges.push({
-                    path: input.path,
-                    action: 'edit',
-                    additions: replaceResult.additions,
-                    deletions: replaceResult.deletions,
-                  });
-                } else {
-                  result = `Failed to replace: ${replaceResult.error || 'Unknown error'}`;
-                }
-              } else if (toolCall.name === 'create_file' && github) {
-                const input = toolCall.input as { path: string; content: string };
-                const createResult = await github.createFile(
-                  input.path,
-                  input.content,
-                  repoContext.branch
-                );
-                if (createResult.success) {
-                  result = `Successfully created ${input.path}`;
-                  fileChanges.push({
-                    path: input.path,
-                    action: 'create',
-                    additions: createResult.additions,
-                  });
-                } else {
-                  result = `Failed to create file: ${createResult.error || 'Unknown error'}`;
-                }
-              } else {
-                result = `Tool ${toolCall.name} executed`;
-              }
-            } catch (error) {
-              result = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
-            }
+          // =================================================================
+          // THE AGENTIC LOOP - Claude decides when to stop
+          // =================================================================
+          for (let round = 0; round < MAX_ROUNDS; round++) {
+            const pendingToolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
+            const assistantBlocks: ContentBlock[] = [];
 
-            // Stream tool result to client
+            // Stream round start for UI feedback
             controller.enqueue(encoder.encode(JSON.stringify({
-              type: 'tool_result',
-              toolUseId: toolCall.id,
-              name: toolCall.name,
-              result: result.slice(0, 1000) + (result.length > 1000 ? '...(truncated)' : ''),
+              type: 'round_start',
+              round: round + 1,
+              message: round === 0 ? 'Starting...' : `Continuing (round ${round + 1})...`,
+              seenFiles: [...seenFiles],
             }) + '\n'));
+
+            const pushTextBlock = (delta: string) => {
+              if (!delta) return;
+              const last = assistantBlocks[assistantBlocks.length - 1];
+              if (last && last.type === 'text') {
+                last.text += delta;
+              } else {
+                assistantBlocks.push({ type: 'text', text: delta });
+              }
+            };
+
+            // Stream Claude's response for this round
+            const streamGenerator = claude.streamChat(
+              convo,
+              systemPrompt,
+              codeContext,
+              {
+                tools: tools.length > 0 ? tools : undefined,
+                enableThinking: settings.enableExtendedThinking,
+                thinkingBudget: settings.thinkingBudget,
+                effort: settings.effort,
+                enableContextCompaction: settings.enableContextCompaction,
+                enableInterleavedThinking: settings.enableInterleavedThinking,
+              }
+            );
+
+            for await (const chunk of streamGenerator) {
+              // Forward chunks with enhanced info
+              if (chunk.type === 'text') {
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  ...chunk,
+                  round: round + 1,
+                }) + '\n'));
+                pushTextBlock(chunk.content || '');
+              } else if (chunk.type === 'thinking') {
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  ...chunk,
+                  round: round + 1,
+                }) + '\n'));
+              } else if (chunk.type === 'tool_use' && chunk.toolCall) {
+                // Stream tool_start with human-friendly message
+                const toolMessage = getToolStartMessage(chunk.toolCall.name, chunk.toolCall.input);
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  type: 'tool_start',
+                  round: round + 1,
+                  toolCall: chunk.toolCall,
+                  message: toolMessage,
+                }) + '\n'));
+
+                pendingToolCalls.push({
+                  id: chunk.toolCall.id,
+                  name: chunk.toolCall.name,
+                  input: chunk.toolCall.input,
+                });
+                assistantBlocks.push({
+                  type: 'tool_use',
+                  id: chunk.toolCall.id,
+                  name: chunk.toolCall.name,
+                  input: chunk.toolCall.input,
+                });
+              } else if (chunk.type === 'done') {
+                totalCost += chunk.cost || 0;
+                totalSavedPercent = chunk.savedPercent || 0;
+              }
+            }
+
+            // ===============================================================
+            // CHECK STOP CONDITION: No tools = Claude is DONE
+            // This is the key insight - stop_reason === 'end_turn'
+            // ===============================================================
+            if (pendingToolCalls.length === 0) {
+              // Claude is satisfied and done!
+              break;
+            }
+
+            // If tools were requested but we have no GitHub client, stop gracefully
+            if (!github) {
+              controller.enqueue(encoder.encode(JSON.stringify({
+                type: 'text',
+                content: '\n\n[Repo tools requested, but GitHub token is missing/invalid. Please reconnect GitHub and try again.]',
+                round: round + 1,
+              }) + '\n'));
+              break;
+            }
+
+            // ===============================================================
+            // STUCK DETECTION - Prevent infinite loops
+            // ===============================================================
+            const currentToolCallsSignature = pendingToolCalls
+              .map(t => `${t.name}:${JSON.stringify(t.input)}`)
+              .sort()
+              .join('|');
+
+            if (currentToolCallsSignature === lastToolCallsSignature) {
+              repeatCount++;
+              if (repeatCount >= MAX_REPEATS) {
+                // Claude is stuck - nudge it
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  type: 'stuck_warning',
+                  round: round + 1,
+                  message: 'Detected repeated actions. Asking Claude to try a different approach...',
+                }) + '\n'));
+
+                // Add a nudge to the conversation
+                convo.push({
+                  role: 'assistant',
+                  content: assistantBlocks.length > 0 ? assistantBlocks : [{ type: 'text', text: '' }],
+                });
+                convo.push({
+                  role: 'user',
+                  content: [{
+                    type: 'tool_result',
+                    tool_use_id: pendingToolCalls[0].id,
+                    content: 'You seem to be repeating the same actions. Please try a different approach or explain what\'s blocking you from completing the task.'
+                  }],
+                });
+                lastToolCallsSignature = '';
+                repeatCount = 0;
+                continue;
+              }
+            } else {
+              lastToolCallsSignature = currentToolCallsSignature;
+              repeatCount = 0;
+            }
+
+            // ===============================================================
+            // EXECUTE TOOLS
+            // ===============================================================
+            const toolResultBlocks: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = [];
+
+            for (const toolCall of pendingToolCalls) {
+              let result = '';
+
+              try {
+                if (toolCall.name === 'read_file') {
+                  const input = toolCall.input as { path: string };
+                  const file = await github.getFileContent(input.path, repoContext.branch);
+                  const MAX = 20000; // chars
+                  const snippet = file.content.slice(0, MAX);
+
+                  // Smart context accumulation - track seen files
+                  seenFiles.add(input.path);
+
+                  result =
+                    `--- ${input.path} (${file.content.length} chars) ---\n` +
+                    snippet +
+                    (file.content.length > MAX ? '\n\n...[truncated]' : '') +
+                    `\n\n[You have now seen ${seenFiles.size} files: ${[...seenFiles].join(', ')}]`;
+                } else if (toolCall.name === 'search_files') {
+                  const input = toolCall.input as { query: string };
+                  const paths = await github.searchFiles(input.query);
+                  result = paths.length > 0
+                    ? `Found ${paths.length} files:\n${paths.join('\n')}`
+                    : 'No files found matching the query.';
+                } else if (toolCall.name === 'grep_search') {
+                  const input = toolCall.input as { query: string; file_extensions?: string; max_results?: number };
+                  const fileExtensions = input.file_extensions
+                    ? input.file_extensions.split(',').map(s => s.trim()).filter(Boolean)
+                    : undefined;
+                  const matches = await github.grepSearch(input.query, repoContext.branch, {
+                    maxResults: input.max_results || 50,
+                    fileExtensions,
+                  });
+                  result = matches.length > 0
+                    ? matches.map(m => `${m.path}:${m.line}: ${m.content}`).join('\n')
+                    : 'No matches found.';
+                } else if (toolCall.name === 'str_replace') {
+                  const input = toolCall.input as { path: string; old_str: string; new_str: string };
+                  const replaceResult = await github.applyStrReplace(
+                    input.path,
+                    input.old_str,
+                    input.new_str,
+                    repoContext.branch
+                  );
+                  if (replaceResult.success) {
+                    result = `✓ Successfully replaced text in ${input.path}. Changes: +${replaceResult.additions} -${replaceResult.deletions}\n\nIMPORTANT: Use verify_edit to confirm this change was applied correctly.`;
+                    fileChanges.push({
+                      path: input.path,
+                      action: 'edit',
+                      additions: replaceResult.additions,
+                      deletions: replaceResult.deletions,
+                    });
+                  } else {
+                    result = `✗ Failed to replace: ${replaceResult.error || 'Unknown error'}\n\nTry using more surrounding context to make old_str unique.`;
+                  }
+                } else if (toolCall.name === 'create_file') {
+                  const input = toolCall.input as { path: string; content: string };
+                  const createResult = await github.createFile(
+                    input.path,
+                    input.content,
+                    repoContext.branch
+                  );
+                  if (createResult.success) {
+                    result = `✓ Successfully created file ${input.path}.`;
+                    fileChanges.push({
+                      path: input.path,
+                      action: 'create',
+                      additions: createResult.additions,
+                    });
+                  } else {
+                    result = `✗ Failed to create file: ${createResult.error || 'Unknown error'}`;
+                  }
+                } else if (toolCall.name === 'verify_edit') {
+                  // Verification tool - read file and check for expected content
+                  const input = toolCall.input as { path: string; expected_content: string };
+                  try {
+                    const file = await github.getFileContent(input.path, repoContext.branch);
+                    if (file.content.includes(input.expected_content)) {
+                      result = `✓ VERIFIED: The expected content was found in ${input.path}. Your edit was applied correctly.`;
+                    } else {
+                      result = `✗ VERIFICATION FAILED: The expected content was NOT found in ${input.path}. The edit may not have been applied correctly. Please check the file and try again.`;
+                    }
+                    seenFiles.add(input.path);
+                  } catch (error) {
+                    result = `✗ Could not verify: ${error instanceof Error ? error.message : 'File not found'}`;
+                  }
+                } else {
+                  result = `Tool ${toolCall.name} executed`;
+                }
+              } catch (error) {
+                result = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+              }
+
+              // Stream tool result to client
+              const cap = toolCall.name === 'read_file' ? 20000 : 6000;
+              const clipped = result.slice(0, cap) + (result.length > cap ? '...(truncated)' : '');
+              controller.enqueue(encoder.encode(JSON.stringify({
+                type: 'tool_result',
+                round: round + 1,
+                toolUseId: toolCall.id,
+                name: toolCall.name,
+                result: clipped,
+              }) + '\n'));
+
+              toolResultBlocks.push({
+                type: 'tool_result',
+                tool_use_id: toolCall.id,
+                content: clipped,
+              });
+            }
+
+            // ===============================================================
+            // LET CLAUDE THINK - Add reflection nudge after tool results
+            // This makes Claude reason about results instead of just reacting
+            // ===============================================================
+            const reflectionNudge: ContentBlock = {
+              type: 'text',
+              text: '\n\nI\'ve executed the tools above. Please analyze the results and decide your next step. If you need more information, use more tools. If you\'re ready to respond to the user with a complete answer, do so.',
+            };
+
+            // Append the assistant tool-use message + the user tool results with reflection nudge
+            convo.push({
+              role: 'assistant',
+              content: assistantBlocks.length > 0 ? assistantBlocks : [{ type: 'text', text: '' }],
+            });
+            convo.push({
+              role: 'user',
+              content: [...toolResultBlocks, reflectionNudge],
+            });
           }
 
-          // Send final done event with cost info
+          // ===============================================================
+          // AUTO-CREATE PR IF FILE CHANGES WERE MADE
+          // ===============================================================
+          let prUrl: string | undefined;
+          let prNumber: number | undefined;
+
+          if (fileChanges.length > 0 && github && hasRepoContext) {
+            try {
+              // Only create PR if we're not on the default branch
+              // (changes on default branch don't need a PR)
+              const repoInfo = await github.getRepository();
+
+              if (repoContext.branch !== repoInfo.defaultBranch) {
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  type: 'text',
+                  content: '\n\n📝 Creating pull request...',
+                }) + '\n'));
+
+                // Generate PR title and body from file changes
+                const prTitle = `Claude: ${fileChanges.length} file${fileChanges.length > 1 ? 's' : ''} changed`;
+                const prBody = `## Changes Made by Claude\n\n${fileChanges.map(f =>
+                  `- **${f.action}** \`${f.path}\`${f.additions ? ` (+${f.additions})` : ''}${f.deletions ? ` (-${f.deletions})` : ''}`
+                ).join('\n')}\n\n---\n*This PR was automatically created by Claude Coder.*`;
+
+                const pr = await github.createPullRequest(
+                  prTitle,
+                  prBody,
+                  repoContext.branch,
+                  repoInfo.defaultBranch
+                );
+
+                prUrl = pr.url;
+                prNumber = pr.number;
+
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  type: 'text',
+                  content: `\n\n✅ **Pull request created:** [PR #${pr.number}](${pr.url})`,
+                }) + '\n'));
+              }
+            } catch (prError) {
+              // PR creation failed - log but don't fail the whole request
+              const errorMsg = prError instanceof Error ? prError.message : 'Unknown error';
+              console.error('PR creation failed:', errorMsg);
+
+              // Check if PR already exists (common error)
+              if (errorMsg.includes('already exists') || errorMsg.includes('A pull request already exists')) {
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  type: 'text',
+                  content: '\n\n⚠️ A pull request already exists for this branch. View it on GitHub.',
+                }) + '\n'));
+              } else {
+                controller.enqueue(encoder.encode(JSON.stringify({
+                  type: 'text',
+                  content: `\n\n⚠️ Could not create PR automatically: ${errorMsg}. You can create one manually on GitHub.`,
+                }) + '\n'));
+              }
+            }
+          }
+
+          // Send final done event with all accumulated info
           controller.enqueue(encoder.encode(JSON.stringify({
             type: 'done',
             cost: totalCost,
             savedPercent: totalSavedPercent,
             fileChanges: fileChanges.length > 0 ? fileChanges : undefined,
+            seenFiles: [...seenFiles],
+            prUrl,
+            prNumber,
           }) + '\n'));
 
           controller.close();
@@ -503,6 +804,30 @@ export async function PUT(request: NextRequest) {
   }
 }
 
+// Helper function to generate human-friendly tool start messages
+function getToolStartMessage(toolName: string, input: Record<string, unknown>): string {
+  switch (toolName) {
+    case 'read_file':
+      return `📖 Reading ${input.path}...`;
+    case 'search_files':
+      return `🔍 Searching for "${input.query}"...`;
+    case 'grep_search':
+      return `🔎 Searching inside files for "${input.query}"...`;
+    case 'str_replace':
+      return `✏️ Editing ${input.path}...`;
+    case 'create_file':
+      return `📝 Creating ${input.path}...`;
+    case 'verify_edit':
+      return `✅ Verifying edit in ${input.path}...`;
+    case 'web_search':
+      return `🌐 Searching the web for "${input.query}"...`;
+    case 'web_fetch':
+      return `🌐 Fetching ${input.url}...`;
+    default:
+      return `⚙️ Running ${toolName}...`;
+  }
+}
+
 // System prompt for chat-only mode (no repo)
 function getChatOnlySystemPrompt(enableWebSearch: boolean): string {
   const tools = enableWebSearch ? ['web_search', 'web_fetch'] : [];
@@ -518,3 +843,6 @@ You can help with:
 
 If the user wants to connect a GitHub repository for code editing, let them know they can select one from the repository dropdown.`;
 }
+
+
+

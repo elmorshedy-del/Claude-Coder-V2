@@ -6,6 +6,52 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { Octokit } from 'octokit';
 
+// Type for validation results
+interface ValidationResults {
+  anthropic: { valid: boolean; error?: string };
+  github: { valid: boolean; user?: string; error?: string };
+}
+
+// Helper function to validate API keys - eliminates code duplication
+async function validateApiKeys(
+  anthropicKey?: string,
+  githubToken?: string
+): Promise<ValidationResults> {
+  const results: ValidationResults = {
+    anthropic: { valid: false },
+    github: { valid: false },
+  };
+
+  // Validate Anthropic key
+  if (anthropicKey) {
+    try {
+      const client = new Anthropic({ apiKey: anthropicKey });
+      await client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+      results.anthropic.valid = true;
+    } catch (error) {
+      results.anthropic.error = error instanceof Error ? error.message : 'Invalid key';
+    }
+  }
+
+  // Validate GitHub token
+  if (githubToken) {
+    try {
+      const octokit = new Octokit({ auth: githubToken });
+      const { data } = await octokit.rest.users.getAuthenticated();
+      results.github.valid = true;
+      results.github.user = data.login;
+    } catch (error) {
+      results.github.error = error instanceof Error ? error.message : 'Invalid token';
+    }
+  }
+
+  return results;
+}
+
 // Password authentication endpoint
 export async function POST(request: NextRequest) {
   try {
@@ -35,82 +81,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Handle API key validation
-    if (action === 'validate') {
-      const results: {
-        anthropic: { valid: boolean; error?: string };
-        github: { valid: boolean; user?: string; error?: string };
-      } = {
-        anthropic: { valid: false },
-        github: { valid: false },
-      };
-
-      // Validate Anthropic key
-      if (anthropicKey) {
-        try {
-          const client = new Anthropic({ apiKey: anthropicKey });
-          // Make a minimal API call to verify
-          await client.messages.create({
-            model: 'claude-haiku-4-5-20251001',
-            max_tokens: 1,
-            messages: [{ role: 'user', content: 'hi' }],
-          });
-          results.anthropic.valid = true;
-        } catch (error) {
-          results.anthropic.error = error instanceof Error ? error.message : 'Invalid key';
-        }
-      }
-
-      // Validate GitHub token (optional)
-      if (githubToken) {
-        try {
-          const octokit = new Octokit({ auth: githubToken });
-          const { data } = await octokit.rest.users.getAuthenticated();
-          results.github.valid = true;
-          results.github.user = data.login;
-        } catch (error) {
-          results.github.error = error instanceof Error ? error.message : 'Invalid token';
-        }
-      }
-
-      return NextResponse.json(results);
-    }
-
-    // Legacy support: validate both keys (old format)
-    if (anthropicKey || githubToken) {
-      const results: {
-        anthropic: { valid: boolean; error?: string };
-        github: { valid: boolean; user?: string; error?: string };
-      } = {
-        anthropic: { valid: false },
-        github: { valid: false },
-      };
-
-      if (anthropicKey) {
-        try {
-          const client = new Anthropic({ apiKey: anthropicKey });
-          await client.messages.create({
-            model: 'claude-haiku-4-5-20251001',
-            max_tokens: 1,
-            messages: [{ role: 'user', content: 'hi' }],
-          });
-          results.anthropic.valid = true;
-        } catch (error) {
-          results.anthropic.error = error instanceof Error ? error.message : 'Invalid key';
-        }
-      }
-
-      if (githubToken) {
-        try {
-          const octokit = new Octokit({ auth: githubToken });
-          const { data } = await octokit.rest.users.getAuthenticated();
-          results.github.valid = true;
-          results.github.user = data.login;
-        } catch (error) {
-          results.github.error = error instanceof Error ? error.message : 'Invalid token';
-        }
-      }
-
+    // Handle API key validation (both explicit action and legacy format)
+    if (action === 'validate' || anthropicKey || githubToken) {
+      const results = await validateApiKeys(anthropicKey, githubToken);
       return NextResponse.json(results);
     }
 
