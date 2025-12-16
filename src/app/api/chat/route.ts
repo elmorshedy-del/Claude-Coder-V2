@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ClaudeClient, getSystemPrompt, generateCodeContext, extractKeywords } from '@/lib/claude';
 import { GitHubClient, formatFileTree } from '@/lib/github';
+import { LocalFileSystem } from '@/lib/filesystem';
 import { ChatRequest, Settings, RepoFile, FileChange, TokenUsage } from '@/types';
 
 // Enhanced caching for cost optimization
@@ -63,9 +64,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Initialize clients
+    // Initialize clients based on file access mode
     const claude = new ClaudeClient(anthropicKey, settings.model);
-    const github = new GitHubClient(githubToken, repoContext.owner, repoContext.repo);
+    const isLocalMode = settings.fileAccessMode === 'local' && settings.localWorkspacePath;
+    
+    const github = isLocalMode ? null : new GitHubClient(githubToken, repoContext.owner, repoContext.repo);
+    const localFs = isLocalMode ? new LocalFileSystem(settings.localWorkspacePath!) : null;
 
     // Get or cache file tree
     const cacheKey = `${repoContext.owner}/${repoContext.repo}/${repoContext.branch}`;
@@ -302,11 +306,14 @@ export async function PUT(request: NextRequest) {
 
     const claude = new ClaudeClient(anthropicKey, settings.model);
 
-    // GitHub client is optional - only create if we have context
+    // Initialize based on file access mode
+    const isLocalMode = settings.fileAccessMode === 'local' && settings.localWorkspacePath;
     const hasRepoContext = repoContext && repoContext.owner && repoContext.repo;
-    const github = hasRepoContext && githubToken
+    
+    const github = !isLocalMode && hasRepoContext && githubToken
       ? new GitHubClient(githubToken, repoContext.owner, repoContext.repo)
       : null;
+    const localFs = isLocalMode ? new LocalFileSystem(settings.localWorkspacePath!) : null;
 
     // Only load file context if we have a repo
     let fileTree = '';
@@ -635,21 +642,38 @@ export async function PUT(request: NextRequest) {
               try {
                 if (toolCall.name === 'read_file') {
                   const input = toolCall.input as { path: string };
-                  const file = await github.getFileContent(input.path, repoContext.branch);
+                  let content: string;
+                  
+                  if (localFs) {
+                    content = await localFs.readFile(input.path);
+                  } else if (github) {
+                    const file = await github.getFileContent(input.path, repoContext.branch);
+                    content = file.content;
+                  } else {
+                    throw new Error('No file system available');
+                  }
+                  
                   const MAX = 15000;
-                  const snippet = file.content.slice(0, MAX);
-
-                  // Smart context accumulation - track seen files
+                  const snippet = content.slice(0, MAX);
                   seenFiles.add(input.path);
 
                   result =
-                    `--- ${input.path} (${file.content.length} chars) ---\n` +
+                    `--- ${input.path} (${content.length} chars) ---\n` +
                     snippet +
-                    (file.content.length > MAX ? '\n\n...[truncated]' : '') +
+                    (content.length > MAX ? '\n\n...[truncated]' : '') +
                     `\n\n[You have now seen ${seenFiles.size} files: ${[...seenFiles].join(', ')}]`;
                 } else if (toolCall.name === 'search_files') {
                   const input = toolCall.input as { query: string };
-                  const paths = await github.searchFiles(input.query);
+                  let paths: string[];
+                  
+                  if (localFs) {
+                    paths = await localFs.searchFiles(input.query);
+                  } else if (github) {
+                    paths = await github.searchFiles(input.query);
+                  } else {
+                    paths = [];
+                  }
+                  
                   result = paths.length > 0
                     ? `Found ${paths.length} files:\n${paths.join('\n')}`
                     : 'No files found matching the query.';
@@ -658,55 +682,102 @@ export async function PUT(request: NextRequest) {
                   const fileExtensions = input.file_extensions
                     ? input.file_extensions.split(',').map(s => s.trim()).filter(Boolean)
                     : undefined;
-                  const matches = await github.grepSearch(input.query, repoContext.branch, {
-                    maxResults: input.max_results || 50,
-                    fileExtensions,
-                  });
+                  
+                  let matches: Array<{ path: string; line: number; content: string }>;
+                  
+                  if (localFs) {
+                    matches = await localFs.grepSearch(input.query, fileExtensions);
+                  } else if (github) {
+                    matches = await github.grepSearch(input.query, repoContext.branch, {
+                      maxResults: input.max_results || 50,
+                      fileExtensions,
+                    });
+                  } else {
+                    matches = [];
+                  }
+                  
                   result = matches.length > 0
                     ? matches.map(m => `${m.path}:${m.line}: ${m.content}`).join('\n')
                     : 'No matches found.';
                 } else if (toolCall.name === 'str_replace') {
                   const input = toolCall.input as { path: string; old_str: string; new_str: string };
-                  const replaceResult = await github.applyStrReplace(
-                    input.path,
-                    input.old_str,
-                    input.new_str,
-                    repoContext.branch
-                  );
-                  if (replaceResult.success) {
-                    result = `✓ Successfully replaced text in ${input.path}. Changes: +${replaceResult.additions} -${replaceResult.deletions}\n\nIMPORTANT: Use verify_edit to confirm this change was applied correctly.`;
-                    fileChanges.push({
-                      path: input.path,
-                      action: 'edit',
-                      additions: replaceResult.additions,
-                      deletions: replaceResult.deletions,
-                    });
+                  
+                  if (localFs) {
+                    // Local filesystem: direct str_replace
+                    const content = await localFs.readFile(input.path);
+                    if (!content.includes(input.old_str)) {
+                      result = `✗ Failed to replace: old_str not found in ${input.path}`;
+                    } else {
+                      const newContent = content.replace(input.old_str, input.new_str);
+                      await localFs.writeFile(input.path, newContent);
+                      const additions = (input.new_str.match(/\n/g) || []).length + 1;
+                      const deletions = (input.old_str.match(/\n/g) || []).length + 1;
+                      result = `✓ Successfully replaced text in ${input.path}. Changes: +${additions} -${deletions}`;
+                      fileChanges.push({ path: input.path, action: 'edit', additions, deletions });
+                    }
+                  } else if (github) {
+                    const replaceResult = await github.applyStrReplace(
+                      input.path,
+                      input.old_str,
+                      input.new_str,
+                      repoContext.branch
+                    );
+                    if (replaceResult.success) {
+                      result = `✓ Successfully replaced text in ${input.path}. Changes: +${replaceResult.additions} -${replaceResult.deletions}\n\nIMPORTANT: Use verify_edit to confirm this change was applied correctly.`;
+                      fileChanges.push({
+                        path: input.path,
+                        action: 'edit',
+                        additions: replaceResult.additions,
+                        deletions: replaceResult.deletions,
+                      });
+                    } else {
+                      result = `✗ Failed to replace: ${replaceResult.error || 'Unknown error'}\n\nTry using more surrounding context to make old_str unique.`;
+                    }
                   } else {
-                    result = `✗ Failed to replace: ${replaceResult.error || 'Unknown error'}\n\nTry using more surrounding context to make old_str unique.`;
+                    result = '✗ No file system available';
                   }
                 } else if (toolCall.name === 'create_file') {
                   const input = toolCall.input as { path: string; content: string };
-                  const createResult = await github.createFile(
-                    input.path,
-                    input.content,
-                    repoContext.branch
-                  );
-                  if (createResult.success) {
+                  
+                  if (localFs) {
+                    await localFs.writeFile(input.path, input.content);
+                    const additions = (input.content.match(/\n/g) || []).length + 1;
                     result = `✓ Successfully created file ${input.path}.`;
-                    fileChanges.push({
-                      path: input.path,
-                      action: 'create',
-                      additions: createResult.additions,
-                    });
+                    fileChanges.push({ path: input.path, action: 'create', additions });
+                  } else if (github) {
+                    const createResult = await github.createFile(
+                      input.path,
+                      input.content,
+                      repoContext.branch
+                    );
+                    if (createResult.success) {
+                      result = `✓ Successfully created file ${input.path}.`;
+                      fileChanges.push({
+                        path: input.path,
+                        action: 'create',
+                        additions: createResult.additions,
+                      });
+                    } else {
+                      result = `✗ Failed to create file: ${createResult.error || 'Unknown error'}`;
+                    }
                   } else {
-                    result = `✗ Failed to create file: ${createResult.error || 'Unknown error'}`;
+                    result = '✗ No file system available';
                   }
                 } else if (toolCall.name === 'verify_edit') {
-                  // Verification tool - read file and check for expected content
                   const input = toolCall.input as { path: string; expected_content: string };
                   try {
-                    const file = await github.getFileContent(input.path, repoContext.branch);
-                    if (file.content.includes(input.expected_content)) {
+                    let content: string;
+                    
+                    if (localFs) {
+                      content = await localFs.readFile(input.path);
+                    } else if (github) {
+                      const file = await github.getFileContent(input.path, repoContext.branch);
+                      content = file.content;
+                    } else {
+                      throw new Error('No file system available');
+                    }
+                    
+                    if (content.includes(input.expected_content)) {
                       result = `✓ VERIFIED: The expected content was found in ${input.path}. Your edit was applied correctly.`;
                     } else {
                       result = `✗ VERIFICATION FAILED: The expected content was NOT found in ${input.path}. The edit may not have been applied correctly. Please check the file and try again.`;
@@ -714,6 +785,21 @@ export async function PUT(request: NextRequest) {
                     seenFiles.add(input.path);
                   } catch (error) {
                     result = `✗ Could not verify: ${error instanceof Error ? error.message : 'File not found'}`;
+                  }
+                } else if (toolCall.name === 'run_command') {
+                  const input = toolCall.input as { command: string };
+                  try {
+                    const { execSync } = await import('child_process');
+                    const cwd = localFs ? settings.localWorkspacePath : undefined;
+                    const output = execSync(input.command, { 
+                      cwd,
+                      encoding: 'utf-8',
+                      maxBuffer: 1024 * 1024,
+                      timeout: 30000,
+                    });
+                    result = `✓ Command executed successfully:\n${output}`;
+                  } catch (error: any) {
+                    result = `✗ Command failed (exit code ${error.status || 'unknown'}):\n${error.stderr || error.message}`;
                   }
                 } else {
                   result = `Tool ${toolCall.name} executed`;
@@ -871,6 +957,8 @@ function getToolStartMessage(toolName: string, input: Record<string, unknown>): 
       return `📝 Creating ${input.path}...`;
     case 'verify_edit':
       return `✅ Verifying edit in ${input.path}...`;
+    case 'run_command':
+      return `💻 Running: ${input.command}...`;
     case 'web_search':
       return `🌐 Searching the web for "${input.query}"...`;
     case 'web_fetch':

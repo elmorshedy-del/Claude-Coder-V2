@@ -160,6 +160,10 @@ export type WebSearchMode = 'off' | 'manual' | 'auto';
 export type ToolExecutionMode = 'direct' | 'hybrid' | 'programmatic';
 
 export interface Settings {
+  // File Access Mode
+  fileAccessMode: 'github' | 'local'; // NEW: Choose between GitHub API or local filesystem
+  localWorkspacePath?: string; // NEW: Path to local workspace (e.g., /workspaces/my-project)
+  
   // Deployment
   deployMode: 'safe' | 'direct';
   railwayServiceName: string; // For building preview URLs
@@ -327,6 +331,8 @@ export interface ToolProperty {
 // ----------------------------------------------------------------------------
 
 export const DEFAULT_SETTINGS: Settings = {
+  fileAccessMode: 'github', // Default to GitHub for backward compatibility
+  localWorkspacePath: undefined,
   deployMode: 'safe',
   railwayServiceName: '', // Empty by default, user sets in settings
   model: 'claude-sonnet-4-5-20250929',

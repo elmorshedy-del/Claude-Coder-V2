@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Shield, Zap, Globe, Brain, Gauge, DollarSign, Moon, Sun, Terminal, Database, FileUp, Key, Eye, EyeOff, Check, LogOut, Github, Cpu } from 'lucide-react';
+import { X, Shield, Zap, Globe, Brain, Gauge, DollarSign, Moon, Sun, Terminal, Database, FileUp, Key, Eye, EyeOff, Check, LogOut, Github, Cpu, HardDrive, Cloud } from 'lucide-react';
 import { Settings, ModelType, EffortLevel, WebSearchMode, ToolExecutionMode, MODEL_DISPLAY_NAMES } from '@/types';
 
 interface SettingsPanelProps {
@@ -65,6 +65,49 @@ export default function SettingsPanel({
 
         {/* Body - flex-1 overflow-y-auto */}
         <div className="flex-1 overflow-y-auto p-6 space-y-8">
+          {/* File Access Mode */}
+          <SettingSection
+            icon={<HardDrive className="w-5 h-5" />}
+            title="File Access Mode"
+            description="Choose how Claude accesses your files"
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <ModeButton
+                active={settings.fileAccessMode === 'local'}
+                onClick={() => updateSetting('fileAccessMode', 'local')}
+                label="Local Files"
+                description="Direct filesystem (fast)"
+                color="success"
+              />
+              <ModeButton
+                active={settings.fileAccessMode === 'github'}
+                onClick={() => updateSetting('fileAccessMode', 'github')}
+                label="GitHub API"
+                description="Remote access"
+                color="warning"
+              />
+            </div>
+
+            {/* Workspace Path for Local Mode */}
+            {settings.fileAccessMode === 'local' && (
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-[var(--claude-text-secondary)] mb-2">
+                  Local Workspace Path
+                </label>
+                <input
+                  type="text"
+                  value={settings.localWorkspacePath || ''}
+                  onChange={(e) => updateSetting('localWorkspacePath', e.target.value)}
+                  placeholder="/path/to/your/project"
+                  className="w-full px-3 py-2 rounded-lg bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-[var(--claude-text)] placeholder:text-[var(--claude-text-muted)] focus:outline-none focus:border-[var(--claude-terracotta)] text-sm font-mono"
+                />
+                <p className="mt-1 text-xs text-[var(--claude-text-muted)]">
+                  Absolute path to your local repository
+                </p>
+              </div>
+            )}
+          </SettingSection>
+
           {/* Deploy Mode */}
           <SettingSection
             icon={<Shield className="w-5 h-5" />}

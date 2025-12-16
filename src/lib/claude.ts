@@ -586,6 +586,20 @@ export class ClaudeClient {
           required: ['path', 'expected_content'],
         },
       },
+      {
+        name: 'run_command',
+        description: 'Execute a bash command in the repository directory. Use for: running tests, installing packages, git operations, building, linting, etc.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            command: {
+              type: 'string',
+              description: 'The bash command to execute (e.g., "npm test", "git status", "grep -r TODO")',
+            },
+          },
+          required: ['command'],
+        },
+      },
     ];
 
     // Only add allowed_callers for non-direct modes
