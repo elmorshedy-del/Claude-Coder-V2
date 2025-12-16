@@ -29,6 +29,9 @@ export class ClaudeClient {
   private costTracker: CostTracker;
 
   constructor(apiKey: string, model: ModelType = 'claude-sonnet-4-5-20250929') {
+    if (!apiKey || apiKey.trim() === '') {
+      throw new Error('API key is required');
+    }
     this.client = new Anthropic({ apiKey });
     this.model = model;
     this.costTracker = {
@@ -49,6 +52,9 @@ export class ClaudeClient {
 
   private calculateCost(usage: TokenUsage): MessageCost {
     const pricing = MODEL_PRICING[this.model];
+    if (!pricing) {
+      throw new Error(`Unknown model: ${this.model}`);
+    }
     
     const inputCost = (usage.input || 0) * pricing.input / 1_000_000;
     const outputCost = (usage.output || 0) * pricing.output / 1_000_000;
@@ -141,17 +147,17 @@ export class ClaudeClient {
       toolExecutionMode = 'direct',
     } = options;
 
-    // Map effort to max_tokens and thinking budget
+    // Map effort to max_tokens and thinking budget - reduced for cost efficiency
     const effortConfig = {
-      low: { maxTokens: 4000, thinkingMultiplier: 0.5 },
-      medium: { maxTokens: 16000, thinkingMultiplier: 1.0 },
-      high: { maxTokens: 32000, thinkingMultiplier: 2.0 },
+      low: { maxTokens: 4000, thinkingMultiplier: 0.3 },
+      medium: { maxTokens: 12000, thinkingMultiplier: 0.6 },
+      high: { maxTokens: 24000, thinkingMultiplier: 1.0 },
     };
-    const config = effortConfig[effort] || effortConfig.medium;
+    const config = effortConfig[effort] ?? effortConfig.medium;
     const adjustedThinkingBudget = Math.round(thinkingBudget * config.thinkingMultiplier);
 
     // Build tools array with special tools
-    const allTools: Array<ClaudeTool | { type: string; name: string }> = [...(tools || this.getDefaultTools(toolExecutionMode))];
+    const allTools: Array<ClaudeTool | { type: string; name: string }> = [...(tools ?? this.getDefaultTools(toolExecutionMode))];
     
     if (enableCodeExecution) {
       allTools.push(this.getCodeExecutionTool());
@@ -209,23 +215,27 @@ export class ClaudeClient {
       tools: allTools as Anthropic.MessageCreateParams['tools'],
     };
 
-    // Add extended thinking if enabled
+    // Add extended thinking if enabled - capped at 10k for cost control
     if (enableThinking && (this.model.includes('opus') || this.model.includes('sonnet'))) {
       (requestParams as unknown as Record<string, unknown>).thinking = {
         type: 'enabled',
-        budget_tokens: Math.max(1024, Math.min(adjustedThinkingBudget, 32000)),
+        budget_tokens: Math.max(1024, Math.min(adjustedThinkingBudget, 10000)),
       };
     }
 
     // Make API call with beta headers if needed
     let response: Anthropic.Message;
-    if (betas.length > 0) {
-      response = await this.client.beta.messages.create({
-        ...requestParams,
-        betas,
-      } as Parameters<typeof this.client.beta.messages.create>[0]) as unknown as Anthropic.Message;
-    } else {
-      response = await this.client.messages.create(requestParams);
+    try {
+      if (betas.length > 0) {
+        response = await this.client.beta.messages.create({
+          ...requestParams,
+          betas,
+        } as Parameters<typeof this.client.beta.messages.create>[0]) as unknown as Anthropic.Message;
+      } else {
+        response = await this.client.messages.create(requestParams);
+      }
+    } catch (error) {
+      throw new Error(`Claude API error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
     // Parse usage
@@ -250,8 +260,12 @@ export class ClaudeClient {
       if (block.type === 'text') {
         content += block.text;
         // Parse artifacts from content
-        const parsedArtifacts = this.parseArtifacts(block.text);
-        artifacts.push(...parsedArtifacts);
+        try {
+          const parsedArtifacts = this.parseArtifacts(block.text);
+          artifacts.push(...parsedArtifacts);
+        } catch (error) {
+          console.warn('Failed to parse artifacts:', error);
+        }
         // Parse citations if present (from web search tool results)
         const blockAny = block as unknown as { text: string; citations?: Array<{ url?: string; cited_text?: string; start_char_index?: number; end_char_index?: number; title?: string }> };
         if (blockAny.citations && Array.isArray(blockAny.citations)) {
@@ -259,10 +273,10 @@ export class ClaudeClient {
             if (cite.url) {
               citations.push({
                 url: cite.url,
-                title: cite.title,
-                snippet: cite.cited_text,
-                startIndex: cite.start_char_index || 0,
-                endIndex: cite.end_char_index || 0,
+                title: cite.title ?? undefined,
+                snippet: cite.cited_text ?? undefined,
+                startIndex: cite.start_char_index ?? 0,
+                endIndex: cite.end_char_index ?? 0,
               });
             }
           }
@@ -326,13 +340,13 @@ export class ClaudeClient {
       toolExecutionMode = 'direct',
     } = options;
 
-    // Map effort to max_tokens and thinking budget
+    // Map effort to max_tokens and thinking budget - reduced for cost efficiency
     const effortConfig = {
-      low: { maxTokens: 4000, thinkingMultiplier: 0.5 },
-      medium: { maxTokens: 16000, thinkingMultiplier: 1.0 },
-      high: { maxTokens: 32000, thinkingMultiplier: 2.0 },
+      low: { maxTokens: 4000, thinkingMultiplier: 0.3 },
+      medium: { maxTokens: 12000, thinkingMultiplier: 0.6 },
+      high: { maxTokens: 24000, thinkingMultiplier: 1.0 },
     };
-    const config = effortConfig[effort] || effortConfig.medium;
+    const config = effortConfig[effort] ?? effortConfig.medium;
     const adjustedThinkingBudget = Math.round(thinkingBudget * config.thinkingMultiplier);
 
     // Build beta headers
@@ -373,25 +387,29 @@ export class ClaudeClient {
         role: m.role,
         content: m.content,
       })),
-      tools: tools || this.getDefaultTools(toolExecutionMode),
+      tools: tools ?? this.getDefaultTools(toolExecutionMode),
     };
 
     if (enableThinking && (this.model.includes('opus') || this.model.includes('sonnet'))) {
       (requestParams as unknown as Record<string, unknown>).thinking = {
         type: 'enabled',
-        budget_tokens: Math.max(1024, Math.min(adjustedThinkingBudget, 32000)),
+        budget_tokens: Math.max(1024, Math.min(adjustedThinkingBudget, 10000)),
       };
     }
 
     // Use beta streaming if we have beta headers
     let stream;
-    if (betas.length > 0) {
-      stream = await this.client.beta.messages.stream({
-        ...requestParams,
-        betas,
-      } as Parameters<typeof this.client.beta.messages.stream>[0]);
-    } else {
-      stream = await this.client.messages.stream(requestParams);
+    try {
+      if (betas.length > 0) {
+        stream = await this.client.beta.messages.stream({
+          ...requestParams,
+          betas,
+        } as Parameters<typeof this.client.beta.messages.stream>[0]);
+      } else {
+        stream = await this.client.messages.stream(requestParams);
+      }
+    } catch (error) {
+      throw new Error(`Claude streaming error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
     let currentToolCall: { id: string; name: string; input: string } | null = null;
@@ -427,14 +445,17 @@ export class ClaudeClient {
                 input: parsedInput,
               },
             };
-          } catch {
-            // Invalid JSON, skip
+          } catch (error) {
+            console.warn('Failed to parse tool input:', error);
           }
           currentToolCall = null;
         }
       } else if (event.type === 'message_stop') {
         // Get final usage from the accumulated message
         const finalMessage = await stream.finalMessage();
+        if (!finalMessage) {
+          throw new Error('No final message received from stream');
+        }
         const usage: TokenUsage = {
           input: finalMessage.usage.input_tokens,
           output: finalMessage.usage.output_tokens,
@@ -572,7 +593,7 @@ export class ClaudeClient {
       return baseTools;
     }
 
-    const allowedCallers = toolExecutionMode === 'hybrid' 
+    const allowedCallers: string[] = toolExecutionMode === 'hybrid' 
       ? ['direct', 'code_execution_20250825']
       : ['code_execution_20250825'];
 
@@ -685,6 +706,7 @@ DO NOT USE for:
 
   // --------------------------------------------------------------------------
   // Parse Artifacts from Response
+  // Extracts code blocks and determines their type for rendering
   // --------------------------------------------------------------------------
 
   private parseArtifacts(content: string): Artifact[] {
@@ -696,7 +718,7 @@ DO NOT USE for:
     let artifactIndex = 0;
 
     while ((match = codeBlockRegex.exec(content)) !== null) {
-      const language = match[1]?.toLowerCase() || 'text';
+      const language = match[1]?.toLowerCase() ?? 'text';
       const code = match[2];
 
       // Determine artifact type based on language
@@ -733,7 +755,7 @@ export function getSystemPrompt(
   const tools = ['read_file', 'search_files', 'str_replace', 'create_file', 'grep_search', 'verify_edit'];
   if (enableWebSearch) tools.push('web_search');
 
-  return `You are Claude, an AI assistant helping with coding. You are an AGENTIC assistant - you autonomously work through tasks step by step until they are FULLY completed.
+  return `You are Claude, an AI assistant helping with coding.
 
 ## Repository Context
 - Owner: ${owner}
@@ -743,50 +765,24 @@ export function getSystemPrompt(
 ## Available Tools
 ${tools.join(', ')}
 
-## THINKING PROCESS (Critical!)
+## Work Style
+Work silently. Use tools, then report results concisely.
 
-Before taking any action, briefly think through:
-1. What is the user asking for?
-2. What do I know vs what do I need to find out?
-3. What's my plan to complete this task?
+## When to Respond
+1. Task complete (brief summary)
+2. Need clarification
+3. Found blocking issue
 
-After each tool result, consider:
-1. What did I learn from this result?
-2. Does this change my plan?
-3. What's the logical next step?
+## Editing Rules
+1. Use str_replace (preferred)
+2. old_str must be UNIQUE and EXACT
+3. ALWAYS verify_edit after str_replace
+4. Use create_file for new files
 
-## COMPLETION CRITERIA
-
-Only respond to the user when you have FULLY completed the task or genuinely need clarification. Don't stop halfway.
-
-Signs you're done:
-- All requested changes are made AND verified
-- All files that needed editing are edited
-- You've confirmed your changes work (via verify_edit)
-
-Signs you need more work:
-- You made an edit but haven't verified it
-- You found an issue but haven't fixed it
-- The user asked for multiple things and you've only done some
-
-## EDITING RULES
-
-1. Use str_replace for changes (preferred - more efficient)
-2. The old_str must be UNIQUE and EXACT (include surrounding context if needed)
-3. Use create_file only for new files
-4. **ALWAYS use verify_edit after str_replace to confirm the edit worked**
-5. If str_replace fails, try using more context around the string to make it unique
-6. Explain what you're doing as you work
-
-## AGENTIC BEHAVIOR
-
-You have access to tools and should use them proactively:
-- Read files to understand code before changing it
-- Search for related code before making changes
-- Verify your edits worked
-- Keep going until the task is truly complete
-
-Don't ask the user questions you can answer by reading code. Use your tools!`;
+## Final Response Format
+**Fixed [issue]:**
+- file.ts:123 - Changed X
+- Verified ✓`;
 }
 
 // ----------------------------------------------------------------------------
@@ -801,15 +797,15 @@ export function generateCodeContext(
   let context = '';
   
   // Only include file tree if we have few files loaded
-  if (files.length <= 2) {
-    const compactTree = fileTree.split('\n').slice(0, 20).join('\n'); // Limit tree size
+  if (files.length <= 2 && fileTree) {
+    const compactTree = fileTree.split('\n').slice(0, 20).join('\n');
     context += `## Repository Structure\n\`\`\`\n${compactTree}\n\`\`\`\n\n`;
   }
   
   context += `## Loaded Files\n\n`;
 
   for (const file of files) {
-    const ext = file.path.split('.').pop() || '';
+    const ext = file.path.split('.').pop() ?? '';
     // Truncate large files to save tokens
     const content = file.content.length > 3000 
       ? file.content.slice(0, 3000) + '\n\n// ... (truncated, use read_file for full content)'
@@ -843,7 +839,7 @@ export function extractKeywords(message: string): string[] {
   
   const words = new Set<string>();
   for (const pattern of patterns) {
-    const matches = message.match(pattern) || [];
+    const matches = message.match(pattern) ?? [];
     matches.forEach(word => {
       const lower = word.toLowerCase();
       if (!commonWords.has(lower) && word.length > 2) {

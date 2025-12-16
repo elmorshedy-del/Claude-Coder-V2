@@ -169,9 +169,14 @@ export async function POST(request: NextRequest) {
     const apiMessages = messages.map(m => {
       if (m.role === 'user' && files && files.length > 0) {
         // Include file content in the message
-        const fileContent = files.map(f => 
-          `\n\n[Attached file: ${f.name}]\n${atob(f.base64)}`
-        ).join('');
+        const fileContent = files.map(f => {
+          try {
+            const decoded = Buffer.from(f.base64, 'base64').toString('utf-8');
+            return `\n\n[Attached file: ${f.name}]\n${decoded}`;
+          } catch (e) {
+            return `\n\n[Attached file: ${f.name}] (failed to decode)`;
+          }
+        }).join('');
         return { role: m.role, content: m.content + fileContent };
       }
       return { role: m.role, content: m.content };
@@ -237,8 +242,8 @@ export async function POST(request: NextRequest) {
           try {
             const file = await github.getFileContent(input.path, repoContext.branch);
             loadedFiles.push(file);
-          } catch {
-            // File not found
+          } catch (error) {
+            console.error(`Failed to read file ${input.path}:`, error instanceof Error ? error.message : 'Unknown error');
           }
         }
       }
@@ -402,10 +407,13 @@ export async function PUT(request: NextRequest) {
       async start(controller) {
         try {
           const fileChanges: FileChange[] = [];
-          // Dynamic MAX_ROUNDS based on effort: low=10 (cost efficient), medium=15, high=25 (complex tasks)
-          const MAX_ROUNDS = settings.effort === 'high' ? 25 : settings.effort === 'medium' ? 15 : 10;
+          // Dynamic MAX_ROUNDS based on effort: low=8, medium=12, high=18 (reduced for cost)
+          const MAX_ROUNDS = settings.effort === 'high' ? 18 : settings.effort === 'medium' ? 12 : 8;
           let totalCost = 0;
           let totalSavedPercent = 0;
+          
+          // COST LIMIT - Stop if exceeding budget
+          const COST_LIMIT = settings.tokenBudget.enabled ? settings.tokenBudget.perMessage : 1.0; // Default $1 max
 
           // Smart context accumulation - track files Claude has seen
           const seenFiles = new Set<string>();
@@ -413,7 +421,7 @@ export async function PUT(request: NextRequest) {
           // Stuck detection - track last tool calls to detect loops
           let lastToolCallsSignature = '';
           let repeatCount = 0;
-          const MAX_REPEATS = 2; // Allow same tools twice before intervention
+          const MAX_REPEATS = 1; // Reduced to 1 for faster stuck detection
 
           // Content block types for conversation messages
           type ContentBlock =
@@ -505,6 +513,15 @@ export async function PUT(request: NextRequest) {
               } else if (chunk.type === 'done') {
                 totalCost += chunk.cost || 0;
                 totalSavedPercent = chunk.savedPercent || 0;
+                
+                // Cost limit check
+                if (totalCost > COST_LIMIT) {
+                  controller.enqueue(encoder.encode(JSON.stringify({
+                    type: 'text',
+                    content: `\n\n⚠️ **Cost limit reached** ($${totalCost.toFixed(2)} / $${COST_LIMIT.toFixed(2)}). Stopping.`,
+                  }) + '\n'));
+                  break; // Exit agentic loop
+                }
               }
             }
 
@@ -514,6 +531,12 @@ export async function PUT(request: NextRequest) {
             // ===============================================================
             if (pendingToolCalls.length === 0) {
               // Claude is satisfied and done!
+              break;
+            }
+            
+            // Early exit if task appears complete (has edits + no more tool calls)
+            if (fileChanges.length > 0 && assistantBlocks.some(b => b.type === 'text' && b.text.length > 100)) {
+              // Claude made edits and gave a substantial response - likely done
               break;
             }
 
@@ -570,8 +593,8 @@ export async function PUT(request: NextRequest) {
                 repeatCount = 0;
                 continue;
               }
-            } else if (onlyAnalysisTools && round >= 3 && fileChanges.length === 0) {
-              // Analysis paralysis: 3+ rounds of only reading without any edits
+            } else if (onlyAnalysisTools && round >= 2 && fileChanges.length === 0) {
+              // Analysis paralysis: 2+ rounds of only reading without any edits (reduced from 3)
               controller.enqueue(encoder.encode(JSON.stringify({
                 type: 'stuck_warning',
                 round: round + 1,
@@ -610,7 +633,7 @@ export async function PUT(request: NextRequest) {
                 if (toolCall.name === 'read_file') {
                   const input = toolCall.input as { path: string };
                   const file = await github.getFileContent(input.path, repoContext.branch);
-                  const MAX = 20000; // chars
+                  const MAX = 15000;
                   const snippet = file.content.slice(0, MAX);
 
                   // Smart context accumulation - track seen files

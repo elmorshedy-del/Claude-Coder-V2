@@ -211,18 +211,22 @@ export default function Home() {
   }, [currentRepo, currentBranch]);
 
   // --------------------------------------------------------------------------
-  // EFFECTS - Save to localStorage
+  // EFFECTS - Save to localStorage (debounced)
   // --------------------------------------------------------------------------
   useEffect(() => {
-    if (anthropicKey) localStorage.setItem('anthropicKey', anthropicKey);
-    if (githubToken) localStorage.setItem('githubToken', githubToken);
-    if (currentRepo) localStorage.setItem('currentRepo', JSON.stringify(currentRepo));
-    if (currentBranch) localStorage.setItem('currentBranch', currentBranch);
-    if (conversations.length > 0) localStorage.setItem('conversations', JSON.stringify(conversations));
-    localStorage.setItem('settings', JSON.stringify(settings));
-    localStorage.setItem('darkMode', String(darkMode));
-    if (currentConversationId) localStorage.setItem('currentConversationId', currentConversationId);
-    localStorage.setItem('totalCost', String(totalCost));
+    const timer = setTimeout(() => {
+      if (anthropicKey) localStorage.setItem('anthropicKey', anthropicKey);
+      if (githubToken) localStorage.setItem('githubToken', githubToken);
+      if (currentRepo) localStorage.setItem('currentRepo', JSON.stringify(currentRepo));
+      if (currentBranch) localStorage.setItem('currentBranch', currentBranch);
+      if (conversations.length > 0) localStorage.setItem('conversations', JSON.stringify(conversations));
+      localStorage.setItem('settings', JSON.stringify(settings));
+      localStorage.setItem('darkMode', String(darkMode));
+      if (currentConversationId) localStorage.setItem('currentConversationId', currentConversationId);
+      localStorage.setItem('totalCost', String(totalCost));
+    }, 500); // Debounce 500ms
+    
+    return () => clearTimeout(timer);
   }, [anthropicKey, githubToken, currentRepo, currentBranch, conversations, settings, darkMode, currentConversationId, totalCost]);
 
   // --------------------------------------------------------------------------
@@ -265,10 +269,13 @@ export default function Home() {
   }, [showRepoDropdown, showModelDropdown]);
 
   // --------------------------------------------------------------------------
-  // EFFECTS - Scroll to bottom on new messages
+  // EFFECTS - Scroll to bottom on new messages (debounced)
   // --------------------------------------------------------------------------
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const timer = setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+    return () => clearTimeout(timer);
   }, [messages]);
 
   // --------------------------------------------------------------------------

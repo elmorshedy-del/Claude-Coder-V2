@@ -197,6 +197,7 @@ export class GitHubClient {
 
   async getFileContent(path: string, branch: string = 'main', useCache: boolean = true): Promise<RepoFile> {
     const cacheKey = `${this.owner}/${this.repo}/${branch}:${path}`;
+    const MAX_FILE_SIZE = 500000; // 500KB limit
     
     if (useCache) {
       const cached = this.fileContentCache.get(cacheKey);
@@ -213,6 +214,11 @@ export class GitHubClient {
 
     if (Array.isArray(data) || data.type !== 'file') {
       throw new Error(`Path ${path} is not a file`);
+    }
+
+    // Check file size before decoding
+    if (data.size > MAX_FILE_SIZE) {
+      throw new Error(`File ${path} is too large (${data.size} bytes). Maximum size is ${MAX_FILE_SIZE} bytes.`);
     }
 
     const content = Buffer.from(data.content, 'base64').toString('utf-8');
@@ -244,7 +250,7 @@ export class GitHubClient {
   async getFilesWithImports(
     entryPaths: string[],
     branch: string = 'main',
-    maxDepth: number = 1 // Reduced default depth
+    maxDepth: number = 2 // Increased to 2 for better context
   ): Promise<RepoFile[]> {
     const loaded = new Set<string>();
     const files: RepoFile[] = [];
@@ -330,37 +336,35 @@ export class GitHubClient {
     branch: string = 'main',
     options: { maxResults?: number; fileExtensions?: string[] } = {}
   ): Promise<Array<{ path: string; line: number; content: string }>> {
-    const { maxResults = 50, fileExtensions } = options;
+    const { maxResults = 30, fileExtensions } = options;
     const results: Array<{ path: string; line: number; content: string }> = [];
+    const MAX_FILE_SIZE = 100000; // 100KB limit
 
     try {
-      // Use GitHub's code search API
+      // Use GitHub's code search API - returns snippets, not full files
       const searchQuery = fileExtensions
         ? `${query} repo:${this.owner}/${this.repo} extension:${fileExtensions.join(',')}`
         : `${query} repo:${this.owner}/${this.repo}`;
 
       const { data } = await this.octokit.rest.search.code({
         q: searchQuery,
-        per_page: Math.min(maxResults, 100),
+        per_page: Math.min(maxResults, 30),
       });
 
-      // Get file contents and find exact line matches
+      // GitHub search API returns text_matches with snippets - use those instead of fetching full files
       for (const item of data.items.slice(0, maxResults)) {
-        try {
-          const file = await this.getFileContent(item.path, branch);
-          const lines = file.content.split('\n');
-          
-          lines.forEach((line, index) => {
-            if (line.toLowerCase().includes(query.toLowerCase())) {
+        const itemWithMatches = item as typeof item & { text_matches?: Array<{ fragment?: string }> };
+        if (itemWithMatches.text_matches && itemWithMatches.text_matches.length > 0) {
+          // Use GitHub's provided snippets
+          itemWithMatches.text_matches.forEach((match, idx) => {
+            if (match.fragment && results.length < maxResults) {
               results.push({
                 path: item.path,
-                line: index + 1,
-                content: line.trim(),
+                line: idx + 1, // Approximate line number
+                content: match.fragment.trim(),
               });
             }
           });
-        } catch {
-          // Skip files that can't be read
         }
       }
     } catch (error) {
@@ -455,12 +459,14 @@ export class GitHubClient {
     branch: string,
     sha?: string
   ): Promise<void> {
+    const contentStr = String(content || '');
+    const base64Content = Buffer.from(contentStr, 'utf-8').toString('base64');
     await this.octokit.rest.repos.createOrUpdateFileContents({
       owner: this.owner,
       repo: this.repo,
       path,
       message,
-      content: Buffer.from(content).toString('base64'),
+      content: base64Content,
       branch,
       sha,
     });
@@ -517,12 +523,14 @@ export class GitHubClient {
     branch: string
   ): Promise<{ success: boolean; error?: string; additions?: number }> {
     try {
+      const contentStr = String(content || '');
+      const base64Content = Buffer.from(contentStr, 'utf-8').toString('base64');
       await this.octokit.rest.repos.createOrUpdateFileContents({
         owner: this.owner,
         repo: this.repo,
         path,
         message: `Create ${path}`,
-        content: Buffer.from(content).toString('base64'),
+        content: base64Content,
         branch,
       });
 
