@@ -229,7 +229,6 @@ export class GitHubClient {
     const cacheKey = `${this.owner}/${this.repo}/${branch}:${path}`;
     this.fileContentCache.delete(cacheKey);
   }
-  }
 
   async getFiles(paths: string[], branch: string = 'main'): Promise<RepoFile[]> {
     const files = await Promise.all(

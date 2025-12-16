@@ -771,7 +771,6 @@ export function generateCodeContext(
   fileTree: string,
   files: Array<{ path: string; content: string }>
 ): string {
-<<<<<<< HEAD
   // Optimized context - only include relevant parts
   let context = '';
   
@@ -781,41 +780,15 @@ export function generateCodeContext(
     context += `## Repository Structure\n\`\`\`\n${compactTree}\n\`\`\`\n\n`;
   }
   
-=======
-  const MAX_TREE_CHARS = 12000;
-  const MAX_FILE_CHARS = 16000;
-
-  // Escape code fences inside content to prevent markdown breakage
-  const escapeCodeFences = (content: string): string => {
-    // Replace ``` with an escaped version that won't break markdown parsing
-    return content.replace(/```/g, '\\`\\`\\`');
-  };
-
-  const clippedTree = fileTree.length > MAX_TREE_CHARS
-    ? fileTree.slice(0, MAX_TREE_CHARS) + "\n...[truncated repository tree]"
-    : fileTree;
-
-  let context = `## Repository Structure\n\`\`\`\n${escapeCodeFences(clippedTree)}\n\`\`\`\n\n`;
->>>>>>> d007959d5bc24d25775ab5aef85b4740eb9bf414
   context += `## Loaded Files\n\n`;
 
   for (const file of files) {
     const ext = file.path.split('.').pop() || '';
-<<<<<<< HEAD
     // Truncate large files to save tokens
     const content = file.content.length > 3000 
       ? file.content.slice(0, 3000) + '\n\n// ... (truncated, use read_file for full content)'
       : file.content;
     context += `### ${file.path}\n\`\`\`${ext}\n${content}\n\`\`\`\n\n`;
-=======
-    const clipped = file.content.length > MAX_FILE_CHARS
-      ? file.content.slice(0, MAX_FILE_CHARS) + `
-
-...[truncated file: ${file.content.length} chars total]`
-      : file.content;
-
-    context += `### ${file.path}\n\`\`\`${ext}\n${escapeCodeFences(clipped)}\n\`\`\`\n\n`;
->>>>>>> d007959d5bc24d25775ab5aef85b4740eb9bf414
   }
 
   context += `\nUse read_file, search_files, or grep_search to explore more.\n`;
