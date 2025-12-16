@@ -461,7 +461,7 @@ export class GitHubClient {
   ): Promise<void> {
     const contentStr = String(content || '');
     const base64Content = Buffer.from(contentStr, 'utf-8').toString('base64');
-    await this.octokit.rest.repos.createOrUpdateFileContents({
+    const result = await this.octokit.rest.repos.createOrUpdateFileContents({
       owner: this.owner,
       repo: this.repo,
       path,
@@ -470,6 +470,25 @@ export class GitHubClient {
       branch,
       sha,
     });
+    
+    // Force Railway deployment by triggering repository dispatch event
+    try {
+      await this.octokit.rest.repos.createDispatchEvent({
+        owner: this.owner,
+        repo: this.repo,
+        event_type: 'claude-coder-deploy',
+        client_payload: {
+          branch,
+          path,
+          commit_sha: result.data.commit.sha,
+          message: `Claude Coder: ${message}`,
+        },
+      });
+      console.log(`✅ Triggered Railway deployment for ${path}`);
+    } catch (error) {
+      console.warn('Failed to trigger deployment event:', error);
+      // Don't fail the whole operation if dispatch fails
+    }
   }
 
   async applyStrReplace(
@@ -525,7 +544,7 @@ export class GitHubClient {
     try {
       const contentStr = String(content || '');
       const base64Content = Buffer.from(contentStr, 'utf-8').toString('base64');
-      await this.octokit.rest.repos.createOrUpdateFileContents({
+      const result = await this.octokit.rest.repos.createOrUpdateFileContents({
         owner: this.owner,
         repo: this.repo,
         path,
@@ -536,6 +555,25 @@ export class GitHubClient {
 
       // Invalidate tree cache since we added a new file
       this.clearTreeCache();
+
+      // Force Railway deployment by triggering repository dispatch event
+      try {
+        await this.octokit.rest.repos.createDispatchEvent({
+          owner: this.owner,
+          repo: this.repo,
+          event_type: 'claude-coder-deploy',
+          client_payload: {
+            branch,
+            path,
+            commit_sha: result.data.commit.sha,
+            message: `Claude Coder: Create ${path}`,
+          },
+        });
+        console.log(`✅ Triggered Railway deployment for ${path}`);
+      } catch (error) {
+        console.warn('Failed to trigger deployment event:', error);
+        // Don't fail the whole operation if dispatch fails
+      }
 
       return {
         success: true,
