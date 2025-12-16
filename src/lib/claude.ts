@@ -459,12 +459,12 @@ export class ClaudeClient {
   // --------------------------------------------------------------------------
 
   getDefaultTools(toolExecutionMode: ToolExecutionMode = 'direct'): ClaudeTool[] {
-    const baseTools = [
+    const baseTools: ClaudeTool[] = [
       {
         name: 'read_file',
         description: 'Read the contents of a file from the repository',
         input_schema: {
-          type: 'object',
+          type: 'object' as const,
           properties: {
             path: {
               type: 'string',
@@ -478,7 +478,7 @@ export class ClaudeClient {
         name: 'str_replace',
         description: 'Replace a unique string in a file with another string. The old_str must appear exactly once in the file.',
         input_schema: {
-          type: 'object',
+          type: 'object' as const,
           properties: {
             path: {
               type: 'string',
@@ -500,7 +500,7 @@ export class ClaudeClient {
         name: 'create_file',
         description: 'Create a new file with the given content',
         input_schema: {
-          type: 'object',
+          type: 'object' as const,
           properties: {
             path: {
               type: 'string',
@@ -518,7 +518,7 @@ export class ClaudeClient {
         name: 'search_files',
         description: 'Search for files in the repository that match a query',
         input_schema: {
-          type: 'object',
+          type: 'object' as const,
           properties: {
             query: {
               type: 'string',
@@ -532,7 +532,7 @@ export class ClaudeClient {
         name: 'grep_search',
         description: 'Search inside file contents for a specific term. Returns matching lines with file paths and line numbers.',
         input_schema: {
-          type: 'object',
+          type: 'object' as const,
           properties: {
             query: {
               type: 'string',
@@ -550,7 +550,7 @@ export class ClaudeClient {
         name: 'verify_edit',
         description: 'After making an edit with str_replace, verify the change was applied correctly by checking if expected content exists in the file. ALWAYS use this after str_replace to confirm your edit worked.',
         input_schema: {
-          type: 'object',
+          type: 'object' as const,
           properties: {
             path: {
               type: 'string',
@@ -638,7 +638,7 @@ ASK YOURSELF: "Could this information have changed since my training?"
 - If YES → search
 - If NO → don't search`,
       input_schema: {
-        type: 'object',
+        type: 'object' as const,
         properties: {
           query: {
             type: 'string',
@@ -670,7 +670,7 @@ DO NOT USE for:
 - Sites requiring authentication
 - Very large pages (will be truncated)`,
       input_schema: {
-        type: 'object',
+        type: 'object' as const,
         properties: {
           url: {
             type: 'string',
