@@ -43,14 +43,10 @@ export class GitHubClient {
   private octokit: Octokit;
   private owner: string;
   private repo: string;
-<<<<<<< HEAD
-  private fileTreeCache: Map<string, RepoTree[]> = new Map();
   private fileContentCache: Map<string, { content: RepoFile; timestamp: number }> = new Map();
   private searchCache: Map<string, { results: string[]; timestamp: number }> = new Map();
   private readonly CONTENT_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
   private readonly SEARCH_CACHE_TTL = 60 * 60 * 1000; // 1 hour
-=======
->>>>>>> d007959d5bc24d25775ab5aef85b4740eb9bf414
 
   constructor(token: string, owner: string, repo: string) {
     this.octokit = new Octokit({ auth: token });
@@ -119,7 +115,8 @@ export class GitHubClient {
   }
 
   clearAllCaches(): void {
-    this.fileTreeCache.clear();
+    FILE_TREE_CACHE.clear();
+    FILE_CONTENT_CACHE.clear();
     this.fileContentCache.clear();
     this.searchCache.clear();
   }
@@ -198,30 +195,15 @@ export class GitHubClient {
   // File Content
   // --------------------------------------------------------------------------
 
-<<<<<<< HEAD
-  async getFileContent(path: string, branch: string = 'main'): Promise<RepoFile> {
-    const cacheKey = `${this.owner}/${this.repo}/${branch}:${path}`;
-    const cached = this.fileContentCache.get(cacheKey);
-    
-    if (cached && Date.now() - cached.timestamp < this.CONTENT_CACHE_TTL) {
-      return cached.content;
-    }
-
-=======
   async getFileContent(path: string, branch: string = 'main', useCache: boolean = true): Promise<RepoFile> {
-    const cacheKey = `${this.owner}/${this.repo}/${branch}/${path}`;
-
-    // Return cached content if available and not expired
+    const cacheKey = `${this.owner}/${this.repo}/${branch}:${path}`;
+    
     if (useCache) {
-      const cached = FILE_CONTENT_CACHE.get(cacheKey);
-      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-        console.log(`[CACHE HIT] File content for ${path}`);
-        return cached.file;
+      const cached = this.fileContentCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < this.CONTENT_CACHE_TTL) {
+        return cached.content;
       }
     }
-
-    console.log(`[CACHE MISS] Fetching file content for ${path}`);
->>>>>>> d007959d5bc24d25775ab5aef85b4740eb9bf414
     const { data } = await this.octokit.rest.repos.getContent({
       owner: this.owner,
       repo: this.repo,
@@ -234,27 +216,19 @@ export class GitHubClient {
     }
 
     const content = Buffer.from(data.content, 'base64').toString('utf-8');
-<<<<<<< HEAD
-    const file = { path, content, sha: data.sha };
+    const file: RepoFile = { path, content, sha: data.sha };
     
     // Cache the result
     this.fileContentCache.set(cacheKey, { content: file, timestamp: Date.now() });
     
     return file;
-=======
-    const file: RepoFile = { path, content, sha: data.sha };
-
-    // Cache the file content
-    FILE_CONTENT_CACHE.set(cacheKey, { file, timestamp: Date.now() });
-
-    return file;
   }
 
   // Invalidate file cache after edits
   invalidateFileCache(path: string, branch: string = 'main'): void {
-    const cacheKey = `${this.owner}/${this.repo}/${branch}/${path}`;
-    FILE_CONTENT_CACHE.delete(cacheKey);
->>>>>>> d007959d5bc24d25775ab5aef85b4740eb9bf414
+    const cacheKey = `${this.owner}/${this.repo}/${branch}:${path}`;
+    this.fileContentCache.delete(cacheKey);
+  }
   }
 
   async getFiles(paths: string[], branch: string = 'main'): Promise<RepoFile[]> {
@@ -500,7 +474,6 @@ export class GitHubClient {
     branch: string
   ): Promise<{ success: boolean; error?: string; additions?: number; deletions?: number }> {
     try {
-      // Don't use cache for the file we're about to edit (need fresh content)
       const file = await this.getFileContent(path, branch, false);
 
       if (!file.content.includes(oldStr)) {

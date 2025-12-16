@@ -7,46 +7,32 @@ import { ClaudeClient, getSystemPrompt, generateCodeContext, extractKeywords } f
 import { GitHubClient, formatFileTree } from '@/lib/github';
 import { ChatRequest, Settings, RepoFile, FileChange, TokenUsage } from '@/types';
 
-<<<<<<< HEAD
 // Enhanced caching for cost optimization
 const fileTreeCache = new Map<string, { tree: string; timestamp: number }>();
 const fileContentCache = new Map<string, { content: string; timestamp: number }>();
 const searchCache = new Map<string, { results: string[]; timestamp: number }>();
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour for real sessions
 const CONTENT_CACHE_TTL = 30 * 60 * 1000; // 30 min for file contents
-=======
-// Store for session-based file tree caching with automatic cleanup
-const fileTreeCache = new Map<string, { tree: string; timestamp: number }>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-const MAX_CACHE_SIZE = 100; // Maximum number of cached entries
+const MAX_CACHE_SIZE = 100;
 
-// Clean up expired entries periodically
 function cleanupFileTreeCache(): void {
   const now = Date.now();
-  const entriesToDelete: string[] = [];
-
   for (const [key, value] of fileTreeCache.entries()) {
     if (now - value.timestamp > CACHE_TTL) {
-      entriesToDelete.push(key);
-    }
-  }
-
-  for (const key of entriesToDelete) {
-    fileTreeCache.delete(key);
-  }
-
-  // If still over limit, remove oldest entries
-  if (fileTreeCache.size > MAX_CACHE_SIZE) {
-    const entries = Array.from(fileTreeCache.entries())
-      .sort((a, b) => a[1].timestamp - b[1].timestamp);
-
-    const toRemove = entries.slice(0, fileTreeCache.size - MAX_CACHE_SIZE);
-    for (const [key] of toRemove) {
       fileTreeCache.delete(key);
     }
   }
+  for (const [key, value] of fileContentCache.entries()) {
+    if (now - value.timestamp > CONTENT_CACHE_TTL) {
+      fileContentCache.delete(key);
+    }
+  }
+  for (const [key, value] of searchCache.entries()) {
+    if (now - value.timestamp > CACHE_TTL) {
+      searchCache.delete(key);
+    }
+  }
 }
->>>>>>> d007959d5bc24d25775ab5aef85b4740eb9bf414
 
 export async function POST(request: NextRequest) {
   // Clean up stale cache entries on each request
@@ -179,7 +165,7 @@ export async function POST(request: NextRequest) {
       if (m.role === 'user' && files && files.length > 0) {
         // Include file content in the message
         const fileContent = files.map(f => 
-          `\n\n[Attached file: ${f.name}]\n${Buffer.from(f.base64, 'base64').toString('utf8')}`
+          `\n\n[Attached file: ${f.name}]\n${atob(f.base64)}`
         ).join('');
         return { role: m.role, content: m.content + fileContent };
       }
@@ -388,16 +374,11 @@ export async function PUT(request: NextRequest) {
       : getChatOnlySystemPrompt(settings.enableWebSearch);
 
     // Build tools array - only include repo tools if we have a repo
-<<<<<<< HEAD
     const tools = hasRepoContext ? claude.getDefaultTools() : [];
     const needsWebSearch = settings.enableWebSearch && 
       messages.some(m => /\b(search|latest|current|2024|2025|news|price)\b/i.test(m.content));
     
     if (needsWebSearch) {
-=======
-    const tools = github ? claude.getDefaultTools() : [];
-    if (settings.enableWebSearch) {
->>>>>>> d007959d5bc24d25775ab5aef85b4740eb9bf414
       tools.push(claude.getWebSearchTool());
       tools.push(claude.getWebFetchTool());
     }
