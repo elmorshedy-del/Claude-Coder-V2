@@ -15,6 +15,7 @@ import {
   Brain,
   Lock,
   Box,
+  Undo2,
 } from 'lucide-react';
 import {
   Message,
@@ -41,6 +42,7 @@ import FileUpload from '@/components/FileUpload';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import CostTracker from '@/components/CostTracker';
 import QuickSettings from '@/components/QuickSettings';
+import ProgressBar from '@/components/ProgressBar';
 
 // ============================================================================
 // MAIN PAGE COMPONENT
@@ -91,6 +93,9 @@ export default function Home() {
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [showRepoDropdown, setShowRepoDropdown] = useState<boolean>(false);
   const [showModelDropdown, setShowModelDropdown] = useState<boolean>(false);
+  const [progressMessage, setProgressMessage] = useState<string>('');
+  const [progressCurrent, setProgressCurrent] = useState<number>(0);
+  const [progressTotal, setProgressTotal] = useState<number>(0);
 
   // --------------------------------------------------------------------------
   // STATE - Settings
@@ -602,6 +607,12 @@ export default function Home() {
                   ? { ...m, content: accumulatedContent }
                   : m
               ));
+            } else if (chunk.type === 'round_start') {
+              setProgressMessage(chunk.message || 'Processing...');
+              setProgressCurrent(chunk.round || 0);
+              setProgressTotal(Math.max(chunk.round || 0, progressTotal));
+            } else if (chunk.type === 'tool_start') {
+              setProgressMessage(chunk.message || 'Running tool...');
             } else if (chunk.type === 'thinking') {
               accumulatedThinking += chunk.content || '';
               setMessages(prev => prev.map(m =>
@@ -1165,6 +1176,39 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Undo button - shows if last message had file changes */}
+            {messages.length > 0 && messages[messages.length - 1]?.filesChanged && (
+              <button
+                onClick={async () => {
+                  if (confirm('Undo last file changes? This will revert using git.')) {
+                    try {
+                      await fetch('/api/github', {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'x-github-token': githubToken,
+                        },
+                        body: JSON.stringify({
+                          action: 'revert',
+                          owner: currentRepo?.owner,
+                          repo: currentRepo?.name,
+                          branch: currentBranch,
+                        }),
+                      });
+                      alert('Changes reverted!');
+                    } catch (e) {
+                      alert('Failed to undo: ' + (e as Error).message);
+                    }
+                  }
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--claude-warning)]/10 text-[var(--claude-warning)] hover:bg-[var(--claude-warning)]/20 transition-colors text-sm"
+                title="Undo last file changes"
+              >
+                <Undo2 className="w-4 h-4" />
+                Undo
+              </button>
+            )}
+
             {/* Cost display */}
             <CostTracker
               cost={sessionCost}
@@ -1219,6 +1263,16 @@ export default function Home() {
                 onDiscard={() => handleDiscard()}
               />
               ))}
+              {/* Progress indicator */}
+              {isStreaming && progressTotal > 0 && (
+                <div className="max-w-3xl mx-auto px-4 py-4">
+                  <ProgressBar
+                    current={progressCurrent}
+                    total={progressTotal}
+                    label={progressMessage}
+                  />
+                </div>
+              )}
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -1378,8 +1432,8 @@ export default function Home() {
               {isStreaming ? (
                 <button
                   onClick={handleStop}
-                  className="p-3 rounded-xl bg-[var(--claude-error)] text-white hover:bg-[var(--claude-error)]/80 transition-colors"
-                  title="Stop"
+                  className="p-3 rounded-xl bg-[var(--claude-error)] text-white hover:bg-[var(--claude-error)]/80 transition-colors animate-pulse"
+                  title="Stop (saves money!)"
                 >
                   <Square className="w-5 h-5" />
                 </button>
