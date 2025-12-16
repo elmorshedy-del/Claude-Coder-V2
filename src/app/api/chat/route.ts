@@ -11,8 +11,8 @@ import { ChatRequest, Settings, RepoFile, FileChange, TokenUsage } from '@/types
 const fileTreeCache = new Map<string, { tree: string; timestamp: number }>();
 const fileContentCache = new Map<string, { content: string; timestamp: number }>();
 const searchCache = new Map<string, { results: string[]; timestamp: number }>();
-const CACHE_TTL = 60 * 60 * 1000; // 1 hour for real sessions
-const CONTENT_CACHE_TTL = 30 * 60 * 1000; // 30 min for file contents
+const CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours for real sessions (extended)
+const CONTENT_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours for file contents (extended)
 const MAX_CACHE_SIZE = 100;
 
 function cleanupFileTreeCache(): void {

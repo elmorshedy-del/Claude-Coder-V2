@@ -10,7 +10,7 @@ import { RepoFile, RepoTree, Branch, Repository, PullRequest, FileChange } from 
 // This is critical because a new GitHubClient is created on every request
 const FILE_TREE_CACHE = new Map<string, { tree: RepoTree[]; timestamp: number }>();
 const FILE_CONTENT_CACHE = new Map<string, { file: RepoFile; timestamp: number }>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour (extended from 5 minutes)
 const MAX_CACHE_ENTRIES = 200;
 
 // Cleanup old cache entries
@@ -45,8 +45,8 @@ export class GitHubClient {
   private repo: string;
   private fileContentCache: Map<string, { content: RepoFile; timestamp: number }> = new Map();
   private searchCache: Map<string, { results: string[]; timestamp: number }> = new Map();
-  private readonly CONTENT_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
-  private readonly SEARCH_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+  private readonly CONTENT_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours (extended from 30 min)
+  private readonly SEARCH_CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours (extended from 1 hour)
 
   constructor(token: string, owner: string, repo: string) {
     this.octokit = new Octokit({ auth: token });
@@ -234,6 +234,14 @@ export class GitHubClient {
   invalidateFileCache(path: string, branch: string = 'main'): void {
     const cacheKey = `${this.owner}/${this.repo}/${branch}:${path}`;
     this.fileContentCache.delete(cacheKey);
+  }
+
+  // Force refresh all caches (for external updates)
+  forceRefresh(): void {
+    this.clearAllCaches();
+    FILE_TREE_CACHE.clear();
+    FILE_CONTENT_CACHE.clear();
+    console.log('🔄 All caches cleared - will fetch fresh data');
   }
 
   async getFiles(paths: string[], branch: string = 'main'): Promise<RepoFile[]> {
