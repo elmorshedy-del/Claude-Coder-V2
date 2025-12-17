@@ -269,6 +269,15 @@ export default function Home() {
   }, [anthropicKey, githubToken, currentRepo, currentBranch, conversations, settings, darkMode, currentConversationId, totalCost]);
 
   // --------------------------------------------------------------------------
+  // EFFECTS - Artifacts visibility
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    if (artifacts.length > 0) {
+      setShowArtifactsList(true);
+    }
+  }, [artifacts.length]);
+
+  // --------------------------------------------------------------------------
   // EFFECTS - Dark mode class
   // --------------------------------------------------------------------------
   useEffect(() => {
