@@ -734,12 +734,14 @@ function getFileExtension(path: string): string {
 // Error Parsing - Extract file path and line number from error messages
 // --------------------------------------------------------------------------
 
-export function parseErrorMessage(errorText: string): {
+export type ParsedError = {
   filePath?: string;
   lineNumber?: number;
   columnNumber?: number;
   errorMessage: string;
-} {
+};
+
+export function parseErrorMessage(errorText: string): ParsedError {
   try {
     // Common error patterns
     const patterns = [
