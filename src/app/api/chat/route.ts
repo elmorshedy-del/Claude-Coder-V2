@@ -525,14 +525,16 @@ async function executeToolCall(
   // GREP SEARCH
   if (toolCall.name === 'grep_search') {
     const input = toolCall.input as { query: string; file_extensions?: string };
+    // Convert comma-separated string to array if provided
+    const extensions = input.file_extensions ? input.file_extensions.split(',').map(e => e.trim()) : undefined;
     
     if (localFs) {
-      const results = await localFs.grepSearch(input.query, input.file_extensions);
+      const results = await localFs.grepSearch(input.query, extensions);
       return results.length > 0 
         ? `Found ${results.length} matches:\n${results.slice(0, 50).join('\n')}`
         : 'No matches found.';
     } else if (github) {
-      const results = await github.grepSearch(input.query, input.file_extensions);
+      const results = await github.grepSearch(input.query, extensions);
       return results.length > 0
         ? `Found ${results.length} matches:\n${results.slice(0, 50).join('\n')}`
         : 'No matches found.';
