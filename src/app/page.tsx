@@ -45,6 +45,89 @@ import QuickSettings from '@/components/QuickSettings';
 import ProgressBar from '@/components/ProgressBar';
 
 // ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+const restoreFromAutoBackup = () => {
+  const autoBackup = localStorage.getItem('claude-coder-auto-backup');
+  if (!autoBackup) return null;
+  
+  try {
+    const backup = JSON.parse(autoBackup);
+    const age = Date.now() - (backup.timestamp || 0);
+    const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
+    
+    if (age < maxAge && backup.conversations?.length > 0) {
+      console.log('✅ Restored from auto-backup');
+      return backup;
+    }
+  } catch (e) {
+    console.warn('Failed to restore auto-backup:', e);
+  }
+  return null;
+};
+
+const restoreUserData = (
+  autoBackup: any,
+  setters: {
+    setAnthropicKey: (key: string) => void;
+    setGithubToken: (token: string) => void;
+    setIsAuthenticated: (auth: boolean) => void;
+    setCurrentRepo: (repo: Repository | null) => void;
+    setCurrentBranch: (branch: string) => void;
+    setConversations: (convs: Conversation[]) => void;
+    setSettings: (settings: Settings) => void;
+    setDarkMode: (dark: boolean) => void;
+    setCurrentConversationId: (id: string | null) => void;
+    setTotalCost: (cost: number) => void;
+    fetchRepos: (token: string) => void;
+  }
+) => {
+  let savedAnthropicKey = localStorage.getItem('anthropicKey');
+  let savedGithubToken = localStorage.getItem('githubToken');
+  
+  // Restore API keys from backup if missing
+  if (!savedAnthropicKey && autoBackup?.anthropicKey) {
+    savedAnthropicKey = autoBackup.anthropicKey;
+    localStorage.setItem('anthropicKey', autoBackup.anthropicKey);
+  }
+  if (!savedGithubToken && autoBackup?.githubToken) {
+    savedGithubToken = autoBackup.githubToken;
+    localStorage.setItem('githubToken', autoBackup.githubToken);
+  }
+
+  // Apply restored data
+  if (savedAnthropicKey) {
+    setters.setAnthropicKey(savedAnthropicKey);
+    setters.setIsAuthenticated(true);
+    if (savedGithubToken) setters.fetchRepos(savedGithubToken);
+  }
+  if (savedGithubToken) setters.setGithubToken(savedGithubToken);
+  
+  const savedRepo = localStorage.getItem('currentRepo');
+  const savedBranch = localStorage.getItem('currentBranch');
+  const savedConversations = localStorage.getItem('conversations');
+  const savedSettings = localStorage.getItem('settings');
+  const savedDarkMode = localStorage.getItem('darkMode');
+  const savedCurrentConvId = localStorage.getItem('currentConversationId');
+  const savedTotalCost = localStorage.getItem('totalCost');
+  
+  if (savedRepo) setters.setCurrentRepo(JSON.parse(savedRepo));
+  if (savedBranch) setters.setCurrentBranch(savedBranch);
+  if (savedConversations) setters.setConversations(JSON.parse(savedConversations));
+  if (savedSettings) {
+    const parsed = JSON.parse(savedSettings);
+    if (!parsed.webSearchMode) parsed.webSearchMode = parsed.enableWebSearch ? 'auto' : 'off';
+    delete parsed.webSearchAutoDetect;
+    setters.setSettings(parsed);
+  }
+  if (savedDarkMode) setters.setDarkMode(savedDarkMode === 'true');
+  if (savedCurrentConvId) setters.setCurrentConversationId(savedCurrentConvId);
+  if (savedTotalCost) setters.setTotalCost(parseFloat(savedTotalCost));
+  else if (autoBackup?.totalCost) setters.setTotalCost(autoBackup.totalCost);
+};
+
+// ============================================================================
 // MAIN PAGE COMPONENT
 // ============================================================================
 
@@ -132,76 +215,6 @@ export default function Home() {
     loadedFiles: Array<{ path: string; content: string }>;
     timestamp: number;
   } | null>(null);
-
-  // --------------------------------------------------------------------------
-  // HELPER FUNCTIONS - localStorage restoration
-  // --------------------------------------------------------------------------
-  const restoreFromAutoBackup = () => {
-    const autoBackup = localStorage.getItem('claude-coder-auto-backup');
-    if (!autoBackup) return null;
-    
-    try {
-      const backup = JSON.parse(autoBackup);
-      const age = Date.now() - (backup.timestamp || 0);
-      const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
-      
-      if (age < maxAge && backup.conversations?.length > 0) {
-        console.log('✅ Restored from auto-backup');
-        setConversations(backup.conversations);
-        if (backup.settings) setSettings(backup.settings);
-        if (backup.totalCost) setTotalCost(backup.totalCost);
-        return backup;
-      }
-    } catch (e) {
-      console.warn('Failed to restore auto-backup:', e);
-    }
-    return null;
-  };
-
-  const restoreUserData = (autoBackup: any) => {
-    let savedAnthropicKey = localStorage.getItem('anthropicKey');
-    let savedGithubToken = localStorage.getItem('githubToken');
-    
-    // Restore API keys from backup if missing
-    if (!savedAnthropicKey && autoBackup?.anthropicKey) {
-      savedAnthropicKey = autoBackup.anthropicKey;
-      localStorage.setItem('anthropicKey', autoBackup.anthropicKey);
-    }
-    if (!savedGithubToken && autoBackup?.githubToken) {
-      savedGithubToken = autoBackup.githubToken;
-      localStorage.setItem('githubToken', autoBackup.githubToken);
-    }
-
-    // Apply restored data
-    if (savedAnthropicKey) {
-      setAnthropicKey(savedAnthropicKey);
-      setIsAuthenticated(true);
-      if (savedGithubToken) fetchRepos(savedGithubToken);
-    }
-    if (savedGithubToken) setGithubToken(savedGithubToken);
-    
-    const savedRepo = localStorage.getItem('currentRepo');
-    const savedBranch = localStorage.getItem('currentBranch');
-    const savedConversations = localStorage.getItem('conversations');
-    const savedSettings = localStorage.getItem('settings');
-    const savedDarkMode = localStorage.getItem('darkMode');
-    const savedCurrentConvId = localStorage.getItem('currentConversationId');
-    const savedTotalCost = localStorage.getItem('totalCost');
-    
-    if (savedRepo) setCurrentRepo(JSON.parse(savedRepo));
-    if (savedBranch) setCurrentBranch(savedBranch);
-    if (savedConversations) setConversations(JSON.parse(savedConversations));
-    if (savedSettings) {
-      const parsed = JSON.parse(savedSettings);
-      if (!parsed.webSearchMode) parsed.webSearchMode = parsed.enableWebSearch ? 'auto' : 'off';
-      delete parsed.webSearchAutoDetect;
-      setSettings(parsed);
-    }
-    if (savedDarkMode) setDarkMode(savedDarkMode === 'true');
-    if (savedCurrentConvId) setCurrentConversationId(savedCurrentConvId);
-    if (savedTotalCost) setTotalCost(parseFloat(savedTotalCost));
-    else if (autoBackup?.totalCost) setTotalCost(autoBackup.totalCost);
-  };
 
   // --------------------------------------------------------------------------
   // EFFECTS - Initialize from localStorage

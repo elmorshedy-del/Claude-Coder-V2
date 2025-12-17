@@ -12,8 +12,8 @@ import { ChatRequest, Settings, RepoFile, FileChange, TokenUsage } from '@/types
 const fileTreeCache = new Map<string, { tree: string; timestamp: number }>();
 const fileContentCache = new Map<string, { content: string; timestamp: number }>();
 const searchCache = new Map<string, { results: string[]; timestamp: number }>();
-const CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours for real sessions (extended)
-const CONTENT_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours for file contents (extended)
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour for optimal performance
+const CONTENT_CACHE_TTL = 30 * 60 * 1000; // 30 minutes for file contents
 const MAX_CACHE_SIZE = 100;
 
 function cleanupFileTreeCache(): void {
@@ -329,8 +329,12 @@ export async function POST(request: NextRequest) {
 // stop_reason === 'tool_use' means Claude wants more
 // ============================================================================
 export async function PUT(request: NextRequest) {
-  // Clean up stale cache entries on each request
-  cleanupFileTreeCache();
+  // Clean up stale cache entries periodically, not on every request
+  const now = Date.now();
+  if (now - lastCleanup > CLEANUP_INTERVAL) {
+    cleanupFileTreeCache();
+    lastCleanup = now;
+  }
 
   try {
     const body = await request.json() as ChatRequest;

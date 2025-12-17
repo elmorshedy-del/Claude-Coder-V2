@@ -115,63 +115,63 @@ export async function POST(request: NextRequest) {
     switch (action) {
       case 'createBranch': {
         const { branchName, fromBranch } = params;
-        if (!branchName) {
-          return NextResponse.json({ error: 'Branch name required' }, { status: 400 });
-        }
+        const validation = validateRequired({ branchName }, ['branchName']);
+        if (validation) return validation;
+        
         const branch = await github.createBranch(branchName, fromBranch || 'main');
         return NextResponse.json({ branch });
       }
 
       case 'deleteBranch': {
         const { branch } = params;
-        if (!branch) {
-          return NextResponse.json({ error: 'Branch required' }, { status: 400 });
-        }
+        const validation = validateRequired({ branch }, ['branch']);
+        if (validation) return validation;
+        
         await github.deleteBranch(branch);
         return NextResponse.json({ success: true });
       }
 
       case 'createFile': {
         const { path, content, branch } = params;
-        if (!path || content === undefined) {
-          return NextResponse.json({ error: 'Path and content required' }, { status: 400 });
-        }
+        const validation = validateRequired({ path, content }, ['path', 'content']);
+        if (validation) return validation;
+        
         const result = await github.createFile(path, content, branch || 'main');
         return NextResponse.json(result);
       }
 
       case 'updateFile': {
         const { path, content, message, branch, sha } = params;
-        if (!path || content === undefined) {
-          return NextResponse.json({ error: 'Path and content required' }, { status: 400 });
-        }
+        const validation = validateRequired({ path, content }, ['path', 'content']);
+        if (validation) return validation;
+        
         await github.updateFile(path, content, message || `Update ${path}`, branch || 'main', sha);
         return NextResponse.json({ success: true });
       }
 
       case 'strReplace': {
         const { path, oldStr, newStr, branch } = params;
-        const validation = validateRequired({ path, oldStr, newStr }, ['path', 'oldStr', 'newStr']);
-        if (validation) return validation;
-        
+        if (!path || !oldStr || newStr === undefined) {
+          return NextResponse.json({ error: 'Path, oldStr, and newStr required' }, { status: 400 });
+        }
         const result = await github.applyStrReplace(path, oldStr, newStr, branch || 'main');
         return NextResponse.json(result);
       }
 
       case 'createPR': {
         const { title, body, head, base } = params;
-        if (!title || !head) {
-          return NextResponse.json({ error: 'Title and head branch required' }, { status: 400 });
-        }
+        const validation = validateRequired({ title, head }, ['title', 'head']);
+        if (validation) return validation;
+        
         const pr = await github.createPullRequest(title, body || '', head, base || 'main');
         return NextResponse.json({ pr });
       }
 
       case 'getPR': {
         const { prNumber } = params;
-        if (!prNumber) {
-          return NextResponse.json({ error: 'PR number required' }, { status: 400 });
-        }
+        const validation = validateRequired({ prNumber }, ['prNumber']);
+        if (validation) return validation;
+        
         const pr = await github.getPullRequest(prNumber);
         return NextResponse.json({ pr });
       }
