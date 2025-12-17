@@ -9,7 +9,6 @@ interface CodeDiffProps {
 }
 
 export default function CodeDiff({ oldCode, newCode, language = 'typescript' }: CodeDiffProps) {
-
   return (
     <div className="rounded-xl overflow-hidden border border-[var(--claude-border)]">
       <div className="grid grid-cols-2 divide-x divide-[var(--claude-border)]">

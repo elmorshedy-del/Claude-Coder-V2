@@ -1,7 +1,7 @@
 /* Morsh Coder */
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Send,
   Settings as SettingsIcon,
@@ -293,30 +293,30 @@ export default function Home() {
   // --------------------------------------------------------------------------
   // EFFECTS - Click outside to close dropdowns
   // --------------------------------------------------------------------------
+  const handleClickOutside = useCallback((event: MouseEvent) => {
+    // Close repo dropdown if clicking outside
+    if (
+      showRepoDropdown &&
+      repoDropdownRef.current &&
+      !repoDropdownRef.current.contains(event.target as Node)
+    ) {
+      setShowRepoDropdown(false);
+    }
+
+    // Close model dropdown if clicking outside
+    if (
+      showModelDropdown &&
+      modelDropdownRef.current &&
+      !modelDropdownRef.current.contains(event.target as Node)
+    ) {
+      setShowModelDropdown(false);
+    }
+  }, [showRepoDropdown, showModelDropdown]);
+
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      // Close repo dropdown if clicking outside
-      if (
-        showRepoDropdown &&
-        repoDropdownRef.current &&
-        !repoDropdownRef.current.contains(event.target as Node)
-      ) {
-        setShowRepoDropdown(false);
-      }
-
-      // Close model dropdown if clicking outside
-      if (
-        showModelDropdown &&
-        modelDropdownRef.current &&
-        !modelDropdownRef.current.contains(event.target as Node)
-      ) {
-        setShowModelDropdown(false);
-      }
-    };
-
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showRepoDropdown, showModelDropdown]);
+  }, [handleClickOutside]);
 
   // --------------------------------------------------------------------------
   // EFFECTS - Scroll to bottom on new messages (debounced)

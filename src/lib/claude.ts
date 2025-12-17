@@ -32,7 +32,14 @@ export class ClaudeClient {
     if (!apiKey || apiKey.trim() === '') {
       throw new Error('API key is required');
     }
-    this.client = new Anthropic({ apiKey });
+    if (!apiKey.startsWith('sk-ant-')) {
+      throw new Error('Invalid API key format. Must start with "sk-ant-"');
+    }
+    try {
+      this.client = new Anthropic({ apiKey });
+    } catch (error) {
+      throw new Error(`Failed to initialize Claude client: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
     this.model = model;
     this.costTracker = {
       sessionCost: 0,
