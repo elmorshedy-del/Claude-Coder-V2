@@ -527,14 +527,14 @@ async function executeToolCall(
     const input = toolCall.input as { query: string; file_extensions?: string };
     
     if (localFs) {
-      // localFs expects array
+      // localFs expects array and returns {path, line, content}[]
       const extensions = input.file_extensions ? input.file_extensions.split(',').map(e => e.trim()) : undefined;
       const results = await localFs.grepSearch(input.query, extensions);
-      return results.length > 0 
-        ? `Found ${results.length} matches:\n${results.slice(0, 50).join('\n')}`
-        : 'No matches found.';
+      if (results.length === 0) return 'No matches found.';
+      const formatted = results.slice(0, 50).map(r => `${r.path}:${r.line}: ${r.content}`);
+      return `Found ${results.length} matches:\n${formatted.join('\n')}`;
     } else if (github) {
-      // github expects string
+      // github expects string and returns string[]
       const results = await github.grepSearch(input.query, input.file_extensions);
       return results.length > 0
         ? `Found ${results.length} matches:\n${results.slice(0, 50).join('\n')}`
@@ -548,12 +548,19 @@ async function executeToolCall(
     const input = toolCall.input as { path: string; old_str: string; new_str: string };
     
     if (localFs) {
-      const result = await localFs.strReplace(input.path, input.old_str, input.new_str);
-      if (result.success) {
-        fileChanges.push({ path: input.path, action: 'edit', additions: result.additions, deletions: result.deletions });
-        return `✓ Edited ${input.path}`;
+      // Read, replace, write back
+      const content = await localFs.readFile(input.path);
+      const count = (content.match(new RegExp(input.old_str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
+      if (count === 0) {
+        return `Error: old_str not found in ${input.path}`;
       }
-      return `Error: ${result.error}`;
+      if (count > 1) {
+        return `Error: old_str found ${count} times in ${input.path}. Must be unique.`;
+      }
+      const newContent = content.replace(input.old_str, input.new_str);
+      await localFs.writeFile(input.path, newContent);
+      fileChanges.push({ path: input.path, action: 'edit' });
+      return `✓ Edited ${input.path}`;
     } else if (github) {
       const result = await github.applyStrReplace(input.path, input.old_str, input.new_str, repoContext.branch);
       if (result.success) {
@@ -570,12 +577,9 @@ async function executeToolCall(
     const input = toolCall.input as { path: string; content: string };
     
     if (localFs) {
-      const result = await localFs.createFile(input.path, input.content);
-      if (result.success) {
-        fileChanges.push({ path: input.path, action: 'create', additions: input.content.split('\n').length });
-        return `✓ Created ${input.path}`;
-      }
-      return `Error: ${result.error}`;
+      await localFs.writeFile(input.path, input.content);
+      fileChanges.push({ path: input.path, action: 'create', additions: input.content.split('\n').length });
+      return `✓ Created ${input.path}`;
     } else if (github) {
       const result = await github.createFile(input.path, input.content, repoContext.branch);
       if (result.success) {
@@ -610,8 +614,21 @@ async function executeToolCall(
     const input = toolCall.input as { command: string };
     
     if (localFs) {
-      const result = await localFs.runCommand(input.command);
-      return `$ ${input.command}\n\n${result.stdout}${result.stderr ? `\nSTDERR: ${result.stderr}` : ''}${result.exitCode !== 0 ? `\nExit code: ${result.exitCode}` : ''}`;
+      try {
+        const { execSync } = await import('child_process');
+        const output = execSync(input.command, {
+          cwd: settings.localWorkspacePath,
+          encoding: 'utf-8',
+          maxBuffer: 10 * 1024 * 1024,
+          timeout: 60000,
+        });
+        return `$ ${input.command}\n\n${output}`;
+      } catch (error: any) {
+        const stdout = error.stdout || '';
+        const stderr = error.stderr || '';
+        const exitCode = error.status || 1;
+        return `$ ${input.command}\n\n${stdout}${stderr ? `\nSTDERR: ${stderr}` : ''}\nExit code: ${exitCode}`;
+      }
     }
     return 'run_command only works in local mode.';
   }
