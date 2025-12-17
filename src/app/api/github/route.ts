@@ -5,6 +5,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GitHubClient } from '@/lib/github';
 
+// Helper function for parameter validation
+function validateRequired(params: Record<string, any>, required: string[]) {
+  const missing = required.filter(key => params[key] === undefined || params[key] === '');
+  if (missing.length > 0) {
+    return NextResponse.json({ error: `${missing.join(', ')} required` }, { status: 400 });
+  }
+  return null;
+}
+
 // GET - List repos, branches, files, etc.
 export async function GET(request: NextRequest) {
   try {
@@ -142,9 +151,9 @@ export async function POST(request: NextRequest) {
 
       case 'strReplace': {
         const { path, oldStr, newStr, branch } = params;
-        if (!path || oldStr === undefined || newStr === undefined) {
-          return NextResponse.json({ error: 'Path, oldStr, and newStr required' }, { status: 400 });
-        }
+        const validation = validateRequired({ path, oldStr, newStr }, ['path', 'oldStr', 'newStr']);
+        if (validation) return validation;
+        
         const result = await github.applyStrReplace(path, oldStr, newStr, branch || 'main');
         return NextResponse.json(result);
       }

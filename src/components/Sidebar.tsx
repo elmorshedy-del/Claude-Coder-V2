@@ -135,17 +135,17 @@ export default function Sidebar({
                     <span>{formatDate(conv.updatedAt)}</span>
                   </div>
                   {/* File changes summary */}
-                  {conv.filesChanged && conv.filesChanged.length > 0 && (
-                    <div className="flex items-center gap-2 mt-1.5 text-xs font-mono">
-                      <FileCode className="w-3 h-3 text-[var(--claude-text-muted)]" />
-                      <span className="text-[var(--claude-success)]">
-                        +{conv.filesChanged.reduce((sum, f) => sum + (f.additions || 0), 0)}
-                      </span>
-                      <span className="text-[var(--claude-error)]">
-                        -{conv.filesChanged.reduce((sum, f) => sum + (f.deletions || 0), 0)}
-                      </span>
-                    </div>
-                  )}
+                  {conv.filesChanged && conv.filesChanged.length > 0 && (() => {
+                    const additions = conv.filesChanged.reduce((sum, f) => sum + (f.additions || 0), 0);
+                    const deletions = conv.filesChanged.reduce((sum, f) => sum + (f.deletions || 0), 0);
+                    return (
+                      <div className="flex items-center gap-2 mt-1.5 text-xs font-mono">
+                        <FileCode className="w-3 h-3 text-[var(--claude-text-muted)]" />
+                        <span className="text-[var(--claude-success)]">+{additions}</span>
+                        <span className="text-[var(--claude-error)]">-{deletions}</span>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </button>

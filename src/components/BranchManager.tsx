@@ -27,55 +27,54 @@ export default function BranchManager({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleCreate = async () => {
-    if (!newBranchName.trim()) return;
-    
+  const withErrorHandling = async (operation: () => Promise<void>, errorMessage: string) => {
     setIsLoading(true);
     setError(null);
-    
     try {
-      await onCreateBranch(newBranchName.trim());
-      setNewBranchName('');
-      setIsCreating(false);
+      await operation();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create branch');
+      setError(err instanceof Error ? err.message : errorMessage);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleCreate = async () => {
+    if (!newBranchName.trim()) return;
+    
+    await withErrorHandling(async () => {
+      await onCreateBranch(newBranchName.trim());
+      setNewBranchName('');
+      setIsCreating(false);
+    }, 'Failed to create branch');
   };
 
   const handleDelete = async (branch: string) => {
     if (!confirm(`Delete branch "${branch}"? This cannot be undone.`)) return;
     
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      await onDeleteBranch(branch);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete branch');
-    } finally {
-      setIsLoading(false);
-    }
+    await withErrorHandling(() => onDeleteBranch(branch), 'Failed to delete branch');
   };
 
   const handleCreatePR = async (branch: string) => {
-    setIsLoading(true);
-    setError(null);
-    
-    try {
+    await withErrorHandling(async () => {
       const result = await onCreatePR(branch);
       if (result) {
-        window.open(result.url, '_blank');
+        const newWindow = window.open(result.url, '_blank');
+        if (!newWindow) {
+          throw new Error('Pop-up blocked. Please allow pop-ups and try again.');
+        }
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create PR');
-    } finally {
-      setIsLoading(false);
-    }
+    }, 'Failed to create PR');
   };
 
   const featureBranches = branches.filter(b => b !== defaultBranch);
+
+  const getBranchItemClasses = (branch: string) => {
+    const baseClasses = 'flex items-center gap-3 p-3 rounded-lg transition-colors';
+    const activeClasses = 'bg-[var(--claude-terracotta-subtle)] border border-[var(--claude-terracotta)]/20';
+    const inactiveClasses = 'hover:bg-[var(--claude-sand-light)] border border-transparent';
+    return `${baseClasses} ${currentBranch === branch ? activeClasses : inactiveClasses}`;
+  };
 
   return (
     <div className="p-4 rounded-xl bg-[var(--claude-surface)] border border-[var(--claude-border)]">
@@ -140,13 +139,7 @@ export default function BranchManager({
         {/* Default branch */}
         <div
           onClick={() => onSwitchBranch(defaultBranch)}
-          className={`
-            flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors
-            ${currentBranch === defaultBranch
-              ? 'bg-[var(--claude-terracotta-subtle)] border border-[var(--claude-terracotta)]/20'
-              : 'hover:bg-[var(--claude-sand-light)] border border-transparent'
-            }
-          `}
+          className={`${getBranchItemClasses(defaultBranch)} cursor-pointer`}
         >
           <GitBranch className="w-4 h-4 text-[var(--claude-text-muted)]" />
           <span className="flex-1 text-sm font-medium text-[var(--claude-text)]">
@@ -162,13 +155,7 @@ export default function BranchManager({
         {featureBranches.map((branch) => (
           <div
             key={branch}
-            className={`
-              flex items-center gap-3 p-3 rounded-lg transition-colors
-              ${currentBranch === branch
-                ? 'bg-[var(--claude-terracotta-subtle)] border border-[var(--claude-terracotta)]/20'
-                : 'hover:bg-[var(--claude-sand-light)] border border-transparent'
-              }
-            `}
+            className={getBranchItemClasses(branch)}
           >
             <div
               onClick={() => onSwitchBranch(branch)}

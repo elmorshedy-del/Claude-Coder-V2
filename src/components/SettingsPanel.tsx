@@ -712,13 +712,13 @@ function ModeButton({
       : 'hover:bg-[var(--claude-warning)]/5',
   };
 
+  const baseClasses = 'p-4 rounded-xl border text-left transition-all';
+  const activeClasses = active ? colorClasses[color] : `border-[var(--claude-border)] ${colorClasses[color]}`;
+  
   return (
     <button
       onClick={onClick}
-      className={`
-        p-4 rounded-xl border text-left transition-all
-        ${active ? colorClasses[color] : `border-[var(--claude-border)] ${colorClasses[color]}`}
-      `}
+      className={`${baseClasses} ${activeClasses}`}
     >
       <p className={`font-medium ${active ? '' : 'text-[var(--claude-text)]'}`}>{label}</p>
       <p className="text-xs mt-1 text-[var(--claude-text-muted)]">{description}</p>

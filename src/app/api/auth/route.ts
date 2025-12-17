@@ -22,31 +22,38 @@ async function validateApiKeys(
     github: { valid: false },
   };
 
-  // Validate Anthropic key
-  if (anthropicKey) {
-    try {
+  // Run validations in parallel
+  const validations = await Promise.allSettled([
+    anthropicKey ? (async () => {
       const client = new Anthropic({ apiKey: anthropicKey });
       await client.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 1,
         messages: [{ role: 'user', content: 'hi' }],
       });
-      results.anthropic.valid = true;
-    } catch (error) {
-      results.anthropic.error = error instanceof Error ? error.message : 'Invalid key';
-    }
-  }
-
-  // Validate GitHub token
-  if (githubToken) {
-    try {
+      return { valid: true };
+    })() : Promise.resolve({ valid: false }),
+    
+    githubToken ? (async () => {
       const octokit = new Octokit({ auth: githubToken });
       const { data } = await octokit.rest.users.getAuthenticated();
-      results.github.valid = true;
-      results.github.user = data.login;
-    } catch (error) {
-      results.github.error = error instanceof Error ? error.message : 'Invalid token';
-    }
+      return { valid: true, user: data.login };
+    })() : Promise.resolve({ valid: false })
+  ]);
+
+  // Process results
+  const [anthropicResult, githubResult] = validations;
+  
+  if (anthropicResult.status === 'fulfilled') {
+    results.anthropic = anthropicResult.value;
+  } else {
+    results.anthropic.error = anthropicResult.reason instanceof Error ? anthropicResult.reason.message : 'Invalid key';
+  }
+  
+  if (githubResult.status === 'fulfilled') {
+    results.github = githubResult.value;
+  } else {
+    results.github.error = githubResult.reason instanceof Error ? githubResult.reason.message : 'Invalid token';
   }
 
   return results;
@@ -107,7 +114,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type') || 'all';
     const sort = searchParams.get('sort') || 'updated';
-    const perPage = parseInt(searchParams.get('per_page') || '30');
+    const perPageParam = searchParams.get('per_page') || '30';
+    const perPage = Math.min(Math.max(parseInt(perPageParam) || 30, 1), 100);
 
     const octokit = new Octokit({ auth: githubToken });
     

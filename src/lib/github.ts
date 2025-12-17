@@ -13,30 +13,32 @@ const FILE_CONTENT_CACHE = new Map<string, { file: RepoFile; timestamp: number }
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour (extended from 5 minutes)
 const MAX_CACHE_ENTRIES = 200;
 
+// Helper functions for cache cleanup
+function removeExpiredEntries<T>(cache: Map<string, { timestamp: number } & T>): void {
+  const now = Date.now();
+  const expiredKeys = Array.from(cache.entries())
+    .filter(([, value]) => now - value.timestamp > CACHE_TTL)
+    .map(([key]) => key);
+  
+  expiredKeys.forEach(key => cache.delete(key));
+}
+
+function removeOldestEntries<T>(cache: Map<string, { timestamp: number } & T>, maxEntries: number): void {
+  if (cache.size <= maxEntries) return;
+  
+  const sortedEntries = Array.from(cache.entries())
+    .sort((a, b) => a[1].timestamp - b[1].timestamp);
+  const removeCount = cache.size - maxEntries;
+  
+  for (let i = 0; i < removeCount; i++) {
+    cache.delete(sortedEntries[i][0]);
+  }
+}
+
 // Cleanup old cache entries
 function cleanupCache<T>(cache: Map<string, { timestamp: number } & T>, maxEntries: number = MAX_CACHE_ENTRIES): void {
-  const now = Date.now();
-  const toDelete: string[] = [];
-
-  for (const [key, value] of cache.entries()) {
-    if (now - value.timestamp > CACHE_TTL) {
-      toDelete.push(key);
-    }
-  }
-
-  for (const key of toDelete) {
-    cache.delete(key);
-  }
-
-  // If still over limit, remove oldest
-  if (cache.size > maxEntries) {
-    const entries = Array.from(cache.entries())
-      .sort((a, b) => a[1].timestamp - b[1].timestamp);
-    const removeCount = cache.size - maxEntries;
-    for (let i = 0; i < removeCount; i++) {
-      cache.delete(entries[i][0]);
-    }
-  }
+  removeExpiredEntries(cache);
+  removeOldestEntries(cache, maxEntries);
 }
 
 export class GitHubClient {
@@ -124,18 +126,24 @@ export class GitHubClient {
   // Clean expired cache entries
   cleanupCaches(): void {
     const now = Date.now();
+    const expiredContentKeys = [];
+    const expiredSearchKeys = [];
     
+    // Batch collect expired keys
     for (const [key, value] of this.fileContentCache.entries()) {
       if (now - value.timestamp > this.CONTENT_CACHE_TTL) {
-        this.fileContentCache.delete(key);
+        expiredContentKeys.push(key);
+      }
+    }
+    for (const [key, value] of this.searchCache.entries()) {
+      if (now - value.timestamp > this.SEARCH_CACHE_TTL) {
+        expiredSearchKeys.push(key);
       }
     }
     
-    for (const [key, value] of this.searchCache.entries()) {
-      if (now - value.timestamp > this.SEARCH_CACHE_TTL) {
-        this.searchCache.delete(key);
-      }
-    }
+    // Batch delete
+    expiredContentKeys.forEach(key => this.fileContentCache.delete(key));
+    expiredSearchKeys.forEach(key => this.searchCache.delete(key));
   }
 
   private async getBranchSHA(branch: string): Promise<string> {
@@ -286,7 +294,7 @@ export class GitHubClient {
           // Only follow imports for first level and if file is small
           if (depth < maxDepth && file.content.length < 5000) {
             const imports = this.parseImports(file.content, p).slice(0, 3); // Limit imports
-            await Promise.all(imports.map(imp => loadFile(imp, depth + 1)));
+            await Promise.allSettled(imports.map(imp => loadFile(imp, depth + 1)));
           }
           return;
         } catch {
@@ -301,14 +309,15 @@ export class GitHubClient {
 
   private parseImports(content: string, currentPath: string): string[] {
     const imports: string[] = [];
-    const importRegex = /import\s+.*\s+from\s+['"]([^'"]+)['"]/g;
-    const requireRegex = /require\s*\(['"]([^'"]+)['"]\)/g;
-
-    let match;
-    while ((match = importRegex.exec(content)) !== null) {
+    
+    // Use matchAll for better performance
+    const importMatches = content.matchAll(/import\s+.*\s+from\s+['"]([^'"]+)['"]/g);
+    const requireMatches = content.matchAll(/require\s*\(['"]([^'"]+)['"]\)/g);
+    
+    for (const match of importMatches) {
       imports.push(this.resolveImportPath(match[1], currentPath));
     }
-    while ((match = requireRegex.exec(content)) !== null) {
+    for (const match of requireMatches) {
       imports.push(this.resolveImportPath(match[1], currentPath));
     }
 
@@ -376,7 +385,11 @@ export class GitHubClient {
         }
       }
     } catch (error) {
-      console.error('Grep search error:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown search error';
+      console.error(`Grep search failed for query "${query}":`, errorMsg);
+      
+      // Return empty results on error rather than throwing
+      return [];
     }
 
     return results.slice(0, maxResults);
@@ -494,7 +507,8 @@ export class GitHubClient {
       });
       console.log(`✅ Triggered Railway deployment for ${path}`);
     } catch (error) {
-      console.warn('Failed to trigger deployment event:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown dispatch error';
+      console.warn(`Failed to trigger deployment event for ${path}:`, errorMsg);
       // Don't fail the whole operation if dispatch fails
     }
   }
@@ -579,7 +593,8 @@ export class GitHubClient {
         });
         console.log(`✅ Triggered Railway deployment for ${path}`);
       } catch (error) {
-        console.warn('Failed to trigger deployment event:', error);
+        const errorMsg = error instanceof Error ? error.message : 'Unknown dispatch error';
+        console.warn(`Failed to trigger deployment event for ${path}:`, errorMsg);
         // Don't fail the whole operation if dispatch fails
       }
 
@@ -719,30 +734,43 @@ export function parseErrorMessage(errorText: string): {
   columnNumber?: number;
   errorMessage: string;
 } {
-  // Common error patterns
-  const patterns = [
-    // TypeScript/JavaScript: "src/app/page.tsx(15,3): error TS..."
-    /([^\s:]+\.[jt]sx?)\((\d+),(\d+)\):\s*(.+)/,
-    // ESLint/Standard: "src/app/page.tsx:15:3: ..."
-    /([^\s:]+\.[jt]sx?):(\d+):(\d+):\s*(.+)/,
-    // Python: 'File "path.py", line 15'
-    /File\s+"([^"]+)",\s+line\s+(\d+)/,
-    // Go: "path.go:15:3: ..."
-    /([^\s:]+\.go):(\d+):(\d+):\s*(.+)/,
-    // Rust: "--> src/main.rs:15:3"
-    /-->\s*([^\s:]+):(\d+):(\d+)/,
-    // Generic: "at path:line:col" or "in path on line X"
-    /at\s+([^\s:]+):(\d+)(?::(\d+))?/,
-    /in\s+([^\s]+)\s+on\s+line\s+(\d+)/,
-  ];
+  try {
+    // Common error patterns
+    const patterns = [
+      // TypeScript/JavaScript: "src/app/page.tsx(15,3): error TS..."
+      /([^\s:]+\.[jt]sx?)\((\d+),(\d+)\):\s*(.+)/,
+      // ESLint/Standard: "src/app/page.tsx:15:3: ..."
+      /([^\s:]+\.[jt]sx?):(\d+):(\d+):\s*(.+)/,
+      // Python: 'File "path.py", line 15'
+      /File\s+"([^"]+)",\s+line\s+(\d+)/,
+      // Go: "path.go:15:3: ..."
+      /([^\s:]+\.go):(\d+):(\d+):\s*(.+)/,
+      // Rust: "--> src/main.rs:15:3"
+      /-->\s*([^\s:]+):(\d+):(\d+)/,
+      // Generic: "at path:line:col" or "in path on line X"
+      /at\s+([^\s:]+):(\d+)(?::(\d+))?/,
+      /in\s+([^\s]+)\s+on\s+line\s+(\d+)/,
+    ];
 
-  for (const pattern of patterns) {
-    const match = errorText.match(pattern);
-    if (match) {
-      return {
-        filePath: match[1],
-        lineNumber: parseInt(match[2], 10),
-        columnNumber: match[3] ? parseInt(match[3], 10) : undefined,
+    for (const pattern of patterns) {
+      const match = errorText.match(pattern);
+      if (match) {
+        return {
+          filePath: match[1],
+          lineNumber: parseInt(match[2], 10) || undefined,
+          columnNumber: match[3] ? parseInt(match[3], 10) : undefined,
+          errorMessage: match[4] || errorText,
+        };
+      }
+    }
+
+    // No pattern matched, return original error
+    return { errorMessage: errorText };
+  } catch (error) {
+    // Fallback if parsing fails
+    return { errorMessage: errorText };
+  }
+}umnNumber: match[3] ? parseInt(match[3], 10) : undefined,
         errorMessage: match[4] || errorText,
       };
     }

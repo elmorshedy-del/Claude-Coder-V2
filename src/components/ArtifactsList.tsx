@@ -107,25 +107,11 @@ export default function ArtifactsList({ artifacts, onSelect, onDownloadAll }: Ar
   );
 }
 
-function getExtension(type: string, language?: string): string {
-  if (language) {
-    const langMap: Record<string, string> = {
-      typescript: 'ts',
-      javascript: 'js',
-      python: 'py',
-      tsx: 'tsx',
-      jsx: 'jsx',
-    };
-    return langMap[language] || language;
-  }
-
-  const typeMap: Record<string, string> = {
-    html: 'html',
-    svg: 'svg',
-    mermaid: 'mmd',
-    react: 'tsx',
-    markdown: 'md',
-    code: 'txt',
+// Utility function for file extensions
+const getExtension = (type: string, language?: string): string => {
+  const extensions = {
+    language: { typescript: 'ts', javascript: 'js', python: 'py', tsx: 'tsx', jsx: 'jsx' },
+    type: { html: 'html', svg: 'svg', mermaid: 'mmd', react: 'tsx', markdown: 'md', code: 'txt' }
   };
-  return typeMap[type] || 'txt';
-}
+  return (language && extensions.language[language]) || extensions.type[type] || language || 'txt';
+};

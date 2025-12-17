@@ -20,8 +20,19 @@ export default function ArtifactPanel({ artifact, onClose, onRefresh }: Artifact
   const canPreview = ['html', 'svg', 'mermaid', 'react'].includes(artifact.type);
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(artifact.content);
-    setCopied(true);
+    try {
+      await navigator.clipboard.writeText(artifact.content);
+      setCopied(true);
+    } catch (error) {
+      // Fallback for browsers without clipboard API
+      const textArea = document.createElement('textarea');
+      textArea.value = artifact.content;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopied(true);
+    }
     setShowCopyMenu(false);
     setTimeout(() => setCopied(false), 2000);
   };

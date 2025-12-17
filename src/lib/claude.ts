@@ -106,6 +106,39 @@ export class ClaudeClient {
   }
 
   // --------------------------------------------------------------------------
+  // Helper Functions
+  // --------------------------------------------------------------------------
+
+  private getEffortConfig(effort: EffortLevel, thinkingBudget: number) {
+    const configs = {
+      low: { maxTokens: 4000, thinkingMultiplier: 0.3 },
+      medium: { maxTokens: 12000, thinkingMultiplier: 0.6 },
+      high: { maxTokens: 24000, thinkingMultiplier: 1.0 },
+    };
+    const config = configs[effort] ?? configs.medium;
+    return {
+      ...config,
+      adjustedThinkingBudget: Math.round(thinkingBudget * config.thinkingMultiplier)
+    };
+  }
+
+  private buildToolsArray(tools: ClaudeTool[] | undefined, toolExecutionMode: ToolExecutionMode, enableCodeExecution: boolean, enableMemory: boolean) {
+    const allTools: Array<ClaudeTool | { type: string; name: string }> = [...(tools ?? this.getDefaultTools(toolExecutionMode))];
+    if (enableCodeExecution) allTools.push(this.getCodeExecutionTool());
+    if (enableMemory) allTools.push(this.getMemoryTool());
+    return allTools;
+  }
+
+  private buildBetaHeaders(enableCodeExecution: boolean, enableMemory: boolean, enableContextCompaction: boolean, enableInterleavedThinking: boolean, toolExecutionMode: ToolExecutionMode) {
+    const betas: string[] = [];
+    if (enableCodeExecution) betas.push('code-execution-2025-05-22');
+    if (enableMemory || enableContextCompaction) betas.push('context-management-2025-06-27');
+    if (enableInterleavedThinking) betas.push('interleaved-thinking-2025-05-14');
+    if (toolExecutionMode !== 'direct') betas.push('advanced-tool-use-2025-11-20');
+    return betas;
+  }
+
+  // --------------------------------------------------------------------------
   // Main Chat Function (Non-streaming)
   // --------------------------------------------------------------------------
 
@@ -147,40 +180,9 @@ export class ClaudeClient {
       toolExecutionMode = 'direct',
     } = options;
 
-    // Map effort to max_tokens and thinking budget - reduced for cost efficiency
-    const effortConfig = {
-      low: { maxTokens: 4000, thinkingMultiplier: 0.3 },
-      medium: { maxTokens: 12000, thinkingMultiplier: 0.6 },
-      high: { maxTokens: 24000, thinkingMultiplier: 1.0 },
-    };
-    const config = effortConfig[effort] ?? effortConfig.medium;
-    const adjustedThinkingBudget = Math.round(thinkingBudget * config.thinkingMultiplier);
-
-    // Build tools array with special tools
-    const allTools: Array<ClaudeTool | { type: string; name: string }> = [...(tools ?? this.getDefaultTools(toolExecutionMode))];
-    
-    if (enableCodeExecution) {
-      allTools.push(this.getCodeExecutionTool());
-    }
-    
-    if (enableMemory) {
-      allTools.push(this.getMemoryTool());
-    }
-
-    // Build beta headers array
-    const betas: string[] = [];
-    if (enableCodeExecution) {
-      betas.push('code-execution-2025-05-22');
-    }
-    if (enableMemory || enableContextCompaction) {
-      betas.push('context-management-2025-06-27');
-    }
-    if (enableInterleavedThinking) {
-      betas.push('interleaved-thinking-2025-05-14');
-    }
-    if (toolExecutionMode !== 'direct') {
-      betas.push('advanced-tool-use-2025-11-20');
-    }
+    const config = this.getEffortConfig(effort, thinkingBudget);
+    const allTools = this.buildToolsArray(tools, toolExecutionMode, enableCodeExecution, enableMemory);
+    const betas = this.buildBetaHeaders(enableCodeExecution, enableMemory, enableContextCompaction, enableInterleavedThinking, toolExecutionMode);
 
     // Build system blocks with prompt caching for BOTH system prompt and code context
     // Cache order matters: put most stable content first (system prompt), then code context
@@ -219,7 +221,7 @@ export class ClaudeClient {
     if (enableThinking && (this.model.includes('opus') || this.model.includes('sonnet'))) {
       (requestParams as unknown as Record<string, unknown>).thinking = {
         type: 'enabled',
-        budget_tokens: Math.max(1024, Math.min(adjustedThinkingBudget, 10000)),
+        budget_tokens: Math.max(1024, Math.min(config.adjustedThinkingBudget, 10000)),
       };
     }
 
@@ -725,29 +727,25 @@ DO NOT USE for:
 
   private parseArtifacts(content: string): Artifact[] {
     const artifacts: Artifact[] = [];
+    const matches = content.matchAll(/```(\w+)?\n([\s\S]*?)```/g);
     
-    // Match code blocks with language specifier
-    const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
-    let match;
+    // Pre-compiled type mapping for O(1) lookup
+    const typeMap: Record<string, ArtifactType> = {
+      html: 'html', svg: 'svg', mermaid: 'mermaid',
+      jsx: 'react', tsx: 'react', react: 'react',
+      md: 'markdown', markdown: 'markdown'
+    };
+
     let artifactIndex = 0;
-
-    while ((match = codeBlockRegex.exec(content)) !== null) {
+    for (const match of matches) {
       const language = match[1]?.toLowerCase() ?? 'text';
-      const code = match[2];
-
-      // Determine artifact type based on language
-      let type: ArtifactType = 'code';
-      if (language === 'html') type = 'html';
-      else if (language === 'svg') type = 'svg';
-      else if (language === 'mermaid') type = 'mermaid';
-      else if (['jsx', 'tsx', 'react'].includes(language)) type = 'react';
-      else if (['md', 'markdown'].includes(language)) type = 'markdown';
-
+      const type = typeMap[language] ?? 'code';
+      
       artifacts.push({
         id: `artifact-${artifactIndex++}`,
         name: `Code ${artifactIndex}`,
         type,
-        content: code,
+        content: match[2],
         language,
       });
     }
@@ -829,11 +827,17 @@ ${editingInstructions}
 // Generate Code Context for Prompt
 // ----------------------------------------------------------------------------
 
+const truncateFileContent = (content: string): string => {
+  const MAX_LENGTH = 3000;
+  return content.length > MAX_LENGTH 
+    ? content.slice(0, MAX_LENGTH) + '\n\n// ... (truncated, use read_file for full content)'
+    : content;
+};
+
 export function generateCodeContext(
   fileTree: string,
   files: Array<{ path: string; content: string }>
 ): string {
-  // Optimized context - only include relevant parts
   let context = '';
   
   // Only include file tree if we have few files loaded
@@ -846,10 +850,7 @@ export function generateCodeContext(
 
   for (const file of files) {
     const ext = file.path.split('.').pop() ?? '';
-    // Truncate large files to save tokens
-    const content = file.content.length > 3000 
-      ? file.content.slice(0, 3000) + '\n\n// ... (truncated, use read_file for full content)'
-      : file.content;
+    const content = truncateFileContent(file.content);
     context += `### ${file.path}\n\`\`\`${ext}\n${content}\n\`\`\`\n\n`;
   }
 
@@ -862,33 +863,38 @@ export function generateCodeContext(
 // Extract Keywords from User Message (for Smart File Loading)
 // ----------------------------------------------------------------------------
 
-export function extractKeywords(message: string): string[] {
-  // Optimized keyword extraction - focus on code identifiers
-  const commonWords = new Set([
-    'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'man', 'new', 'now', 'old', 'see', 'two', 'way', 'who', 'boy', 'did', 'its', 'let', 'put', 'say', 'she', 'too', 'use',
-    'fix', 'add', 'create', 'update', 'change', 'modify', 'edit', 'help', 'please', 'want', 'need', 'make', 'file', 'code', 'function', 'component', 'error', 'bug', 'issue'
-  ]);
+// Pre-compiled patterns and common words for performance
+const COMMON_WORDS = new Set([
+  'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'man', 'new', 'now', 'old', 'see', 'two', 'way', 'who', 'boy', 'did', 'its', 'let', 'put', 'say', 'she', 'too', 'use',
+  'fix', 'add', 'create', 'update', 'change', 'modify', 'edit', 'help', 'please', 'want', 'need', 'make', 'file', 'code', 'function', 'component', 'error', 'bug', 'issue'
+]);
 
-  // Extract identifiers and file-like patterns
-  const patterns = [
-    /[A-Z][a-z]+(?:[A-Z][a-z]+)*/g, // PascalCase
-    /[a-z]+(?:[A-Z][a-z]+)+/g, // camelCase
-    /[a-z_]+\.[a-z]{2,4}/g, // filenames
-    /[a-z_][a-z0-9_]{2,}/g // snake_case/identifiers
-  ];
-  
+const KEYWORD_PATTERNS = [
+  /[A-Z][a-z]+(?:[A-Z][a-z]+)*/g, // PascalCase
+  /[a-z]+(?:[A-Z][a-z]+)+/g, // camelCase
+  /[a-z_]+\.[a-z]{2,4}/g, // filenames
+  /[a-z_][a-z0-9_]{2,}/g // snake_case/identifiers
+];
+
+export function extractKeywords(message: string): string[] {
   const words = new Set<string>();
-  for (const pattern of patterns) {
-    const matches = message.match(pattern) ?? [];
-    matches.forEach(word => {
-      const lower = word.toLowerCase();
-      if (!commonWords.has(lower) && word.length > 2) {
-        words.add(word);
+  
+  // Single pass through patterns with early termination
+  for (const pattern of KEYWORD_PATTERNS) {
+    const matches = message.match(pattern);
+    if (matches) {
+      for (const word of matches) {
+        if (words.size >= 5) break; // Early termination
+        const lower = word.toLowerCase();
+        if (word.length > 2 && !COMMON_WORDS.has(lower)) {
+          words.add(word);
+        }
       }
-    });
+      if (words.size >= 5) break; // Early termination
+    }
   }
   
-  return Array.from(words).slice(0, 5); // Reduced to 5 keywords
+  return Array.from(words);
 }
 
 

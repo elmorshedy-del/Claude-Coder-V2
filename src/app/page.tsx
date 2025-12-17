@@ -134,99 +134,84 @@ export default function Home() {
   } | null>(null);
 
   // --------------------------------------------------------------------------
-  // EFFECTS - Initialize from localStorage
+  // HELPER FUNCTIONS - localStorage restoration
   // --------------------------------------------------------------------------
-  useEffect(() => {
-    // Check if already unlocked (remembered)
-    const savedUnlocked = localStorage.getItem('isUnlocked');
-    if (savedUnlocked === 'true') {
-      setIsUnlocked(true);
-    }
-
-    // Try to restore from auto-backup first
+  const restoreFromAutoBackup = () => {
     const autoBackup = localStorage.getItem('claude-coder-auto-backup');
-    if (autoBackup) {
-      try {
-        const backup = JSON.parse(autoBackup);
-        const age = Date.now() - (backup.timestamp || 0);
-        const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
-        
-        if (age < maxAge && backup.conversations?.length > 0) {
-          console.log('✅ Restored from auto-backup');
-          setConversations(backup.conversations);
-          if (backup.settings) setSettings(backup.settings);
-          if (backup.totalCost) setTotalCost(backup.totalCost);
-        }
-      } catch (e) {
-        console.warn('Failed to restore auto-backup:', e);
+    if (!autoBackup) return null;
+    
+    try {
+      const backup = JSON.parse(autoBackup);
+      const age = Date.now() - (backup.timestamp || 0);
+      const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
+      
+      if (age < maxAge && backup.conversations?.length > 0) {
+        console.log('✅ Restored from auto-backup');
+        setConversations(backup.conversations);
+        if (backup.settings) setSettings(backup.settings);
+        if (backup.totalCost) setTotalCost(backup.totalCost);
+        return backup;
       }
+    } catch (e) {
+      console.warn('Failed to restore auto-backup:', e);
     }
+    return null;
+  };
 
-    // Load saved state (will override backup if present)
+  const restoreUserData = (autoBackup: any) => {
     let savedAnthropicKey = localStorage.getItem('anthropicKey');
     let savedGithubToken = localStorage.getItem('githubToken');
+    
+    // Restore API keys from backup if missing
+    if (!savedAnthropicKey && autoBackup?.anthropicKey) {
+      savedAnthropicKey = autoBackup.anthropicKey;
+      localStorage.setItem('anthropicKey', autoBackup.anthropicKey);
+    }
+    if (!savedGithubToken && autoBackup?.githubToken) {
+      savedGithubToken = autoBackup.githubToken;
+      localStorage.setItem('githubToken', autoBackup.githubToken);
+    }
+
+    // Apply restored data
+    if (savedAnthropicKey) {
+      setAnthropicKey(savedAnthropicKey);
+      setIsAuthenticated(true);
+      if (savedGithubToken) fetchRepos(savedGithubToken);
+    }
+    if (savedGithubToken) setGithubToken(savedGithubToken);
+    
     const savedRepo = localStorage.getItem('currentRepo');
     const savedBranch = localStorage.getItem('currentBranch');
     const savedConversations = localStorage.getItem('conversations');
-    let savedSettings = localStorage.getItem('settings');
+    const savedSettings = localStorage.getItem('settings');
     const savedDarkMode = localStorage.getItem('darkMode');
     const savedCurrentConvId = localStorage.getItem('currentConversationId');
     const savedTotalCost = localStorage.getItem('totalCost');
     
-    // Restore API keys from backup if missing
-    if (!savedAnthropicKey && autoBackup) {
-      try {
-        const backup = JSON.parse(autoBackup);
-        if (backup.anthropicKey) {
-          savedAnthropicKey = backup.anthropicKey;
-          localStorage.setItem('anthropicKey', backup.anthropicKey);
-        }
-        if (backup.githubToken) {
-          savedGithubToken = backup.githubToken;
-          localStorage.setItem('githubToken', backup.githubToken);
-        }
-      } catch {}
-    }
-
-    if (savedAnthropicKey) setAnthropicKey(savedAnthropicKey);
-    if (savedGithubToken) setGithubToken(savedGithubToken);
     if (savedRepo) setCurrentRepo(JSON.parse(savedRepo));
     if (savedBranch) setCurrentBranch(savedBranch);
-    if (savedConversations) {
-      setConversations(JSON.parse(savedConversations));
-    } else if (!autoBackup) {
-      // Only show message if no backup was found either
-      console.log('No conversations found');
-    }
+    if (savedConversations) setConversations(JSON.parse(savedConversations));
     if (savedSettings) {
       const parsed = JSON.parse(savedSettings);
-      // Migrate old settings: ensure webSearchMode exists
-      if (!parsed.webSearchMode) {
-        parsed.webSearchMode = parsed.enableWebSearch ? 'auto' : 'off';
-      }
-      // Remove deprecated fields if they exist
+      if (!parsed.webSearchMode) parsed.webSearchMode = parsed.enableWebSearch ? 'auto' : 'off';
       delete parsed.webSearchAutoDetect;
       setSettings(parsed);
     }
     if (savedDarkMode) setDarkMode(savedDarkMode === 'true');
     if (savedCurrentConvId) setCurrentConversationId(savedCurrentConvId);
     if (savedTotalCost) setTotalCost(parseFloat(savedTotalCost));
-    else if (autoBackup) {
-      // If we restored from backup but no current cost, use backup cost
-      try {
-        const backup = JSON.parse(autoBackup);
-        if (backup.totalCost) setTotalCost(backup.totalCost);
-      } catch {}
-    }
+    else if (autoBackup?.totalCost) setTotalCost(autoBackup.totalCost);
+  };
 
-    // Check if API key is valid
-    if (savedAnthropicKey) {
-      setIsAuthenticated(true);
-      // Only fetch repos if we have a GitHub token
-      if (savedGithubToken) {
-        fetchRepos(savedGithubToken);
-      }
-    }
+  // --------------------------------------------------------------------------
+  // EFFECTS - Initialize from localStorage
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    const savedUnlocked = localStorage.getItem('isUnlocked');
+    if (savedUnlocked === 'true') setIsUnlocked(true);
+    
+    const autoBackup = restoreFromAutoBackup();
+    restoreUserData(autoBackup);
   }, []);
 
   // --------------------------------------------------------------------------
