@@ -232,6 +232,7 @@ export class ClaudeClient {
         system: systemBlocks as Anthropic.Messages.TextBlockParam[],
         messages: messages as Anthropic.Messages.MessageParam[],
         tools: allTools.length > 0 ? allTools as Anthropic.Messages.Tool[] : undefined,
+        stream: false,
         ...(enableThinking && {
           thinking: {
             type: 'enabled',
@@ -241,7 +242,7 @@ export class ClaudeClient {
         ...(betas.length > 0 && {
           betas,
         }),
-      } as Anthropic.Messages.MessageCreateParams);
+      } as Anthropic.Messages.MessageCreateParams) as Anthropic.Messages.Message;
 
       // Extract content
       let textContent = '';
