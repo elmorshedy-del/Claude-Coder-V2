@@ -88,8 +88,10 @@ export async function POST(request: NextRequest) {
 
     // Initialize clients based on file access mode
     const claude = new ClaudeClient(anthropicKey, settings.model);
-    const isLocalMode = settings.fileAccessMode === 'local' && settings.localWorkspacePath;
-    
+    const isLocalMode = settings.fileAccessMode === 'local' && !!settings.localWorkspacePath;
+    const hasRepoContext = Boolean(repoContext && repoContext.owner && repoContext.repo);
+    const branch = repoContext?.branch || 'main';
+
     // GitHub token only required for GitHub mode
     if (!isLocalMode && !githubToken) {
       return NextResponse.json(
@@ -97,29 +99,40 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
-    
-    const github = isLocalMode ? null : new GitHubClient(githubToken!, repoContext.owner, repoContext.repo);
+
+    if (!isLocalMode && !hasRepoContext) {
+      return NextResponse.json(
+        { error: 'Repository context required for GitHub API mode' },
+        { status: 400 }
+      );
+    }
+
+    const github = !isLocalMode && hasRepoContext && githubToken
+      ? new GitHubClient(githubToken, repoContext.owner, repoContext.repo)
+      : null;
     const localFs = isLocalMode ? new LocalFileSystem(settings.localWorkspacePath!) : null;
 
     // Get or cache file tree
-    const cacheKey = `${repoContext.owner}/${repoContext.repo}/${repoContext.branch}`;
-    let fileTree = repoContext.fileTree || '';
+    const cacheKey = hasRepoContext
+      ? `${repoContext.owner}/${repoContext.repo}/${branch}`
+      : '';
+    let fileTree = hasRepoContext ? repoContext.fileTree || '' : '';
 
-    if (!fileTree && github) {
+    if (!fileTree && github && hasRepoContext) {
       const cached = fileTreeCache.get(cacheKey);
       if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
         fileTree = cached.tree;
       } else {
-        const tree = await github.getFileTree(repoContext.branch);
+        const tree = await github.getFileTree(branch);
         fileTree = formatFileTree(tree);
         fileTreeCache.set(cacheKey, { tree: fileTree, timestamp: Date.now() });
       }
     }
 
     // Optimized file loading - only when context changes
-    let loadedFiles: RepoFile[] = repoContext.loadedFiles || [];
-    
-    if (loadedFiles.length === 0 && messages.length > 0) {
+    let loadedFiles: RepoFile[] = hasRepoContext ? repoContext.loadedFiles || [] : [];
+
+    if (hasRepoContext && loadedFiles.length === 0 && messages.length > 0) {
       const lastUserMessage = messages[messages.length - 1];
       if (lastUserMessage.role === 'user') {
         const keywords = extractKeywords(lastUserMessage.content);
@@ -156,7 +169,7 @@ export async function POST(request: NextRequest) {
             
             // Only fetch uncached files
             if (uncachedPaths.length > 0 && github) {
-              const newFiles = await github.getFilesWithImports(uncachedPaths, repoContext.branch, 1); // Reduced depth
+              const newFiles = await github.getFilesWithImports(uncachedPaths, branch, 1); // Reduced depth
               
               // Cache new content
               for (const file of newFiles) {
@@ -174,15 +187,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate code context
-    const codeContext = generateCodeContext(fileTree, loadedFiles);
+    const codeContext = hasRepoContext
+      ? generateCodeContext(fileTree, loadedFiles)
+      : '';
 
     // Get system prompt
-    const systemPrompt = getSystemPrompt(
-      repoContext.owner,
-      repoContext.repo,
-      repoContext.branch,
-      settings.enableWebSearch
-    );
+    const systemPrompt = hasRepoContext || isLocalMode
+      ? getSystemPrompt(
+          repoContext?.owner || '',
+          repoContext?.repo || '',
+          branch,
+          settings.enableWebSearch,
+          !!isLocalMode
+        )
+      : getChatOnlySystemPrompt(settings.enableWebSearch);
 
     // Build tools array with programmatic tool calling support
     const tools = claude['getDefaultTools'](settings.toolExecutionMode);
