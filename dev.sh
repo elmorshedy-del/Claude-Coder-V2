@@ -7,8 +7,8 @@ echo "🚀 Starting dev server and auto-sync..."
 ./auto-sync.sh &
 SYNC_PID=$!
 
-# Start dev server
-npm run dev
+# Start dev server on port 3000
+PORT=3000 npm run dev
 
 # Kill auto-sync when dev server stops
 kill $SYNC_PID
