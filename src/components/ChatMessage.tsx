@@ -97,27 +97,31 @@ export default function ChatMessage({ message, onViewPR, onDiscard }: ChatMessag
             )}
 
             {/* File changes */}
-            {message.filesChanged && message.filesChanged.length > 0 && (
-              <PostEditActions
-                state={{
-                  mode: 'safe',
-                  filesChanged: message.filesChanged,
-                  totalAdditions: message.filesChanged.reduce((sum, f) => sum + (f.additions || 0), 0),
-                  totalDeletions: message.filesChanged.reduce((sum, f) => sum + (f.deletions || 0), 0),
-                  prUrl: message.prUrl,
-                  previewUrl: message.previewUrl,
-                  status: message.prUrl ? 'pr_created' : 'pushed',
-                }}
-                onViewPR={(prUrl) => {
-                  if (onViewPR) {
-                    onViewPR(prUrl ?? message.prUrl);
-                  } else if (message.prUrl) {
-                    window.open(message.prUrl, '_blank');
-                  }
-                }}
-                onDiscard={onDiscard}
-              />
-            )}
+            {message.filesChanged && message.filesChanged.length > 0 && (() => {
+              const totalAdditions = message.filesChanged.reduce((sum, f) => sum + (f.additions || 0), 0);
+              const totalDeletions = message.filesChanged.reduce((sum, f) => sum + (f.deletions || 0), 0);
+              return (
+                <PostEditActions
+                  state={{
+                    mode: 'safe',
+                    filesChanged: message.filesChanged,
+                    totalAdditions,
+                    totalDeletions,
+                    prUrl: message.prUrl,
+                    previewUrl: message.previewUrl,
+                    status: message.prUrl ? 'pr_created' : 'pushed',
+                  }}
+                  onViewPR={(prUrl) => {
+                    if (onViewPR) {
+                      onViewPR(prUrl ?? message.prUrl);
+                    } else if (message.prUrl) {
+                      window.open(message.prUrl, '_blank');
+                    }
+                  }}
+                  onDiscard={onDiscard}
+                />
+              );
+            })()}
 
             {/* Citations from web search */}
             {message.citations && message.citations.length > 0 && (

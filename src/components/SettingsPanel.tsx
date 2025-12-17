@@ -194,13 +194,12 @@ export default function SettingsPanel({
                 <button
                   key={level}
                   onClick={() => updateSetting('effort', level)}
-                  className={`
-                    px-4 py-2.5 rounded-xl text-sm font-medium capitalize transition-all
-                    ${settings.effort === level
-                      ? 'bg-[var(--claude-terracotta)] text-white'
-                      : 'bg-[var(--claude-surface-sunken)] text-[var(--claude-text-secondary)] hover:bg-[var(--claude-sand-light)]'
-                    }
-                  `}
+                  className={(() => {
+                    const baseClasses = 'px-4 py-2.5 rounded-xl text-sm font-medium capitalize transition-all';
+                    const activeClasses = 'bg-[var(--claude-terracotta)] text-white';
+                    const inactiveClasses = 'bg-[var(--claude-surface-sunken)] text-[var(--claude-text-secondary)] hover:bg-[var(--claude-sand-light)]';
+                    return `${baseClasses} ${settings.effort === level ? activeClasses : inactiveClasses}`;
+                  })()}
                 >
                   {level}
                 </button>
@@ -585,26 +584,24 @@ export default function SettingsPanel({
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => onDarkModeChange(false)}
-                className={`
-                  flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all
-                  ${!darkMode
-                    ? 'bg-[var(--claude-terracotta)] text-white'
-                    : 'bg-[var(--claude-surface-sunken)] text-[var(--claude-text-secondary)] hover:bg-[var(--claude-sand-light)]'
-                  }
-                `}
+                className={(() => {
+                  const baseClasses = 'flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all';
+                  const activeClasses = 'bg-[var(--claude-terracotta)] text-white';
+                  const inactiveClasses = 'bg-[var(--claude-surface-sunken)] text-[var(--claude-text-secondary)] hover:bg-[var(--claude-sand-light)]';
+                  return `${baseClasses} ${!darkMode ? activeClasses : inactiveClasses}`;
+                })()}
               >
                 <Sun className="w-4 h-4" />
                 Light
               </button>
               <button
                 onClick={() => onDarkModeChange(true)}
-                className={`
-                  flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all
-                  ${darkMode
-                    ? 'bg-[var(--claude-terracotta)] text-white'
-                    : 'bg-[var(--claude-surface-sunken)] text-[var(--claude-text-secondary)] hover:bg-[var(--claude-sand-light)]'
-                  }
-                `}
+                className={(() => {
+                  const baseClasses = 'flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all';
+                  const activeClasses = 'bg-[var(--claude-terracotta)] text-white';
+                  const inactiveClasses = 'bg-[var(--claude-surface-sunken)] text-[var(--claude-text-secondary)] hover:bg-[var(--claude-sand-light)]';
+                  return `${baseClasses} ${darkMode ? activeClasses : inactiveClasses}`;
+                })()}
               >
                 <Moon className="w-4 h-4" />
                 Dark

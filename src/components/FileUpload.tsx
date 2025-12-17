@@ -57,8 +57,10 @@ export default function FileUpload({
           size: file.size,
           base64,
         });
-      } catch {
-        setError(`Failed to read ${file.name}`);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        setError(`Failed to read ${file.name}: ${errorMsg}`);
+        continue;
       }
     }
 
@@ -69,14 +71,41 @@ export default function FileUpload({
 
   const readFileAsBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
+      if (!file) {
+        reject(new Error('No file provided'));
+        return;
+      }
+      
       const reader = new FileReader();
       reader.onload = () => {
-        const result = reader.result as string;
-        // Remove data URL prefix
-        const base64 = result.split(',')[1];
-        resolve(base64);
+        try {
+          const result = reader.result as string;
+          if (!result || typeof result !== 'string') {
+            reject(new Error('Failed to read file content'));
+            return;
+          }
+          
+          // Remove data URL prefix
+          const parts = result.split(',');
+          if (parts.length < 2) {
+            reject(new Error('Invalid file format'));
+            return;
+          }
+          
+          const base64 = parts[1];
+          if (!base64) {
+            reject(new Error('No base64 content found'));
+            return;
+          }
+          
+          resolve(base64);
+        } catch (error) {
+          reject(new Error(`File processing error: ${error instanceof Error ? error.message : 'Unknown error'}`));
+        }
       };
-      reader.onerror = reject;
+      reader.onerror = () => {
+        reject(new Error(`File read error: ${reader.error?.message || 'Unknown error'}`));
+      };
       reader.readAsDataURL(file);
     });
   };

@@ -213,12 +213,18 @@ export class GitHubClient {
         return cached.content;
       }
     }
-    const { data } = await this.octokit.rest.repos.getContent({
-      owner: this.owner,
-      repo: this.repo,
-      path,
-      ref: branch,
-    });
+    let data;
+    try {
+      const response = await this.octokit.rest.repos.getContent({
+        owner: this.owner,
+        repo: this.repo,
+        path,
+        ref: branch,
+      });
+      data = response.data;
+    } catch (error) {
+      throw new Error(`Failed to fetch file ${path}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
 
     if (Array.isArray(data) || data.type !== 'file') {
       throw new Error(`Path ${path} is not a file`);

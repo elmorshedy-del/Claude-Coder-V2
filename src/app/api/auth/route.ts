@@ -78,13 +78,26 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      if (password === appPassword) {
-        return NextResponse.json({ success: true });
-      } else {
+      try {
+        const crypto = await import('crypto');
+        const isValid = crypto.timingSafeEqual(
+          Buffer.from(password || ''),
+          Buffer.from(appPassword)
+        );
+        
+        if (isValid) {
+          return NextResponse.json({ success: true });
+        } else {
+          return NextResponse.json({
+            success: false,
+            error: 'Invalid password'
+          }, { status: 401 });
+        }
+      } catch (error) {
         return NextResponse.json({
           success: false,
-          error: 'Invalid password'
-        }, { status: 401 });
+          error: 'Authentication error'
+        }, { status: 500 });
       }
     }
 

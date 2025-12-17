@@ -9,8 +9,6 @@ interface CodeDiffProps {
 }
 
 export default function CodeDiff({ oldCode, newCode, language = 'typescript' }: CodeDiffProps) {
-  const oldLines = oldCode.split('\n');
-  const newLines = newCode.split('\n');
 
   return (
     <div className="rounded-xl overflow-hidden border border-[var(--claude-border)]">

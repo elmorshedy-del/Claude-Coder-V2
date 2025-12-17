@@ -51,6 +51,10 @@ export class ClaudeClient {
   // --------------------------------------------------------------------------
 
   private calculateCost(usage: TokenUsage): MessageCost {
+    if (!usage || typeof usage !== 'object') {
+      throw new Error('Invalid usage data provided');
+    }
+    
     const pricing = MODEL_PRICING[this.model];
     if (!pricing) {
       throw new Error(`Unknown model: ${this.model}`);
@@ -85,11 +89,20 @@ export class ClaudeClient {
   }
 
   private updateCostTracker(usage: TokenUsage): void {
+    if (!usage || typeof usage !== 'object') {
+      console.warn('Invalid usage data provided to updateCostTracker');
+      return;
+    }
+    
     const cost = this.calculateCost(usage);
     this.costTracker.sessionCost += cost.totalCost;
     this.costTracker.dailyCost += cost.totalCost;
     this.costTracker.monthlyCost += cost.totalCost;
 
+    this.updateTokenUsage(usage);
+  }
+
+  private updateTokenUsage(usage: TokenUsage): void {
     this.costTracker.tokensUsed.input += usage.input || 0;
     this.costTracker.tokensUsed.output += usage.output || 0;
     this.costTracker.tokensUsed.cacheRead = (this.costTracker.tokensUsed.cacheRead || 0) + (usage.cacheRead || 0);
@@ -448,7 +461,15 @@ export class ClaudeClient {
               },
             };
           } catch (error) {
-            console.warn('Failed to parse tool input:', error);
+            // Provide fallback with error information
+            yield {
+              type: 'tool_use',
+              toolCall: {
+                id: currentToolCall.id,
+                name: currentToolCall.name,
+                input: { error: 'Failed to parse tool input', raw: currentToolCall.input },
+              },
+            };
           }
           currentToolCall = null;
         }

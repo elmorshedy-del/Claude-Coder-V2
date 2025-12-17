@@ -703,10 +703,9 @@ export default function Home() {
       }
 
       // Parse artifacts from content
-      const artifactRegex = /```(\w+)?\n([\s\S]*?)```/g;
-      let match;
+      const artifactMatches = accumulatedContent.matchAll(/```(\w+)?\n([\s\S]*?)```/g);
       let idx = 0;
-      while ((match = artifactRegex.exec(accumulatedContent)) !== null) {
+      for (const match of artifactMatches) {
         const language = match[1]?.toLowerCase() || 'text';
         allArtifacts.push({
           id: `artifact-${idx++}`,

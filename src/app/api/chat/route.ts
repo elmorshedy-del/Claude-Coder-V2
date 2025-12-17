@@ -205,13 +205,25 @@ export async function POST(request: NextRequest) {
         // Include file content in the message as text
         const fileContent = files.map(f => {
           try {
+            // Validate file object
+            if (!f.name || !f.base64) {
+              throw new Error('Invalid file object: missing name or base64 data');
+            }
+            
             // Ensure base64 string is clean (no data URL prefix)
             const base64Data = f.base64.replace(/^data:[^;]+;base64,/, '');
+            
+            // Validate base64 format
+            if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64Data)) {
+              throw new Error('Invalid base64 format');
+            }
+            
             const decoded = Buffer.from(base64Data, 'base64').toString('utf-8');
             return `\n\n[Attached file: ${f.name}]\n${decoded}`;
-          } catch (e) {
-            console.error('Failed to decode file:', e);
-            return `\n\n[Attached file: ${f.name}] (failed to decode)`;
+          } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : 'Unknown decode error';
+            console.error(`Failed to decode file ${f.name}:`, errorMsg);
+            return `\n\n[Attached file: ${f.name}] (failed to decode: ${errorMsg})`;
           }
         }).join('');
         return { role: m.role, content: m.content + fileContent };
