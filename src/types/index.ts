@@ -206,10 +206,10 @@ export interface Citation {
   endIndex: number;
 }
 
-export type ModelType = 
-  | 'claude-sonnet-4-5-20250929'
-  | 'claude-opus-4-5-20251101'
-  | 'claude-haiku-4-5-20251001';
+export type ModelType =
+  | 'claude-3-5-sonnet-20241022'
+  | 'claude-3-opus-20240229'
+  | 'claude-3-5-haiku-20241022';
 
 export type EffortLevel = 'low' | 'medium' | 'high';
 
@@ -335,7 +335,7 @@ export const DEFAULT_SETTINGS: Settings = {
   localWorkspacePath: undefined,
   deployMode: 'safe',
   railwayServiceName: '', // Empty by default, user sets in settings
-  model: 'claude-sonnet-4-5-20250929',
+  model: 'claude-3-5-sonnet-20241022',
   effort: 'low',
   toolExecutionMode: 'direct', // Fastest - use hybrid/programmatic for cost optimization
   enableWebSearch: true,
@@ -359,23 +359,23 @@ export const DEFAULT_SETTINGS: Settings = {
 // ----------------------------------------------------------------------------
 
 export const MODEL_PRICING: Record<ModelType, { input: number; output: number; cacheRead: number; cacheWrite: number }> = {
-  'claude-sonnet-4-5-20250929': {
+  'claude-3-5-sonnet-20241022': {
     input: 3.00,      // $3/M input
     output: 15.00,    // $15/M output
     cacheRead: 0.30,  // 90% off = $0.30/M
     cacheWrite: 3.75, // 25% more = $3.75/M
   },
-  'claude-opus-4-5-20251101': {
+  'claude-3-opus-20240229': {
     input: 15.00,     // $15/M input
     output: 75.00,    // $75/M output
     cacheRead: 1.50,  // 90% off = $1.50/M
     cacheWrite: 18.75,// 25% more = $18.75/M
   },
-  'claude-haiku-4-5-20251001': {
-    input: 1.00,      // $1/M input (corrected from $0.80)
-    output: 5.00,     // $5/M output (corrected from $4.00)
-    cacheRead: 0.10,  // 90% off = $0.10/M
-    cacheWrite: 1.25, // 25% more = $1.25/M
+  'claude-3-5-haiku-20241022': {
+    input: 0.80,      // $0.80/M input
+    output: 4.00,     // $4/M output
+    cacheRead: 0.08,  // 90% off = $0.08/M
+    cacheWrite: 1.00, // 25% more = $1.00/M
   },
 };
 
@@ -449,19 +449,19 @@ export interface AgenticStreamChunk {
 
 // Model display names for UI
 export const MODEL_DISPLAY_NAMES: Record<ModelType, { name: string; cost: string; description: string }> = {
-  'claude-haiku-4-5-20251001': {
-    name: 'Haiku 4.5',
+  'claude-3-5-haiku-20241022': {
+    name: 'Claude 3.5 Haiku',
     cost: '💸',
-    description: 'Fastest',
+    description: 'Fastest & lowest cost',
   },
-  'claude-sonnet-4-5-20250929': {
-    name: 'Sonnet 4.5',
+  'claude-3-5-sonnet-20241022': {
+    name: 'Claude 3.5 Sonnet',
     cost: '💸💸',
-    description: 'Default',
+    description: 'Balanced default',
   },
-  'claude-opus-4-5-20251101': {
-    name: 'Opus 4.5',
+  'claude-3-opus-20240229': {
+    name: 'Claude 3 Opus',
     cost: '💸💸💸',
-    description: 'Best',
+    description: 'Highest quality',
   },
 };

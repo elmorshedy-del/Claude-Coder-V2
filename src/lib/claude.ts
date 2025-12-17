@@ -28,7 +28,7 @@ export class ClaudeClient {
   private model: ModelType;
   private costTracker: CostTracker;
 
-  constructor(apiKey: string, model: ModelType = 'claude-sonnet-4-5-20250929') {
+  constructor(apiKey: string, model: ModelType = 'claude-3-5-sonnet-20241022') {
     if (!apiKey || apiKey.trim() === '') {
       throw new Error('API key is required');
     }

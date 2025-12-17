@@ -1146,7 +1146,7 @@ export default function Home() {
   // --------------------------------------------------------------------------
   // RENDER - Main App
   // --------------------------------------------------------------------------
-  const currentModel = MODEL_DISPLAY_NAMES[settings.model] || MODEL_DISPLAY_NAMES['claude-sonnet-4-5-20250929'];
+  const currentModel = MODEL_DISPLAY_NAMES[settings.model] || MODEL_DISPLAY_NAMES['claude-3-5-sonnet-20241022'];
 
   return (
     <div className={`min-h-screen flex ${darkMode ? 'dark' : ''}`}>
