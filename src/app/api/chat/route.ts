@@ -357,7 +357,7 @@ export async function PUT(request: NextRequest) {
 
     // Initialize based on file access mode
     const isLocalMode = settings.fileAccessMode === 'local' && settings.localWorkspacePath;
-    const hasRepoContext = repoContext && repoContext.owner && repoContext.repo;
+    const hasRepoContext = Boolean(repoContext?.owner && repoContext.repo);
     
     const github = !isLocalMode && hasRepoContext && githubToken
       ? new GitHubClient(githubToken, repoContext.owner, repoContext.repo)
