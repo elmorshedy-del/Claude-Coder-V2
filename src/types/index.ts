@@ -336,7 +336,7 @@ export const DEFAULT_SETTINGS: Settings = {
   deployMode: 'safe',
   railwayServiceName: '', // Empty by default, user sets in settings
   model: 'claude-sonnet-4-5-20250929',
-  effort: 'medium',
+  effort: 'low',
   toolExecutionMode: 'direct', // Fastest - use hybrid/programmatic for cost optimization
   enableWebSearch: true,
   webSearchMode: 'auto',
@@ -349,7 +349,7 @@ export const DEFAULT_SETTINGS: Settings = {
   enableFilesApi: false,
   tokenBudget: {
     enabled: true,
-    perMessage: 0.50,
+    perMessage: 0.15,
     perDay: 10.0,
   },
 };
