@@ -225,109 +225,85 @@ export class ClaudeClient {
       });
     }
 
-    // Build request parameters
-    const requestParams: Anthropic.MessageCreateParams = {
-      model: this.model,
-      max_tokens: config.maxTokens,
-      system: systemBlocks.length > 0 ? systemBlocks : undefined,
-      messages: messages.map(m => ({
-        role: m.role,
-        content: m.content,
-      })),
-      tools: allTools as Anthropic.MessageCreateParams['tools'],
-    };
-
-    // Add extended thinking if enabled - capped at 10k for cost control
-    if (enableThinking && (this.model.includes('opus') || this.model.includes('sonnet'))) {
-      (requestParams as unknown as Record<string, unknown>).thinking = {
-        type: 'enabled',
-        budget_tokens: Math.max(1024, Math.min(config.adjustedThinkingBudget, 10000)),
-      };
-    }
-
-    // Make API call with beta headers if needed
-    let response: Anthropic.Message;
     try {
-      if (betas.length > 0) {
-        response = await this.client.beta.messages.create({
-          ...requestParams,
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: config.maxTokens,
+        system: systemBlocks as Anthropic.Messages.TextBlockParam[],
+        messages: messages as Anthropic.Messages.MessageParam[],
+        tools: allTools.length > 0 ? allTools as Anthropic.Messages.Tool[] : undefined,
+        ...(enableThinking && {
+          thinking: {
+            type: 'enabled',
+            budget_tokens: config.adjustedThinkingBudget,
+          },
+        }),
+        ...(betas.length > 0 && {
           betas,
-        } as Parameters<typeof this.client.beta.messages.create>[0]) as unknown as Anthropic.Message;
-      } else {
-        response = await this.client.messages.create(requestParams);
+        }),
+      } as Anthropic.Messages.MessageCreateParams);
+
+      // Extract content
+      let textContent = '';
+      let thinkingContent = '';
+      const toolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
+      const codeExecutionResults: Array<{ stdout: string; stderr: string; returnCode: number }> = [];
+
+      for (const block of response.content) {
+        if (block.type === 'text') {
+          textContent += block.text;
+        } else if (block.type === 'thinking') {
+          thinkingContent += (block as any).thinking || '';
+        } else if (block.type === 'tool_use') {
+          toolCalls.push({
+            id: block.id,
+            name: block.name,
+            input: block.input as Record<string, unknown>,
+          });
+        } else if ((block as any).type === 'code_execution_result') {
+          const result = block as any;
+          codeExecutionResults.push({
+            stdout: result.stdout || '',
+            stderr: result.stderr || '',
+            returnCode: result.return_code || 0,
+          });
+        }
       }
+
+      // Calculate usage
+      const usage: TokenUsage = {
+        input: response.usage?.input_tokens || 0,
+        output: response.usage?.output_tokens || 0,
+        cacheRead: (response.usage as any)?.cache_read_input_tokens || 0,
+        cacheWrite: (response.usage as any)?.cache_creation_input_tokens || 0,
+      };
+
+      this.updateCostTracker(usage);
+      const costInfo = this.calculateCost(usage);
+
+      // Parse artifacts from response
+      const artifacts = this.parseArtifacts(textContent);
+
+      return {
+        content: textContent,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        usage,
+        cost: costInfo.totalCost,
+        savedPercent: costInfo.savedPercent,
+        thinkingContent: thinkingContent || undefined,
+        artifacts: artifacts.length > 0 ? artifacts : undefined,
+        codeExecutionResults: codeExecutionResults.length > 0 ? codeExecutionResults : undefined,
+      };
     } catch (error) {
-      throw new Error(`Claude API error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-
-    // Parse usage
-    const usage: TokenUsage = {
-      input: response.usage.input_tokens,
-      output: response.usage.output_tokens,
-      cacheRead: (response.usage as unknown as Record<string, number>).cache_read_input_tokens || 0,
-      cacheWrite: (response.usage as unknown as Record<string, number>).cache_creation_input_tokens || 0,
-    };
-
-    this.updateCostTracker(usage);
-    const costInfo = this.calculateCost(usage);
-
-    // Extract content, tool calls, thinking, artifacts, and citations
-    let content = '';
-    let thinkingContent = '';
-    const toolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
-    const artifacts: Artifact[] = [];
-    const citations: Citation[] = [];
-
-    for (const block of response.content) {
-      if (block.type === 'text') {
-        content += block.text;
-        // Parse artifacts from content
-        try {
-          const parsedArtifacts = this.parseArtifacts(block.text);
-          artifacts.push(...parsedArtifacts);
-        } catch (error) {
-          console.warn('Failed to parse artifacts:', error);
-        }
-        // Parse citations if present (from web search tool results)
-        const blockAny = block as unknown as { text: string; citations?: Array<{ url?: string; cited_text?: string; start_char_index?: number; end_char_index?: number; title?: string }> };
-        if (blockAny.citations && Array.isArray(blockAny.citations)) {
-          for (const cite of blockAny.citations) {
-            if (cite.url) {
-              citations.push({
-                url: cite.url,
-                title: cite.title ?? undefined,
-                snippet: cite.cited_text ?? undefined,
-                startIndex: cite.start_char_index ?? 0,
-                endIndex: cite.end_char_index ?? 0,
-              });
-            }
-          }
-        }
-      } else if (block.type === 'tool_use') {
-        toolCalls.push({
-          id: block.id,
-          name: block.name,
-          input: block.input as Record<string, unknown>,
-        });
-      } else if (block.type === 'thinking') {
-        thinkingContent += (block as { type: 'thinking'; thinking: string }).thinking;
+      if (error instanceof Anthropic.APIError) {
+        throw new Error(`Claude API error: ${error.message}`);
       }
+      throw error;
     }
-
-    return {
-      content,
-      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-      usage,
-      cost: costInfo.totalCost,
-      savedPercent: costInfo.savedPercent,
-      thinkingContent: thinkingContent || undefined,
-      artifacts: artifacts.length > 0 ? artifacts : undefined,
-      citations: citations.length > 0 ? citations : undefined,
-    };
   }
 
   // --------------------------------------------------------------------------
-  // Streaming Chat
+  // Streaming Chat Function
   // --------------------------------------------------------------------------
 
   async *streamChat(
@@ -339,15 +315,16 @@ export class ClaudeClient {
       enableThinking?: boolean;
       thinkingBudget?: number;
       effort?: EffortLevel;
+      enableCodeExecution?: boolean;
+      enableMemory?: boolean;
       enableContextCompaction?: boolean;
       enableInterleavedThinking?: boolean;
       toolExecutionMode?: ToolExecutionMode;
     } = {}
   ): AsyncGenerator<{
-    type: 'text' | 'thinking' | 'tool_use' | 'citation' | 'done';
+    type: 'text' | 'thinking' | 'tool_use' | 'done';
     content?: string;
     toolCall?: { id: string; name: string; input: Record<string, unknown> };
-    citation?: Citation;
     usage?: TokenUsage;
     cost?: number;
     savedPercent?: number;
@@ -357,33 +334,18 @@ export class ClaudeClient {
       enableThinking = false, 
       thinkingBudget = 10000,
       effort = 'medium',
+      enableCodeExecution = false,
+      enableMemory = false,
       enableContextCompaction = false,
       enableInterleavedThinking = false,
       toolExecutionMode = 'direct',
     } = options;
 
-    // Map effort to max_tokens and thinking budget - reduced for cost efficiency
-    const effortConfig = {
-      low: { maxTokens: 4000, thinkingMultiplier: 0.3 },
-      medium: { maxTokens: 12000, thinkingMultiplier: 0.6 },
-      high: { maxTokens: 24000, thinkingMultiplier: 1.0 },
-    };
-    const config = effortConfig[effort] ?? effortConfig.medium;
-    const adjustedThinkingBudget = Math.round(thinkingBudget * config.thinkingMultiplier);
+    const config = this.getEffortConfig(effort, thinkingBudget);
+    const allTools = this.buildToolsArray(tools, toolExecutionMode, enableCodeExecution, enableMemory);
+    const betas = this.buildBetaHeaders(enableCodeExecution, enableMemory, enableContextCompaction, enableInterleavedThinking, toolExecutionMode);
 
-    // Build beta headers
-    const betas: string[] = [];
-    if (enableContextCompaction) {
-      betas.push('context-management-2025-06-27');
-    }
-    if (enableInterleavedThinking) {
-      betas.push('interleaved-thinking-2025-05-14');
-    }
-    if (toolExecutionMode !== 'direct') {
-      betas.push('advanced-tool-use-2025-11-20');
-    }
-
-    // Build system blocks with prompt caching for BOTH system prompt and code context
+    // Build system blocks with caching
     const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [];
     if (systemPrompt && systemPrompt.trim()) {
       systemBlocks.push({
@@ -400,127 +362,121 @@ export class ClaudeClient {
       });
     }
 
-    const requestParams: Anthropic.MessageCreateParams = {
-      model: this.model,
-      max_tokens: config.maxTokens,
-      stream: true,
-      system: systemBlocks.length > 0 ? systemBlocks : undefined,
-      messages: messages.map(m => ({
-        role: m.role,
-        content: m.content,
-      })),
-      tools: tools ?? this.getDefaultTools(toolExecutionMode),
-    };
-
-    if (enableThinking && (this.model.includes('opus') || this.model.includes('sonnet'))) {
-      (requestParams as unknown as Record<string, unknown>).thinking = {
-        type: 'enabled',
-        budget_tokens: Math.max(1024, Math.min(adjustedThinkingBudget, 10000)),
-      };
-    }
-
-    // Use beta streaming if we have beta headers
-    let stream;
     try {
-      if (betas.length > 0) {
-        stream = await this.client.beta.messages.stream({
-          ...requestParams,
+      const stream = await this.client.messages.stream({
+        model: this.model,
+        max_tokens: config.maxTokens,
+        system: systemBlocks as Anthropic.Messages.TextBlockParam[],
+        messages: messages as Anthropic.Messages.MessageParam[],
+        tools: allTools.length > 0 ? allTools as Anthropic.Messages.Tool[] : undefined,
+        ...(enableThinking && {
+          thinking: {
+            type: 'enabled',
+            budget_tokens: config.adjustedThinkingBudget,
+          },
+        }),
+        ...(betas.length > 0 && {
           betas,
-        } as Parameters<typeof this.client.beta.messages.stream>[0]);
-      } else {
-        stream = await this.client.messages.stream(requestParams);
-      }
-    } catch (error) {
-      throw new Error(`Claude streaming error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+        }),
+      } as Anthropic.Messages.MessageStreamParams);
 
-    let currentToolCall: { id: string; name: string; input: string } | null = null;
+      let currentToolCall: { id: string; name: string; input: string } | null = null;
 
-    for await (const event of stream) {
-      if (event.type === 'content_block_delta') {
-        const delta = event.delta;
-        
-        if ('text' in delta) {
-          yield { type: 'text', content: delta.text };
-        } else if ('thinking' in delta) {
-          yield { type: 'thinking', content: (delta as { thinking: string }).thinking };
-        } else if ('partial_json' in delta && currentToolCall) {
-          currentToolCall.input += (delta as { partial_json: string }).partial_json;
-        }
-      } else if (event.type === 'content_block_start') {
-        if (event.content_block.type === 'tool_use') {
-          currentToolCall = {
-            id: event.content_block.id,
-            name: event.content_block.name,
-            input: '',
-          };
-        }
-      } else if (event.type === 'content_block_stop') {
-        if (currentToolCall) {
-          try {
-            const parsedInput = JSON.parse(currentToolCall.input || '{}');
-            yield {
-              type: 'tool_use',
-              toolCall: {
-                id: currentToolCall.id,
-                name: currentToolCall.name,
-                input: parsedInput,
-              },
-            };
-          } catch (error) {
-            // Provide fallback with error information
-            yield {
-              type: 'tool_use',
-              toolCall: {
-                id: currentToolCall.id,
-                name: currentToolCall.name,
-                input: { error: 'Failed to parse tool input', raw: currentToolCall.input },
-              },
+      for await (const event of stream) {
+        if (event.type === 'content_block_start') {
+          const block = event.content_block;
+          if (block.type === 'tool_use') {
+            currentToolCall = {
+              id: block.id,
+              name: block.name,
+              input: '',
             };
           }
-          currentToolCall = null;
-        }
-      } else if (event.type === 'message_stop') {
-        // Get final usage from the accumulated message
-        const finalMessage = await stream.finalMessage();
-        if (!finalMessage) {
-          throw new Error('No final message received from stream');
-        }
-        const usage: TokenUsage = {
-          input: finalMessage.usage.input_tokens,
-          output: finalMessage.usage.output_tokens,
-          cacheRead: (finalMessage.usage as unknown as Record<string, number>).cache_read_input_tokens || 0,
-          cacheWrite: (finalMessage.usage as unknown as Record<string, number>).cache_creation_input_tokens || 0,
-        };
+        } else if (event.type === 'content_block_delta') {
+          const delta = event.delta;
+          if (delta.type === 'text_delta') {
+            yield { type: 'text', content: delta.text };
+          } else if (delta.type === 'thinking_delta') {
+            yield { type: 'thinking', content: (delta as any).thinking };
+          } else if (delta.type === 'input_json_delta' && currentToolCall) {
+            currentToolCall.input += (delta as any).partial_json || '';
+          }
+        } else if (event.type === 'content_block_stop') {
+          if (currentToolCall) {
+            try {
+              const parsedInput = JSON.parse(currentToolCall.input || '{}');
+              yield {
+                type: 'tool_use',
+                toolCall: {
+                  id: currentToolCall.id,
+                  name: currentToolCall.name,
+                  input: parsedInput,
+                },
+              };
+            } catch {
+              // Invalid JSON, skip
+            }
+            currentToolCall = null;
+          }
+        } else if (event.type === 'message_stop') {
+          // Get final message for usage
+          const finalMessage = await stream.finalMessage();
+          const usage: TokenUsage = {
+            input: finalMessage.usage?.input_tokens || 0,
+            output: finalMessage.usage?.output_tokens || 0,
+            cacheRead: (finalMessage.usage as any)?.cache_read_input_tokens || 0,
+            cacheWrite: (finalMessage.usage as any)?.cache_creation_input_tokens || 0,
+          };
 
-        this.updateCostTracker(usage);
-        const costInfo = this.calculateCost(usage);
+          this.updateCostTracker(usage);
+          const costInfo = this.calculateCost(usage);
 
-        yield {
-          type: 'done',
-          usage,
-          cost: costInfo.totalCost,
-          savedPercent: costInfo.savedPercent,
-        };
+          yield {
+            type: 'done',
+            usage,
+            cost: costInfo.totalCost,
+            savedPercent: costInfo.savedPercent,
+          };
+        }
       }
+    } catch (error) {
+      if (error instanceof Anthropic.APIError) {
+        throw new Error(`Claude API error: ${error.message}`);
+      }
+      throw error;
     }
   }
 
   // --------------------------------------------------------------------------
-  // Default Tools
+  // Default Tools - WITH LINE RANGE SUPPORT
   // --------------------------------------------------------------------------
 
   getDefaultTools(toolExecutionMode: ToolExecutionMode = 'direct'): ClaudeTool[] {
     const baseTools: ClaudeTool[] = [
       {
         name: 'read_file',
-        description: 'Read the contents of a file from the repository',
+        description: `Read file contents. Use start_line/end_line to read specific sections (saves tokens).
+        
+Examples:
+- Read whole file: read_file({ path: "src/app.ts" })
+- Read lines 50-100: read_file({ path: "src/app.ts", start_line: 50, end_line: 100 })
+- Read first 50 lines: read_file({ path: "src/app.ts", end_line: 50 })
+
+TIP: Use grep_search first to find the line numbers you need, then read_file with line range.`,
         input_schema: {
           type: 'object' as const,
           properties: {
             path: {
               type: 'string',
               description: 'The path to the file relative to repo root',
+            },
+            start_line: {
+              type: 'number',
+              description: 'Optional: Start reading from this line (1-indexed)',
+            },
+            end_line: {
+              type: 'number',
+              description: 'Optional: Stop reading at this line (inclusive)',
             },
           },
           required: ['path'],
@@ -568,13 +524,13 @@ export class ClaudeClient {
       },
       {
         name: 'search_files',
-        description: 'Search for files in the repository that match a query',
+        description: 'Search for files by name. Returns file paths matching the query.',
         input_schema: {
           type: 'object' as const,
           properties: {
             query: {
               type: 'string',
-              description: 'The search term to look for in file names or content',
+              description: 'The search term to look for in file names',
             },
           },
           required: ['query'],
@@ -582,7 +538,7 @@ export class ClaudeClient {
       },
       {
         name: 'grep_search',
-        description: 'Search inside file contents for a specific term. Returns matching lines with file paths and line numbers.',
+        description: 'Search inside file contents. Returns matching lines with file paths and LINE NUMBERS. Use this to find where code is before using read_file.',
         input_schema: {
           type: 'object' as const,
           properties: {
@@ -783,7 +739,7 @@ DO NOT USE for:
 }
 
 // ----------------------------------------------------------------------------
-// System Prompt (Minimal - Let Claude be Claude)
+// System Prompt - FIXED: Action-oriented, no announcements
 // ----------------------------------------------------------------------------
 
 export function getSystemPrompt(
@@ -793,62 +749,55 @@ export function getSystemPrompt(
   enableWebSearch: boolean = false,
   isLocalMode: boolean = false
 ): string {
-  const tools = ['read_file', 'search_files', 'grep_search', 'run_command'];
+  const tools = ['read_file', 'search_files', 'grep_search', 'str_replace', 'create_file', 'verify_edit', 'run_command'];
   if (enableWebSearch) tools.push('web_search', 'web_fetch');
 
   const repoInfo = isLocalMode
     ? `## Local Filesystem Mode
-You have direct access to the local filesystem. All file operations work on the user's local machine.`
-    : `## Repository Context
-- Owner: ${owner}
-- Repo: ${repo}
-- Branch: ${branch}`;
+You have direct access to the local filesystem.`
+    : `## Repository: ${owner}/${repo} (branch: ${branch})`;
 
   const editingInstructions = isLocalMode
-    ? `## Editing Files (Local Mode)
-**CRITICAL: You MUST use run_command with bash for ALL file edits**
+    ? `## Editing (Local Mode)
+Use run_command with sed/bash for all edits:
+- Edit: run_command({command: "sed -i 's/old/new/' file.ts"})
+- Create: run_command({command: "echo 'content' > file.ts"})
+- Git: run_command({command: "git add . && git commit -m 'msg'"})`
+    : `## Editing (GitHub Mode)
+1. str_replace - old_str must be UNIQUE and EXACT
+2. verify_edit - ALWAYS verify after str_replace
+3. create_file - for new files`;
 
-1. **To edit files:** Use run_command with sed/perl/awk
-   Example: run_command({command: "sed -i 's/old text/new text/' src/file.ts"})
-
-2. **To create files:** Use run_command with echo or cat
-   Example: run_command({command: "echo 'content' > newfile.ts"})
-
-3. **To commit changes:** Use run_command with git
-   Example: run_command({command: "git add . && git commit -m 'message'"})
-
-4. **To push changes:** Use run_command with git push
-   Example: run_command({command: "git push"})
-
-**DO NOT use str_replace or create_file tools - they don't work in local mode!**
-Only run_command works for file modifications.`
-    : `## Editing Files (GitHub Mode)
-1. Use str_replace (preferred)
-2. old_str must be UNIQUE and EXACT
-3. ALWAYS verify_edit after str_replace
-4. Use create_file for new files
-5. Use run_command for bash operations (tests, git, npm, etc.)`;
-
-  return `You are Claude, an AI assistant helping with coding.
+  return `You are a coding assistant. Execute tasks directly.
 
 ${repoInfo}
 
-## Available Tools
+## Tools
 ${tools.join(', ')}
 
-## CRITICAL RULES
-1. NEVER read files just to analyze - ONLY read if you need specific content to make an edit
-2. MAKE EDITS IMMEDIATELY - don't explain what you'll do, just do it
-3. ONLY give status updates ("Editing X...", "Done")
-4. NO explanations of what/why/how
-5. If task is clear, USE TOOLS IMMEDIATELY
+## RULES - READ CAREFULLY
+
+1. **NO ANNOUNCEMENTS** - Never say "Let me...", "I will...", "I'm going to..."
+2. **JUST DO IT** - Use tools immediately. Don't explain what you're about to do.
+3. **EXPLORE FIRST** - Use grep_search to find code before reading entire files
+4. **LINE RANGES** - Use read_file with start_line/end_line to save tokens
+5. **BRIEF STATUS ONLY** - You may say "Searching...", "Editing...", "Done ✓"
+
+## WRONG (verbose):
+"Let me read the file first to understand the structure. I'll search for the function and then make the necessary changes."
+
+## RIGHT (action):
+[uses grep_search tool]
+[uses read_file with line range]
+[uses str_replace]
+Done ✓
 
 ${editingInstructions}
 
-## Response Format
-**Done:**
-- file.ts:123 - Changed X
-- Verified ✓`;
+## Response Style
+- Minimal text
+- Use tools immediately
+- End with brief summary: "Done: changed X in file.ts"`;
 }
 
 // ----------------------------------------------------------------------------
@@ -856,7 +805,7 @@ ${editingInstructions}
 // ----------------------------------------------------------------------------
 
 const truncateFileContent = (content: string): string => {
-  const MAX_LENGTH = 3000;
+  const MAX_LENGTH = 10000;
   return content.length > MAX_LENGTH 
     ? content.slice(0, MAX_LENGTH) + '\n\n// ... (truncated, use read_file for full content)'
     : content;
@@ -868,30 +817,33 @@ export function generateCodeContext(
 ): string {
   let context = '';
   
-  // Only include file tree if we have few files loaded
-  if (files.length <= 2 && fileTree) {
-    const compactTree = fileTree.split('\n').slice(0, 20).join('\n');
+  // Always include file tree (caching makes it cheap)
+  if (fileTree) {
+    const treeLines = fileTree.split('\n');
+    const compactTree = treeLines.length > 500 
+      ? treeLines.slice(0, 500).join('\n') + '\n... (truncated)'
+      : fileTree;
     context += `## Repository Structure\n\`\`\`\n${compactTree}\n\`\`\`\n\n`;
   }
   
-  context += `## Loaded Files\n\n`;
-
-  for (const file of files) {
-    const ext = file.path.split('.').pop() ?? '';
-    const content = truncateFileContent(file.content);
-    context += `### ${file.path}\n\`\`\`${ext}\n${content}\n\`\`\`\n\n`;
+  if (files.length === 0) {
+    context += `## Files\n(No files loaded. Use grep_search or search_files to explore, then read_file to load specific files.)\n`;
+  } else {
+    context += `## Loaded Files\n\n`;
+    for (const file of files) {
+      const ext = file.path.split('.').pop() ?? '';
+      const content = truncateFileContent(file.content);
+      context += `### ${file.path}\n\`\`\`${ext}\n${content}\n\`\`\`\n\n`;
+    }
   }
-
-  context += `\nUse read_file, search_files, or grep_search to explore more.\n`;
 
   return context;
 }
 
 // ----------------------------------------------------------------------------
-// Extract Keywords from User Message (for Smart File Loading)
+// Extract Keywords - KEPT for backward compatibility but NOT USED for auto-loading
 // ----------------------------------------------------------------------------
 
-// Pre-compiled patterns and common words for performance
 const COMMON_WORDS = new Set([
   'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'man', 'new', 'now', 'old', 'see', 'two', 'way', 'who', 'boy', 'did', 'its', 'let', 'put', 'say', 'she', 'too', 'use',
   'fix', 'add', 'create', 'update', 'change', 'modify', 'edit', 'help', 'please', 'want', 'need', 'make', 'file', 'code', 'function', 'component', 'error', 'bug', 'issue'
@@ -907,10 +859,9 @@ const KEYWORD_PATTERNS = [
 export function extractKeywords(message: string): string[] {
   const words = new Set<string>();
   
-  // Single pass through patterns with early termination
   for (const pattern of KEYWORD_PATTERNS) {
     for (const match of message.matchAll(pattern)) {
-      if (words.size >= 5) return Array.from(words); // Early return
+      if (words.size >= 5) return Array.from(words);
       const word = match[0];
       const lower = word.toLowerCase();
       if (word.length > 2 && !COMMON_WORDS.has(lower)) {
@@ -921,6 +872,3 @@ export function extractKeywords(message: string): string[] {
   
   return Array.from(words);
 }
-
-
-
