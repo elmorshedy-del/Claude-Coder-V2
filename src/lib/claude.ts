@@ -810,18 +810,17 @@ ${repoInfo}
 ## Available Tools
 ${tools.join(', ')}
 
-## Work Style
-Work silently. Use tools, then report results concisely.
-
-## When to Respond
-1. Task complete (brief summary)
-2. Need clarification
-3. Found blocking issue
+## CRITICAL RULES
+1. NEVER read files just to analyze - ONLY read if you need specific content to make an edit
+2. MAKE EDITS IMMEDIATELY - don't explain what you'll do, just do it
+3. ONLY give status updates ("Editing X...", "Done")
+4. NO explanations of what/why/how
+5. If task is clear, USE TOOLS IMMEDIATELY
 
 ${editingInstructions}
 
-## Final Response Format
-**Fixed [issue]:**
+## Response Format
+**Done:**
 - file.ts:123 - Changed X
 - Verified ✓`;
 }
