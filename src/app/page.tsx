@@ -143,22 +143,61 @@ export default function Home() {
       setIsUnlocked(true);
     }
 
-    // Load saved state
-    const savedAnthropicKey = localStorage.getItem('anthropicKey');
-    const savedGithubToken = localStorage.getItem('githubToken');
+    // Try to restore from auto-backup first
+    const autoBackup = localStorage.getItem('claude-coder-auto-backup');
+    if (autoBackup) {
+      try {
+        const backup = JSON.parse(autoBackup);
+        const age = Date.now() - (backup.timestamp || 0);
+        const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
+        
+        if (age < maxAge && backup.conversations?.length > 0) {
+          console.log('✅ Restored from auto-backup');
+          setConversations(backup.conversations);
+          if (backup.settings) setSettings(backup.settings);
+          if (backup.totalCost) setTotalCost(backup.totalCost);
+        }
+      } catch (e) {
+        console.warn('Failed to restore auto-backup:', e);
+      }
+    }
+
+    // Load saved state (will override backup if present)
+    let savedAnthropicKey = localStorage.getItem('anthropicKey');
+    let savedGithubToken = localStorage.getItem('githubToken');
     const savedRepo = localStorage.getItem('currentRepo');
     const savedBranch = localStorage.getItem('currentBranch');
     const savedConversations = localStorage.getItem('conversations');
-    const savedSettings = localStorage.getItem('settings');
+    let savedSettings = localStorage.getItem('settings');
     const savedDarkMode = localStorage.getItem('darkMode');
     const savedCurrentConvId = localStorage.getItem('currentConversationId');
     const savedTotalCost = localStorage.getItem('totalCost');
+    
+    // Restore API keys from backup if missing
+    if (!savedAnthropicKey && autoBackup) {
+      try {
+        const backup = JSON.parse(autoBackup);
+        if (backup.anthropicKey) {
+          savedAnthropicKey = backup.anthropicKey;
+          localStorage.setItem('anthropicKey', backup.anthropicKey);
+        }
+        if (backup.githubToken) {
+          savedGithubToken = backup.githubToken;
+          localStorage.setItem('githubToken', backup.githubToken);
+        }
+      } catch {}
+    }
 
     if (savedAnthropicKey) setAnthropicKey(savedAnthropicKey);
     if (savedGithubToken) setGithubToken(savedGithubToken);
     if (savedRepo) setCurrentRepo(JSON.parse(savedRepo));
     if (savedBranch) setCurrentBranch(savedBranch);
-    if (savedConversations) setConversations(JSON.parse(savedConversations));
+    if (savedConversations) {
+      setConversations(JSON.parse(savedConversations));
+    } else if (!autoBackup) {
+      // Only show message if no backup was found either
+      console.log('No conversations found');
+    }
     if (savedSettings) {
       const parsed = JSON.parse(savedSettings);
       // Migrate old settings: ensure webSearchMode exists
@@ -172,6 +211,13 @@ export default function Home() {
     if (savedDarkMode) setDarkMode(savedDarkMode === 'true');
     if (savedCurrentConvId) setCurrentConversationId(savedCurrentConvId);
     if (savedTotalCost) setTotalCost(parseFloat(savedTotalCost));
+    else if (autoBackup) {
+      // If we restored from backup but no current cost, use backup cost
+      try {
+        const backup = JSON.parse(autoBackup);
+        if (backup.totalCost) setTotalCost(backup.totalCost);
+      } catch {}
+    }
 
     // Check if API key is valid
     if (savedAnthropicKey) {
@@ -217,7 +263,7 @@ export default function Home() {
   }, [currentRepo, currentBranch]);
 
   // --------------------------------------------------------------------------
-  // EFFECTS - Save to localStorage (debounced)
+  // EFFECTS - Save to localStorage (debounced) + Auto-backup
   // --------------------------------------------------------------------------
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -230,6 +276,19 @@ export default function Home() {
       localStorage.setItem('darkMode', String(darkMode));
       if (currentConversationId) localStorage.setItem('currentConversationId', currentConversationId);
       localStorage.setItem('totalCost', String(totalCost));
+      
+      // Auto-backup every save (survives port changes)
+      if (conversations.length > 0 || anthropicKey) {
+        const backup = {
+          conversations,
+          settings,
+          totalCost,
+          anthropicKey,
+          githubToken,
+          timestamp: Date.now(),
+        };
+        localStorage.setItem('claude-coder-auto-backup', JSON.stringify(backup));
+      }
     }, 500); // Debounce 500ms
     
     return () => clearTimeout(timer);
@@ -938,6 +997,49 @@ export default function Home() {
   };
 
   // --------------------------------------------------------------------------
+  // FUNCTIONS - Export/Import conversations
+  // --------------------------------------------------------------------------
+  const handleExportData = () => {
+    const data = {
+      conversations,
+      settings,
+      totalCost,
+      timestamp: Date.now(),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `claude-coder-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportData = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = JSON.parse(e.target?.result as string);
+          if (data.conversations) setConversations(data.conversations);
+          if (data.settings) setSettings(data.settings);
+          if (data.totalCost) setTotalCost(data.totalCost);
+          alert('Data imported successfully!');
+        } catch {
+          alert('Invalid backup file');
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
+  // --------------------------------------------------------------------------
   // FUNCTIONS - Logout
   // --------------------------------------------------------------------------
   const handleLogout = () => {
@@ -1490,6 +1592,8 @@ export default function Home() {
         onAnthropicKeyChange={setAnthropicKey}
         onGithubTokenChange={setGithubToken}
         onLogout={handleLogout}
+        onExportData={handleExportData}
+        onImportData={handleImportData}
       />
     </div>
   );

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Shield, Zap, Globe, Brain, Gauge, DollarSign, Moon, Sun, Terminal, Database, FileUp, Key, Eye, EyeOff, Check, LogOut, Github, Cpu, HardDrive, Cloud } from 'lucide-react';
+import { X, Shield, Zap, Globe, Brain, Gauge, DollarSign, Moon, Sun, Terminal, Database, FileUp, Key, Eye, EyeOff, Check, LogOut, Github, Cpu, HardDrive, Cloud, Download, Upload } from 'lucide-react';
 import { Settings, ModelType, EffortLevel, WebSearchMode, ToolExecutionMode, MODEL_DISPLAY_NAMES } from '@/types';
 
 interface SettingsPanelProps {
@@ -17,6 +17,8 @@ interface SettingsPanelProps {
   onAnthropicKeyChange?: (key: string) => void;
   onGithubTokenChange?: (token: string) => void;
   onLogout?: () => void;
+  onExportData?: () => void;
+  onImportData?: () => void;
 }
 
 export default function SettingsPanel({
@@ -32,6 +34,8 @@ export default function SettingsPanel({
   onAnthropicKeyChange,
   onGithubTokenChange,
   onLogout,
+  onExportData,
+  onImportData,
 }: SettingsPanelProps) {
   const [showAnthropicKey, setShowAnthropicKey] = useState(false);
   const [showGithubToken, setShowGithubToken] = useState(false);
@@ -499,6 +503,39 @@ export default function SettingsPanel({
                   <p className="text-xs text-[var(--claude-success)] mt-1 flex items-center gap-1">
                     <Check className="w-3 h-3" /> Connected as @{githubUser}
                   </p>
+                )}
+              </div>
+            </div>
+          </SettingSection>
+
+          {/* Backup & Restore */}
+          <SettingSection
+            icon={<Database className="w-5 h-5" />}
+            title="Backup & Restore"
+            description="Export/import your conversations"
+          >
+            <div className="space-y-3">
+              <p className="text-sm text-[var(--claude-text-muted)]">
+                Save your conversations to a file or restore from a backup.
+              </p>
+              <div className="flex gap-2">
+                {onExportData && (
+                  <button
+                    onClick={onExportData}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-[var(--claude-terracotta-subtle)] text-[var(--claude-terracotta)] hover:bg-[var(--claude-terracotta)]/20 transition-colors text-sm"
+                  >
+                    <Download className="w-4 h-4" />
+                    Export
+                  </button>
+                )}
+                {onImportData && (
+                  <button
+                    onClick={onImportData}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-[var(--claude-terracotta-subtle)] text-[var(--claude-terracotta)] hover:bg-[var(--claude-terracotta)]/20 transition-colors text-sm"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Import
+                  </button>
                 )}
               </div>
             </div>
