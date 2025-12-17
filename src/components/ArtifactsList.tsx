@@ -113,5 +113,5 @@ const getExtension = (type: string, language?: string): string => {
     language: { typescript: 'ts', javascript: 'js', python: 'py', tsx: 'tsx', jsx: 'jsx' },
     type: { html: 'html', svg: 'svg', mermaid: 'mmd', react: 'tsx', markdown: 'md', code: 'txt' }
   };
-  return (language && extensions.language[language]) || extensions.type[type] || language || 'txt';
+  return (language && extensions.language[language as keyof typeof extensions.language]) || extensions.type[type as keyof typeof extensions.type] || language || 'txt';
 };

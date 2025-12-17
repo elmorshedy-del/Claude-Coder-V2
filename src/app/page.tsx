@@ -67,65 +67,7 @@ const restoreFromAutoBackup = () => {
   return null;
 };
 
-const restoreUserData = (
-  autoBackup: any,
-  setters: {
-    setAnthropicKey: (key: string) => void;
-    setGithubToken: (token: string) => void;
-    setIsAuthenticated: (auth: boolean) => void;
-    setCurrentRepo: (repo: Repository | null) => void;
-    setCurrentBranch: (branch: string) => void;
-    setConversations: (convs: Conversation[]) => void;
-    setSettings: (settings: Settings) => void;
-    setDarkMode: (dark: boolean) => void;
-    setCurrentConversationId: (id: string | null) => void;
-    setTotalCost: (cost: number) => void;
-    fetchRepos: (token: string) => void;
-  }
-) => {
-  let savedAnthropicKey = localStorage.getItem('anthropicKey');
-  let savedGithubToken = localStorage.getItem('githubToken');
-  
-  // Restore API keys from backup if missing
-  if (!savedAnthropicKey && autoBackup?.anthropicKey) {
-    savedAnthropicKey = autoBackup.anthropicKey;
-    localStorage.setItem('anthropicKey', autoBackup.anthropicKey);
-  }
-  if (!savedGithubToken && autoBackup?.githubToken) {
-    savedGithubToken = autoBackup.githubToken;
-    localStorage.setItem('githubToken', autoBackup.githubToken);
-  }
 
-  // Apply restored data
-  if (savedAnthropicKey) {
-    setters.setAnthropicKey(savedAnthropicKey);
-    setters.setIsAuthenticated(true);
-    if (savedGithubToken) setters.fetchRepos(savedGithubToken);
-  }
-  if (savedGithubToken) setters.setGithubToken(savedGithubToken);
-  
-  const savedRepo = localStorage.getItem('currentRepo');
-  const savedBranch = localStorage.getItem('currentBranch');
-  const savedConversations = localStorage.getItem('conversations');
-  const savedSettings = localStorage.getItem('settings');
-  const savedDarkMode = localStorage.getItem('darkMode');
-  const savedCurrentConvId = localStorage.getItem('currentConversationId');
-  const savedTotalCost = localStorage.getItem('totalCost');
-  
-  if (savedRepo) setters.setCurrentRepo(JSON.parse(savedRepo));
-  if (savedBranch) setters.setCurrentBranch(savedBranch);
-  if (savedConversations) setters.setConversations(JSON.parse(savedConversations));
-  if (savedSettings) {
-    const parsed = JSON.parse(savedSettings);
-    if (!parsed.webSearchMode) parsed.webSearchMode = parsed.enableWebSearch ? 'auto' : 'off';
-    delete parsed.webSearchAutoDetect;
-    setters.setSettings(parsed);
-  }
-  if (savedDarkMode) setters.setDarkMode(savedDarkMode === 'true');
-  if (savedCurrentConvId) setters.setCurrentConversationId(savedCurrentConvId);
-  if (savedTotalCost) setters.setTotalCost(parseFloat(savedTotalCost));
-  else if (autoBackup?.totalCost) setters.setTotalCost(autoBackup.totalCost);
-};
 
 // ============================================================================
 // MAIN PAGE COMPONENT
@@ -224,7 +166,41 @@ export default function Home() {
     if (savedUnlocked === 'true') setIsUnlocked(true);
     
     const autoBackup = restoreFromAutoBackup();
-    restoreUserData(autoBackup);
+    if (autoBackup) {
+      setConversations(autoBackup.conversations || []);
+      if (autoBackup.settings) setSettings(autoBackup.settings);
+      if (autoBackup.totalCost) setTotalCost(autoBackup.totalCost);
+    }
+    
+    // Restore user data from localStorage
+    const savedAnthropicKey = localStorage.getItem('anthropicKey');
+    const savedGithubToken = localStorage.getItem('githubToken');
+    const savedRepo = localStorage.getItem('currentRepo');
+    const savedBranch = localStorage.getItem('currentBranch');
+    const savedConversations = localStorage.getItem('conversations');
+    const savedSettings = localStorage.getItem('settings');
+    const savedDarkMode = localStorage.getItem('darkMode');
+    const savedCurrentConvId = localStorage.getItem('currentConversationId');
+    const savedTotalCost = localStorage.getItem('totalCost');
+    
+    if (savedAnthropicKey) {
+      setAnthropicKey(savedAnthropicKey);
+      setIsAuthenticated(true);
+      if (savedGithubToken) fetchRepos(savedGithubToken);
+    }
+    if (savedGithubToken) setGithubToken(savedGithubToken);
+    if (savedRepo) setCurrentRepo(JSON.parse(savedRepo));
+    if (savedBranch) setCurrentBranch(savedBranch);
+    if (savedConversations && !autoBackup) setConversations(JSON.parse(savedConversations));
+    if (savedSettings) {
+      const parsed = JSON.parse(savedSettings);
+      if (!parsed.webSearchMode) parsed.webSearchMode = parsed.enableWebSearch ? 'auto' : 'off';
+      delete parsed.webSearchAutoDetect;
+      setSettings(parsed);
+    }
+    if (savedDarkMode) setDarkMode(savedDarkMode === 'true');
+    if (savedCurrentConvId) setCurrentConversationId(savedCurrentConvId);
+    if (savedTotalCost && !autoBackup) setTotalCost(parseFloat(savedTotalCost));
   }, []);
 
   // --------------------------------------------------------------------------

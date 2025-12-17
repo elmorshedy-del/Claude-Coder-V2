@@ -733,7 +733,7 @@ export async function PUT(request: NextRequest) {
           }
 
           // Auto-create PR if changes were made
-          const { prUrl, prNumber } = await handlePullRequestCreation(fileChanges, github, hasRepoContext, repoContext, controller, encoder);
+          const { prUrl, prNumber } = await handlePullRequestCreation(fileChanges, github, !!hasRepoContext, repoContext, controller, encoder);
 
           // Send final done event
           controller.enqueue(encoder.encode(JSON.stringify({
