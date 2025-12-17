@@ -1,0 +1,14 @@
+#!/bin/bash
+# Start dev server + auto-sync
+
+echo "🚀 Starting dev server and auto-sync..."
+
+# Start auto-sync in background
+./auto-sync.sh &
+SYNC_PID=$!
+
+# Start dev server
+npm run dev
+
+# Kill auto-sync when dev server stops
+kill $SYNC_PID
