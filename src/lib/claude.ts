@@ -902,16 +902,13 @@ export function extractKeywords(message: string): string[] {
   
   // Single pass through patterns with early termination
   for (const pattern of KEYWORD_PATTERNS) {
-    const matches = message.match(pattern);
-    if (matches) {
-      for (const word of matches) {
-        if (words.size >= 5) break; // Early termination
-        const lower = word.toLowerCase();
-        if (word.length > 2 && !COMMON_WORDS.has(lower)) {
-          words.add(word);
-        }
+    for (const match of message.matchAll(pattern)) {
+      if (words.size >= 5) return Array.from(words); // Early return
+      const word = match[0];
+      const lower = word.toLowerCase();
+      if (word.length > 2 && !COMMON_WORDS.has(lower)) {
+        words.add(word);
       }
-      if (words.size >= 5) break; // Early termination
     }
   }
   

@@ -16,11 +16,11 @@ const MAX_CACHE_ENTRIES = 200;
 // Helper functions for cache cleanup
 function removeExpiredEntries<T>(cache: Map<string, { timestamp: number } & T>): void {
   const now = Date.now();
-  const expiredKeys = Array.from(cache.entries())
-    .filter(([, value]) => now - value.timestamp > CACHE_TTL)
-    .map(([key]) => key);
-  
-  expiredKeys.forEach(key => cache.delete(key));
+  for (const [key, value] of cache.entries()) {
+    if (now - value.timestamp > CACHE_TTL) {
+      cache.delete(key);
+    }
+  }
 }
 
 function removeOldestEntries<T>(cache: Map<string, { timestamp: number } & T>, maxEntries: number): void {
@@ -776,11 +776,4 @@ export function parseErrorMessage(errorText: string): {
     // Fallback if parsing fails
     return { errorMessage: errorText };
   }
-}umnNumber: match[3] ? parseInt(match[3], 10) : undefined,
-        errorMessage: match[4] || errorText,
-      };
-    }
-  }
-
-  return { errorMessage: errorText };
 }
