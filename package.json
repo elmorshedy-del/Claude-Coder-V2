@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "tsc --project tsconfig.test.json && node --test .tmp-tests/lib/claude.test.js && rm -rf .tmp-tests"
+    "test": "tsc --project tsconfig.test.json && node --test .tmp-tests/lib/claude.test.js && rimraf .tmp-tests"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
