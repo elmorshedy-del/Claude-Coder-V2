@@ -196,6 +196,35 @@ export default function Home() {
     [logEvent]
   );
 
+  const logRoundEvent = useCallback(
+    (round: number, message?: string) => {
+      logEvent({
+        category: 'Plan',
+        severity: 'Info',
+        title: `Round ${round}`,
+        summary: message || `Round ${round} started`,
+        details: {
+          round,
+          message,
+        },
+      });
+    },
+    [logEvent]
+  );
+
+  const logStopEvent = useCallback(
+    (reason: string, lastRound?: number) => {
+      logEvent({
+        category: 'Plan',
+        severity: reason.toLowerCase().includes('error') ? 'Error' : 'Warning',
+        title: 'Loop stopped',
+        summary: reason,
+        details: { reason, lastRound },
+      });
+    },
+    [logEvent]
+  );
+
   const logCommandEvent = useCallback(
     (title: string, summary: string, details: Record<string, unknown>, duration_ms?: number) => {
       logEvent({
@@ -744,6 +773,8 @@ export default function Home() {
       const allFileChanges: FileChange[] = [];
       let newFileTree: string | undefined;
       let newLoadedFiles: Array<{ path: string; content: string }> | undefined;
+      let lastRoundSeen = 0;
+      let stopReason: string | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -768,10 +799,17 @@ export default function Home() {
                   ? { ...m, content: accumulatedContent }
                   : m
               ));
+              if (chunk.content?.includes('Cost limit reached')) {
+                stopReason = 'Stopped: cost limit';
+              }
             } else if (chunk.type === 'round_start') {
               setProgressMessage(chunk.message || 'Processing...');
               setProgressCurrent(chunk.round || 0);
               setProgressTotal(Math.max(chunk.round || 0, progressTotal));
+              if (chunk.round) {
+                lastRoundSeen = Math.max(lastRoundSeen, chunk.round);
+                logRoundEvent(chunk.round, chunk.message);
+              }
             } else if (chunk.type === 'tool_start') {
               setProgressMessage(chunk.message || 'Running tool...');
               logToolEvent('Tool started', chunk.message || 'Tool execution', {
@@ -844,6 +882,16 @@ export default function Home() {
           language,
         });
       }
+
+      if (!stopReason) {
+        if (progressTotal > 0 && lastRoundSeen >= progressTotal) {
+          stopReason = 'Stopped: round limit reached';
+        } else {
+          stopReason = 'Stopped: no more tool calls';
+        }
+      }
+
+      logStopEvent(stopReason, lastRoundSeen || undefined);
 
       // Final update
       const updatedAssistant: Message = {

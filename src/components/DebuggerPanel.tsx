@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  DollarSign,
   CirclePause,
   CirclePlay,
   Copy,
@@ -160,6 +161,7 @@ const DebuggerPanel: React.FC = () => {
   );
   const pollRef = useRef<NodeJS.Timeout | null>(null);
   const [telemetryFilters, setTelemetryFilters] = useState({ errorsOnly: false, requestId: '', type: '' });
+  const [showApiInspector, setShowApiInspector] = useState(false);
 
   const statusStripCounters = useMemo(() => ({
     repoValidation: telemetry.counters.repoValidation ?? 0,
@@ -372,6 +374,23 @@ const DebuggerPanel: React.FC = () => {
     return buckets;
   }, [events]);
 
+  const errorEvents = useMemo(() => events.filter((evt) => evt.severity === 'Error'), [events]);
+  const latestError = errorEvents[0];
+
+  const toolEvents = useMemo(() => events.filter((evt) => evt.category === 'Tool'), [events]);
+  const roundEvents = useMemo(() => events.filter((evt) => typeof (evt.details as { round?: number })?.round === 'number'), [events]);
+  const latestStop = events.find((evt) => evt.title === 'Loop stopped');
+  const costEvents = useMemo(
+    () => events.filter((evt) => typeof (evt.details as { cost?: number })?.cost === 'number'),
+    [events]
+  );
+
+  const healthStatus: 'green' | 'yellow' | 'red' = latestError
+    ? 'red'
+    : telemetryError || events.some((evt) => evt.severity === 'Warning')
+    ? 'yellow'
+    : 'green';
+
   return (
     <div
       className={`fixed top-0 right-0 h-screen z-50 transition-transform duration-200 ${collapsed ? 'translate-x-[calc(100%-2.75rem)]' : ''}`}
@@ -455,6 +474,57 @@ const DebuggerPanel: React.FC = () => {
 
             {activeTab === 'Overview' && (
               <div className="space-y-3">
+                <div className="rounded-lg border border-[var(--claude-border)] bg-[var(--claude-surface)] p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-[var(--claude-text)]">
+                      <span
+                        className={`w-3 h-3 rounded-full ${
+                          healthStatus === 'green'
+                            ? 'bg-emerald-500'
+                            : healthStatus === 'yellow'
+                            ? 'bg-amber-500'
+                            : 'bg-red-500'
+                        }`}
+                        aria-label={`Session health: ${healthStatus}`}
+                      />
+                      <span className="font-semibold">Session health</span>
+                    </div>
+                    <div className="text-xs text-[var(--claude-text-muted)]">
+                      {latestError ? 'Errors present' : healthStatus === 'yellow' ? 'Warnings detected' : 'Healthy'}
+                    </div>
+                  </div>
+                  {latestError && (
+                    <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold">{latestError.title}</span>
+                        <span className="text-[var(--claude-text-muted)]">{new Date(latestError.timestamp).toLocaleTimeString()}</span>
+                      </div>
+                      <div className="mt-1">{latestError.summary}</div>
+                      {latestError.details && (latestError.details as { stack?: string; message?: string }).stack && (
+                        <pre className="mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap rounded bg-white p-2 font-mono text-[11px] text-red-700">
+                          {(latestError.details as { stack?: string }).stack}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2 text-xs text-[var(--claude-text)]">
+                    <div className="rounded-md bg-[var(--claude-surface-sunken)] p-2">
+                      <div className="text-[var(--claude-text-muted)]">Loop status</div>
+                      <div className="font-semibold">{latestStop?.summary || 'Running'}</div>
+                      {roundEvents[0] && (
+                        <div className="text-[var(--claude-text-muted)]">Round {(
+                          roundEvents[0].details as { round?: number }
+                        )?.round}</div>
+                      )}
+                    </div>
+                    <div className="rounded-md bg-[var(--claude-surface-sunken)] p-2">
+                      <div className="text-[var(--claude-text-muted)]">Request status</div>
+                      <div className="font-semibold">{telemetry.lastRequest.status || 'Unknown'}</div>
+                      <div className="text-[var(--claude-text-muted)]">{formatDuration(telemetry.lastRequest.durationMs)}</div>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="rounded-lg border border-[var(--claude-border)] bg-[var(--claude-surface-sunken)] p-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-[var(--claude-text)]">
@@ -524,6 +594,96 @@ const DebuggerPanel: React.FC = () => {
                   </div>
                 </div>
 
+                <div className="rounded-lg border border-[var(--claude-border)] bg-[var(--claude-surface)] p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-[var(--claude-text)]">
+                      <Timer className="w-4 h-4" />
+                      <span className="font-semibold">Tool execution dashboard</span>
+                    </div>
+                    <div className="text-xs text-[var(--claude-text-muted)]">Slow calls & failures surface here</div>
+                  </div>
+                  <div className="mt-2 space-y-2 max-h-64 overflow-y-auto">
+                    {toolEvents.length === 0 && (
+                      <div className="text-xs text-[var(--claude-text-muted)]">No tool calls recorded yet.</div>
+                    )}
+                    {toolEvents.map((evt) => {
+                      const slow = (evt.duration_ms || 0) > 5000;
+                      const details = evt.details as { tool?: string; input?: unknown; output?: unknown; callId?: string };
+                      return (
+                        <div
+                          key={evt.id}
+                          className={`rounded-md border ${
+                            slow ? 'border-amber-200 bg-amber-50' : 'border-[var(--claude-border)] bg-[var(--claude-surface-sunken)]'
+                          } p-2 text-xs text-[var(--claude-text)]`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Pill color={evt.severity === 'Error' ? 'bg-red-100 text-red-800' : undefined}>
+                                {details.tool || evt.title}
+                              </Pill>
+                              <span className="font-semibold">{evt.summary}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[var(--claude-text-muted)]">
+                              <span>{formatDuration(evt.duration_ms)}</span>
+                              {slow && <Pill color="bg-amber-100 text-amber-800">Slow</Pill>}
+                            </div>
+                          </div>
+                          <div className="mt-1 grid grid-cols-2 gap-2">
+                            {details.input && (
+                              <div>
+                                <div className="text-[var(--claude-text-muted)]">Input</div>
+                                <pre className="max-h-20 overflow-y-auto whitespace-pre-wrap rounded bg-white p-2 font-mono text-[11px]">{truncateText(JSON.stringify(details.input, null, 2), 400)}</pre>
+                              </div>
+                            )}
+                            {details.output && (
+                              <div>
+                                <div className="text-[var(--claude-text-muted)]">Output</div>
+                                <pre className="max-h-20 overflow-y-auto whitespace-pre-wrap rounded bg-white p-2 font-mono text-[11px]">{truncateText(JSON.stringify(details.output, null, 2), 400)}</pre>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-[var(--claude-border)] bg-[var(--claude-surface-sunken)] p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-[var(--claude-text)]">
+                      <DollarSign className="w-4 h-4" />
+                      <span className="font-semibold">Cost breakdown</span>
+                    </div>
+                    <div className="text-xs text-[var(--claude-text-muted)]">Per-round costs where available</div>
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {costEvents.length === 0 && <div className="text-xs text-[var(--claude-text-muted)]">No cost telemetry recorded.</div>}
+                    {costEvents.map((evt) => {
+                      const details = evt.details as { cost?: number; savedPercent?: number; round?: number; note?: string };
+                      const expensive = (details.cost || 0) >= 0.1;
+                      return (
+                        <div
+                          key={evt.id}
+                          className={`flex items-center justify-between rounded-md border ${
+                            expensive ? 'border-amber-200 bg-amber-50' : 'border-[var(--claude-border)] bg-white'
+                          } p-2 text-xs text-[var(--claude-text)]`}
+                        >
+                          <div className="flex flex-col">
+                            <span className="font-semibold">{details.round ? `Round ${details.round}` : evt.title}</span>
+                            <span className="text-[var(--claude-text-muted)]">{details.note || evt.summary}</span>
+                          </div>
+                          <div className="text-right font-mono">
+                            <div className="font-semibold">${(details.cost || 0).toFixed(2)}</div>
+                            {details.savedPercent !== undefined && (
+                              <div className="text-[var(--claude-text-muted)]">Saved {details.savedPercent}%</div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <div className="rounded-lg border border-[var(--claude-border)] bg-[var(--claude-surface-sunken)] p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-[var(--claude-text)]">
@@ -554,13 +714,53 @@ const DebuggerPanel: React.FC = () => {
                     className="inline-flex items-center gap-2 rounded-md border border-[var(--claude-border)] bg-white px-3 py-2 text-sm text-[var(--claude-text)] hover:bg-[var(--claude-surface)]"
                   >
                     <Download className="w-4 h-4" />
-                    Download debug data
+                    Download full debug log
+                  </button>
+                  <button
+                    onClick={() => setShowApiInspector((prev) => !prev)}
+                    className="inline-flex items-center gap-2 rounded-md border border-[var(--claude-border)] bg-white px-3 py-2 text-sm text-[var(--claude-text)] hover:bg-[var(--claude-surface)]"
+                  >
+                    <Table className="w-4 h-4" />
+                    {showApiInspector ? 'Hide API inspector' : 'Show API inspector'}
                   </button>
                 </div>
-                  {selfTestState.status !== 'idle' && (
-                    <div className="rounded-md border border-[var(--claude-border)] bg-white p-2 text-xs text-[var(--claude-text)]">
-                      <div className="flex items-center gap-2 font-medium">
-                        {selfTestState.status === 'pass' && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                {showApiInspector && (
+                  <div className="rounded-md border border-[var(--claude-border)] bg-white p-2 text-xs text-[var(--claude-text)] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Server className="w-4 h-4" />
+                        <span className="font-semibold">Last API request</span>
+                      </div>
+                      <span className="text-[var(--claude-text-muted)]">{networkWithFallback[0]?.timestamp}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded bg-[var(--claude-surface-sunken)] p-2">
+                        <div className="text-[var(--claude-text-muted)]">Model/Endpoint</div>
+                        <div className="font-mono break-words">{networkWithFallback[0]?.endpoint || 'Unknown'}</div>
+                      </div>
+                      <div className="rounded bg-[var(--claude-surface-sunken)] p-2">
+                        <div className="text-[var(--claude-text-muted)]">Status</div>
+                        <div className="font-mono">{networkWithFallback[0]?.status || 'Unknown'}</div>
+                      </div>
+                    </div>
+                    {networkWithFallback[0]?.headers && (
+                      <div>
+                        <div className="text-[var(--claude-text-muted)]">Headers</div>
+                        <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded bg-[var(--claude-surface-sunken)] p-2 font-mono">{JSON.stringify(networkWithFallback[0]?.headers, null, 2)}</pre>
+                      </div>
+                    )}
+                    {networkWithFallback[0]?.responseSnippet && (
+                      <div>
+                        <div className="text-[var(--claude-text-muted)]">Response</div>
+                        <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded bg-[var(--claude-surface-sunken)] p-2 font-mono">{truncateText(networkWithFallback[0]?.responseSnippet, 1200)}</pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {selfTestState.status !== 'idle' && (
+                  <div className="rounded-md border border-[var(--claude-border)] bg-white p-2 text-xs text-[var(--claude-text)]">
+                    <div className="flex items-center gap-2 font-medium">
+                      {selfTestState.status === 'pass' && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
                         {selfTestState.status === 'fail' && <AlertTriangle className="w-4 h-4 text-red-600" />}
                         {selfTestState.status === 'running' && <Loader2 className="w-4 h-4 animate-spin" />}
                         <span>Self-test {selfTestState.status.toUpperCase()}</span>
@@ -600,6 +800,19 @@ const DebuggerPanel: React.FC = () => {
                       </div>
                     </div>
                   </div>
+                  {latestError && (
+                    <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold">{latestError.summary}</span>
+                        <span>{new Date(latestError.timestamp).toLocaleTimeString()}</span>
+                      </div>
+                      {latestError.details && (latestError.details as { stack?: string }).stack && (
+                        <pre className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap rounded bg-white p-2 font-mono text-[11px] text-red-700">
+                          {(latestError.details as { stack?: string }).stack}
+                        </pre>
+                      )}
+                    </div>
+                  )}
                   <div className="mt-2 space-y-2 max-h-96 overflow-y-auto">
                     {events.length === 0 && (
                       <div className="text-xs text-[var(--claude-text-muted)]">
