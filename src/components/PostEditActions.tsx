@@ -112,7 +112,8 @@ export default function PostEditActions({
             <button
               onClick={handleViewPR}
               disabled={!prUrl && !onViewPR}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--claude-terracotta)] text-white font-medium hover:bg-[var(--claude-terracotta-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--claude-terracotta)] text-white font-medium hover:bg-[var(--claude-terracotta-hover)] disabled:bg-[var(--claude-terracotta)]/50 disabled:cursor-not-allowed transition-colors"
+              title={!prUrl && !onViewPR ? 'No pull request available to view' : undefined}
             >
               <ExternalLink className="w-4 h-4" />
               View PR

@@ -821,7 +821,10 @@ export default function Home() {
       return;
     }
 
-    if (!currentRepo) {
+    const repo = currentRepo;
+    const branch = currentBranch;
+
+    if (!repo) {
       alert('Connect a GitHub repository to create a pull request.');
       return;
     }
@@ -831,7 +834,7 @@ export default function Home() {
       return;
     }
 
-    if (!currentBranch || currentBranch === currentRepo.defaultBranch) {
+    if (!branch || branch === repo.defaultBranch) {
       alert('Switch to a feature branch before creating a pull request.');
       return;
     }
@@ -866,12 +869,12 @@ export default function Home() {
         },
         body: JSON.stringify({
           action: 'createPR',
-          owner: currentRepo.owner,
-          repo: currentRepo.name,
+          owner: repo.owner,
+          repo: repo.name,
           title: prTitle,
           body: prBody,
-          head: currentBranch,
-          base: currentRepo.defaultBranch,
+          head: branch,
+          base: repo.defaultBranch,
         }),
       });
 
@@ -911,7 +914,7 @@ export default function Home() {
       }
     } catch (error) {
       console.error('View PR failed:', error);
-      const fallbackUrl = `https://github.com/${currentRepo.owner}/${currentRepo.name}/pulls`;
+      const fallbackUrl = `https://github.com/${repo.owner}/${repo.name}/pulls`;
       alert(`Could not create a pull request: ${(error as Error).message}. Opening GitHub pulls page instead.`);
       window.open(fallbackUrl, '_blank');
     }
