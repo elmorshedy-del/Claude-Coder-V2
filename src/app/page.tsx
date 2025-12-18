@@ -81,7 +81,7 @@ export default function Home() {
   const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
   const [password, setPassword] = useState<string>('');
   const [loginError, setLoginError] = useState<string>('');
-  const [rememberMe, setRememberMe] = useState<boolean>(false);
+  const [rememberMe, setRememberMe] = useState<boolean>(true);
 
   // --------------------------------------------------------------------------
   // STATE - API Keys
