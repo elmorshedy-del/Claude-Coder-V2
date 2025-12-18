@@ -225,19 +225,21 @@ export class ClaudeClient {
     }
 
     try {
+      const betaHeaders = this.buildBetaHeaders(
+        enableCodeExecution,
+        enableMemory,
+        enableContextCompaction,
+        enableInterleavedThinking,
+        toolExecutionMode
+      );
+
       const response = await this.client.messages.create({
         model: this.model,
         max_tokens: config.maxTokens,
         system: systemBlocks as Anthropic.Messages.TextBlockParam[],
         messages: messages as Anthropic.Messages.MessageParam[],
         tools: allTools.length > 0 ? allTools as Anthropic.Messages.Tool[] : undefined,
-        betas: this.buildBetaHeaders(
-          enableCodeExecution,
-          enableMemory,
-          enableContextCompaction,
-          enableInterleavedThinking,
-          toolExecutionMode
-        ),
+        ...(betaHeaders.length > 0 ? { betas: betaHeaders } : {}),
         stream: false,
         ...(enableThinking && {
           thinking: {
@@ -366,19 +368,21 @@ export class ClaudeClient {
     }
 
     try {
+      const betaHeaders = this.buildBetaHeaders(
+        enableCodeExecution,
+        enableMemory,
+        enableContextCompaction,
+        enableInterleavedThinking,
+        toolExecutionMode
+      );
+
       const stream = await this.client.messages.stream({
         model: this.model,
         max_tokens: config.maxTokens,
         system: systemBlocks as Anthropic.Messages.TextBlockParam[],
         messages: messages as Anthropic.Messages.MessageParam[],
         tools: allTools.length > 0 ? allTools as Anthropic.Messages.Tool[] : undefined,
-        betas: this.buildBetaHeaders(
-          enableCodeExecution,
-          enableMemory,
-          enableContextCompaction,
-          enableInterleavedThinking,
-          toolExecutionMode
-        ),
+        ...(betaHeaders.length > 0 ? { betas: betaHeaders } : {}),
         ...(enableThinking && {
           thinking: {
             type: 'enabled',
