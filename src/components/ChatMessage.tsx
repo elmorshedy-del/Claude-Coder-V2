@@ -14,10 +14,12 @@ import Citations from './Citations';
 interface ChatMessageProps {
   message: Message;
   onViewPR?: (prUrl?: string) => void;
+  canCreatePR?: boolean;
+  prDisabledReason?: string;
   onDiscard?: () => void;
 }
 
-export default function ChatMessage({ message, onViewPR, onDiscard }: ChatMessageProps) {
+export default function ChatMessage({ message, onViewPR, onDiscard, canCreatePR, prDisabledReason }: ChatMessageProps) {
   const isUser = message.role === 'user';
 
   return (
@@ -111,6 +113,8 @@ export default function ChatMessage({ message, onViewPR, onDiscard }: ChatMessag
                     previewUrl: message.previewUrl,
                     status: message.prUrl ? 'pr_created' : 'pushed',
                   }}
+                  canCreatePR={canCreatePR}
+                  prDisabledReason={prDisabledReason}
                   onViewPR={(prUrl) => {
                     if (onViewPR) {
                       onViewPR(prUrl ?? message.prUrl);

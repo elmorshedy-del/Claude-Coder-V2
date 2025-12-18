@@ -7,6 +7,8 @@ import { PostEditState, FileChange } from '@/types';
 interface PostEditActionsProps {
   state: PostEditState;
   onViewPR?: (prUrl?: string) => void;
+  canCreatePR?: boolean;
+  prDisabledReason?: string;
   onDiscard?: () => void;
   onConfirm?: () => void;
   onCancel?: () => void;
@@ -15,6 +17,8 @@ interface PostEditActionsProps {
 export default function PostEditActions({
   state,
   onViewPR,
+  canCreatePR = true,
+  prDisabledReason,
   onDiscard,
   onConfirm,
   onCancel,
@@ -109,14 +113,26 @@ export default function PostEditActions({
       <div className="flex items-center gap-3">
         {mode === 'safe' ? (
           <>
-            <button
-              onClick={handleViewPR}
-              disabled={!prUrl && !onViewPR}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--claude-terracotta)] text-white font-medium hover:bg-[var(--claude-terracotta-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <ExternalLink className="w-4 h-4" />
-              View PR
-            </button>
+            <div className="flex-1">
+              <button
+                onClick={handleViewPR}
+                disabled={(!prUrl && !onViewPR) || !canCreatePR}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-medium transition-colors
+                  ${(!prUrl && !onViewPR) || !canCreatePR
+                    ? 'bg-[var(--claude-terracotta)]/50 text-white cursor-not-allowed'
+                    : 'bg-[var(--claude-terracotta)] text-white hover:bg-[var(--claude-terracotta-hover)]'
+                  }`}
+                title={!canCreatePR && prDisabledReason ? prDisabledReason : undefined}
+              >
+                <ExternalLink className="w-4 h-4" />
+                {canCreatePR ? 'View PR' : 'Connect GitHub'}
+              </button>
+              {!canCreatePR && prDisabledReason && (
+                <p className="mt-1 text-xs text-[var(--claude-text-muted)] text-center">
+                  {prDisabledReason}
+                </p>
+              )}
+            </div>
             {/* View Preview button - only shows when previewUrl is available */}
             {previewUrl && (
               <button

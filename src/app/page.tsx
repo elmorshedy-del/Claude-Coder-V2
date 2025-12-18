@@ -1,7 +1,7 @@
 /* Morsh Coder */
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Send,
   Settings as SettingsIcon,
@@ -813,6 +813,23 @@ export default function Home() {
   };
 
   // --------------------------------------------------------------------------
+  // DERIVED - PR availability
+  // --------------------------------------------------------------------------
+  const canCreatePullRequest = useMemo(() => {
+    if (!currentRepo) return false;
+    if (!githubToken) return false;
+    if (!currentBranch || currentBranch === currentRepo.defaultBranch) return false;
+    return true;
+  }, [currentRepo, githubToken, currentBranch]);
+
+  const prDisabledReason = useMemo(() => {
+    if (!currentRepo) return 'Connect a GitHub repository to create a pull request.';
+    if (!githubToken) return 'Add a GitHub token in Settings to create a pull request.';
+    if (!currentBranch || currentBranch === currentRepo.defaultBranch) return 'Switch to a feature branch before creating a pull request.';
+    return '';
+  }, [currentRepo, githubToken, currentBranch]);
+
+  // --------------------------------------------------------------------------
   // FUNCTIONS - View PR
   // --------------------------------------------------------------------------
   const handleViewPR = async (prUrl?: string) => {
@@ -821,18 +838,8 @@ export default function Home() {
       return;
     }
 
-    if (!currentRepo) {
-      alert('Connect a GitHub repository to create a pull request.');
-      return;
-    }
-
-    if (!githubToken) {
-      alert('Add a GitHub token in Settings to create a pull request.');
-      return;
-    }
-
-    if (!currentBranch || currentBranch === currentRepo.defaultBranch) {
-      alert('Switch to a feature branch before creating a pull request.');
+    if (!canCreatePullRequest) {
+      alert(prDisabledReason || 'Set up GitHub to create a pull request.');
       return;
     }
 
@@ -1335,6 +1342,8 @@ export default function Home() {
                 key={message.id}
                 message={message}
                 onViewPR={(prUrl?: string) => handleViewPR(prUrl)}
+                canCreatePR={canCreatePullRequest}
+                prDisabledReason={prDisabledReason}
                 onDiscard={() => handleDiscard()}
               />
               ))}
