@@ -175,7 +175,10 @@ const DebuggerPanel: React.FC = () => {
   return (
     <div className={`fixed top-0 right-0 h-screen z-50 transition-transform duration-200 ${collapsed ? 'translate-x-[calc(100%-3rem)]' : ''}`}>
       <div className="relative h-full flex">
-        <div className="w-[360px] max-w-[420px] h-full bg-[var(--claude-bg)] border-l border-[var(--claude-border)] shadow-lg flex flex-col">
+        <div
+          className={`w-[360px] max-w-[420px] h-full bg-[var(--claude-bg)] border-l border-[var(--claude-border)] shadow-lg flex flex-col ${collapsed ? 'pointer-events-none' : ''}`}
+          aria-hidden={collapsed}
+        >
           <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--claude-border)] bg-[var(--claude-surface)]">
             <div className="flex items-center gap-2 text-[var(--claude-text)]">
               <Filter className="w-4 h-4" />
