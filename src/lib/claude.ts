@@ -211,6 +211,9 @@ export class ClaudeClient {
   }
 
   private getExistingBetaHeader(): string | undefined {
+    // HACK: Access internal client options to retrieve existing headers. This is brittle and may break
+    // in future SDK versions. It is necessary because the SDK does not currently expose a public
+    // method to access default headers passed during client initialization.
     const options = (this.client as any)?._clientOptions || (this.client as any)?.clientOptions || (this.client as any)?.options;
     const headers = options?.headers as Record<string, unknown> | undefined;
     const headerValue = headers?.['anthropic-beta'] || headers?.['Anthropic-Beta'];
