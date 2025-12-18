@@ -202,7 +202,6 @@ export class ClaudeClient {
 
     const config = this.getEffortConfig(effort, thinkingBudget);
     const allTools = this.buildToolsArray(tools, toolExecutionMode, enableCodeExecution, enableMemory);
-    const betas = this.buildBetaHeaders(enableCodeExecution, enableMemory, enableContextCompaction, enableInterleavedThinking, toolExecutionMode);
 
     // Build system blocks with prompt caching for BOTH system prompt and code context
     // Cache order matters: put most stable content first (system prompt), then code context
@@ -238,9 +237,6 @@ export class ClaudeClient {
             type: 'enabled',
             budget_tokens: config.adjustedThinkingBudget,
           },
-        }),
-        ...(betas.length > 0 && {
-          betas,
         }),
       } as Anthropic.Messages.MessageCreateParams) as Anthropic.Messages.Message;
 
@@ -344,7 +340,6 @@ export class ClaudeClient {
 
     const config = this.getEffortConfig(effort, thinkingBudget);
     const allTools = this.buildToolsArray(tools, toolExecutionMode, enableCodeExecution, enableMemory);
-    const betas = this.buildBetaHeaders(enableCodeExecution, enableMemory, enableContextCompaction, enableInterleavedThinking, toolExecutionMode);
 
     // Build system blocks with caching
     const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [];
@@ -375,9 +370,6 @@ export class ClaudeClient {
             type: 'enabled',
             budget_tokens: config.adjustedThinkingBudget,
           },
-        }),
-        ...(betas.length > 0 && {
-          betas,
         }),
       } as Anthropic.Messages.MessageStreamParams);
 
