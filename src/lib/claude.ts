@@ -590,8 +590,8 @@ TIP: Use grep_search first to find the line numbers you need, then read_file wit
 
   getCodeExecutionTool(): { type: string; name: string } {
     return {
-      type: 'code_execution_20250825',
-      name: 'code_execution',
+      type: 'bash_20250124',
+      name: 'bash',
     };
   }
 
