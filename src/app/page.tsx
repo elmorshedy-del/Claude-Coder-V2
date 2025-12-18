@@ -43,6 +43,7 @@ import LoadingSpinner from '@/components/LoadingSpinner';
 import CostTracker from '@/components/CostTracker';
 import QuickSettings from '@/components/QuickSettings';
 import ProgressBar from '@/components/ProgressBar';
+import { useDebugger } from '@/components/DebuggerProvider';
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -157,6 +158,85 @@ export default function Home() {
     loadedFiles: Array<{ path: string; content: string }>;
     timestamp: number;
   } | null>(null);
+
+  // --------------------------------------------------------------------------
+  // DEBUGGER - Event logging helpers
+  // --------------------------------------------------------------------------
+  const { logEvent } = useDebugger();
+
+  const logErrorEvent = useCallback(
+    (title: string, error: unknown, context?: Record<string, unknown>) => {
+      const err = error as Error;
+      logEvent({
+        category: 'Error',
+        severity: 'Error',
+        title,
+        summary: err?.message || 'Unknown error',
+        details: {
+          message: err?.message,
+          stack: err?.stack,
+          context,
+        },
+      });
+    },
+    [logEvent]
+  );
+
+  const logToolEvent = useCallback(
+    (title: string, summary: string, details: Record<string, unknown>, duration_ms?: number) => {
+      logEvent({
+        category: 'Tool',
+        severity: 'Info',
+        title,
+        summary,
+        details,
+        duration_ms,
+      });
+    },
+    [logEvent]
+  );
+
+  const logCommandEvent = useCallback(
+    (title: string, summary: string, details: Record<string, unknown>, duration_ms?: number) => {
+      logEvent({
+        category: 'Command',
+        severity: 'Info',
+        title,
+        summary,
+        details,
+        duration_ms,
+      });
+    },
+    [logEvent]
+  );
+
+  const logNetworkEvent = useCallback(
+    (summary: string, details: Record<string, unknown>, duration_ms?: number, severity: 'Info' | 'Warning' | 'Error' = 'Info') => {
+      logEvent({
+        category: 'Network',
+        severity,
+        title: 'Network call',
+        summary,
+        details,
+        duration_ms,
+      });
+    },
+    [logEvent]
+  );
+
+  const logFileEvent = useCallback(
+    (title: string, summary: string, details: Record<string, unknown>) => {
+      logEvent({
+        category: 'File',
+        severity: 'Info',
+        title,
+        summary,
+        details,
+        related: details.path ? [String(details.path)] : undefined,
+      });
+    },
+    [logEvent]
+  );
 
   // --------------------------------------------------------------------------
   // EFFECTS - Initialize from localStorage
@@ -387,6 +467,15 @@ export default function Home() {
     if (!anthropicKey) return;
 
     setIsLoading(true);
+    const start = performance.now();
+    logNetworkEvent('Validating credentials', {
+      endpoint: '/api/auth',
+      method: 'POST',
+      payload: {
+        hasAnthropicKey: Boolean(anthropicKey),
+        hasGithubToken: Boolean(githubToken),
+      },
+    });
     try {
       const response = await fetch('/api/auth', {
         method: 'POST',
@@ -405,12 +494,19 @@ export default function Home() {
           setGithubUser(data.github.user);
           await fetchRepos(githubToken);
         }
+        logNetworkEvent('Authentication succeeded', {
+          status: response.status,
+          validAnthropic: data.anthropic?.valid,
+          validGithub: data.github?.valid,
+        }, performance.now() - start);
       } else {
         alert('Invalid Anthropic API key. Please check your credentials.');
+        logNetworkEvent('Authentication failed', { status: response.status, reason: 'Invalid key' }, performance.now() - start, 'Error');
       }
     } catch (error) {
       console.error('Auth error:', error);
       alert('Authentication failed');
+      logErrorEvent('Authentication error', error);
     } finally {
       setIsLoading(false);
     }
@@ -423,6 +519,7 @@ export default function Home() {
     if (!githubToken) return;
 
     try {
+      const start = performance.now();
       const response = await fetch(
         `/api/github?action=branches&owner=${owner}&repo=${repoName}`,
         {
@@ -430,11 +527,17 @@ export default function Home() {
         }
       );
       const data = await response.json();
+      logNetworkEvent('Fetch branches', {
+        owner,
+        repoName,
+        status: response.status,
+      }, performance.now() - start);
       if (data.branches) {
         setBranches(data.branches.map((b: { name: string }) => b.name));
       }
     } catch (error) {
       console.error('Failed to fetch branches:', error);
+      logErrorEvent('Branch fetch failed', error, { owner, repoName });
     }
   };
 
@@ -493,10 +596,14 @@ export default function Home() {
   // --------------------------------------------------------------------------
   const handleRefreshRepo = async () => {
     if (!currentRepo || !githubToken) return;
-    
+
     const cacheKey = `repo_cache_${currentRepo.owner}_${currentRepo.name}_${currentBranch}`;
     localStorage.removeItem(cacheKey);
     setRepoCache(null);
+    logCommandEvent('Clear repo cache', `Cache cleared for ${currentRepo.fullName}`, {
+      cacheKey,
+      branch: currentBranch,
+    });
     alert('Repo cache cleared. It will reload on next message.');
   };
 
@@ -523,6 +630,14 @@ export default function Home() {
       convId = newConv.id;
       setCurrentConversationId(convId);
     }
+
+    logCommandEvent('Send message', 'Dispatching message to assistant', {
+      conversationId: convId,
+      hasFiles: uploadedFiles.length > 0,
+      repo: currentRepo?.fullName,
+      branch: currentBranch,
+      model: settings.model,
+    });
 
     // Create user message
     const userMessage: Message = {
@@ -561,6 +676,8 @@ export default function Home() {
         .filter(m => !m.isStreaming)
         .map(m => ({ role: m.role, content: m.content }));
 
+      const requestStart = performance.now();
+
       // Build headers
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -596,6 +713,17 @@ export default function Home() {
         }),
         signal: abortControllerRef.current.signal,
       });
+
+      logNetworkEvent('Chat request sent', {
+        endpoint: '/api/chat',
+        method: 'PUT',
+        branch: currentBranch,
+        repo: currentRepo?.fullName,
+        includesFiles: Boolean(userMessage.files?.length),
+        model: settings.model,
+        webSearchMode: settings.webSearchMode,
+        responseStatus: response.status,
+      }, performance.now() - requestStart);
 
       if (!response.ok) {
         throw new Error('API request failed');
@@ -646,6 +774,10 @@ export default function Home() {
               setProgressTotal(Math.max(chunk.round || 0, progressTotal));
             } else if (chunk.type === 'tool_start') {
               setProgressMessage(chunk.message || 'Running tool...');
+              logToolEvent('Tool started', chunk.message || 'Tool execution', {
+                tool: chunk.toolCall?.name,
+                input: chunk.toolCall?.input,
+              });
             } else if (chunk.type === 'thinking') {
               accumulatedThinking += chunk.content || '';
               setMessages(prev => prev.map(m =>
@@ -654,6 +786,11 @@ export default function Home() {
                   : m
               ));
             } else if (chunk.type === 'tool_use') {
+              logToolEvent('Tool use', chunk.toolCall?.name || 'Tool invoked', {
+                tool: chunk.toolCall?.name,
+                input: chunk.toolCall?.input,
+                callId: chunk.toolCall?.id,
+              });
               if (chunk.toolCall?.name === 'str_replace' || chunk.toolCall?.name === 'create_file') {
                 const input = chunk.toolCall.input;
                 allFileChanges.push({
@@ -662,8 +799,11 @@ export default function Home() {
                 });
               }
             } else if (chunk.type === 'tool_result') {
-              // Tool result received - could display to user if needed
-              // Currently we just track file changes from the done event
+              logToolEvent('Tool result', chunk.toolCall?.name || 'Tool returned', {
+                tool: chunk.toolCall?.name,
+                callId: chunk.toolCall?.id,
+                output: chunk.result || chunk.content,
+              });
             } else if (chunk.type === 'done') {
               finalCost = chunk.cost || 0;
               finalSavedPercent = chunk.savedPercent || 0;
@@ -721,6 +861,38 @@ export default function Home() {
       const finalMessages = [...messages, userMessage, updatedAssistant];
       setMessages(finalMessages);
 
+      if (allFileChanges.length > 0) {
+        allFileChanges.forEach(change =>
+          logFileEvent(
+            `${change.action} ${change.path}`,
+            `File ${change.action}d at ${change.path}`,
+            {
+              ...change,
+              diff: change.diff,
+              additions: change.additions,
+              deletions: change.deletions,
+            }
+          )
+        );
+      }
+
+      logNetworkEvent(
+        'Chat stream completed',
+        {
+          cost: finalCost,
+          savedPercent: finalSavedPercent,
+          artifacts: allArtifacts.length,
+          filesChanged: allFileChanges.length,
+        },
+        performance.now() - requestStart
+      );
+
+      logCommandEvent('Assistant response finalized', 'Streaming finished successfully', {
+        artifacts: allArtifacts.length,
+        filesChanged: allFileChanges.length,
+        thinkingTokens: accumulatedThinking.length,
+      }, performance.now() - requestStart);
+
       if (allArtifacts.length > 0) {
         setArtifacts(prev => [...prev, ...allArtifacts]);
       }
@@ -763,6 +935,9 @@ export default function Home() {
             ? { ...m, isStreaming: false, content: m.content || '(Cancelled)' }
             : m
         ));
+        logCommandEvent('Streaming cancelled', 'User aborted the response stream', {
+          conversationId: convId,
+        });
       } else {
         console.error('Chat error:', error);
         const errorMessage: Message = {
@@ -771,6 +946,10 @@ export default function Home() {
           isStreaming: false,
         };
         setMessages([...messages, userMessage, errorMessage]);
+        logErrorEvent('Chat pipeline error', error, {
+          conversationId: convId,
+          message: inputValue,
+        });
       }
     } finally {
       setIsStreaming(false);
@@ -858,6 +1037,11 @@ export default function Home() {
       : `Pull request created from branch ${currentBranch} via Claude Coder's View PR action.`;
 
     try {
+      logCommandEvent('Create PR', 'Preparing pull request creation', {
+        branch: currentBranch,
+        repo: currentRepo.fullName,
+        filesChanged: filesChanged.length,
+      });
       const response = await fetch('/api/github', {
         method: 'POST',
         headers: {
@@ -879,6 +1063,12 @@ export default function Home() {
       if (!response.ok) {
         throw new Error(data.error || 'Failed to create pull request');
       }
+
+      logNetworkEvent('Pull request created', {
+        status: response.status,
+        url: data.pr?.url,
+        number: data.pr?.number,
+      });
 
       const createdPrUrl: string | undefined = data.pr?.url;
       const createdPrNumber: number | undefined = data.pr?.number;
@@ -913,6 +1103,10 @@ export default function Home() {
       console.error('View PR failed:', error);
       const fallbackUrl = `https://github.com/${currentRepo.owner}/${currentRepo.name}/pulls`;
       alert(`Could not create a pull request: ${(error as Error).message}. Opening GitHub pulls page instead.`);
+      logErrorEvent('Pull request creation failed', error, {
+        branch: currentBranch,
+        repo: currentRepo.fullName,
+      });
       window.open(fallbackUrl, '_blank');
     }
   };
@@ -930,7 +1124,8 @@ export default function Home() {
     }
 
     try {
-      await fetch('/api/github', {
+      const start = performance.now();
+      const response = await fetch('/api/github', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -944,12 +1139,22 @@ export default function Home() {
         }),
       });
 
+      logCommandEvent('Discard branch', 'Deleted working branch', {
+        branch: targetBranch,
+        repo: currentRepo.fullName,
+        status: response.status,
+      }, performance.now() - start);
+
       // Switch back to default branch after discarding
       setCurrentBranch(currentRepo.defaultBranch);
       // Refresh branches list
       fetchBranches(currentRepo.owner, currentRepo.name);
     } catch (error) {
       console.error('Failed to discard:', error);
+      logErrorEvent('Discard branch failed', error, {
+        branch: targetBranch,
+        repo: currentRepo?.fullName,
+      });
     }
   };
 

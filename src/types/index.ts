@@ -29,6 +29,26 @@ export interface Message {
   previewUrl?: string;
 }
 
+// ----------------------------------------------------------------------------
+// Debugger Types
+// ----------------------------------------------------------------------------
+
+export type DebuggerCategory = 'Tool' | 'Command' | 'File' | 'Network' | 'Plan' | 'Test' | 'Error' | 'Note';
+export type DebuggerSeverity = 'Info' | 'Warning' | 'Error';
+
+export interface DebuggerEvent {
+  id: string;
+  timestamp: string;
+  category: DebuggerCategory;
+  severity: DebuggerSeverity;
+  title: string;
+  summary: string;
+  details: Record<string, unknown>;
+  duration_ms?: number;
+  related?: string[];
+  pinned?: boolean;
+}
+
 // Tool action for displaying tool usage in ActionBlock
 export interface ToolAction {
   id: string;
