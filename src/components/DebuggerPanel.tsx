@@ -11,6 +11,7 @@ import {
   CirclePause,
   CirclePlay,
   Copy,
+  Download,
   Filter,
   Globe2,
   History,
@@ -27,8 +28,8 @@ const PANEL_WIDTH = 400;
 const HANDLE_WIDTH = 44;
 const POLL_INTERVAL = 2500;
 const MAX_NETWORK = 200;
-const MAX_EVENTS = 50;
-const MAX_TELEMETRY_EVENTS = 120;
+const MAX_EVENTS = 200;
+const MAX_TELEMETRY_EVENTS = 400;
 
 type DebuggerTab = 'Overview' | 'Network' | 'Server Telemetry' | 'Self-test';
 
@@ -319,6 +320,34 @@ const DebuggerPanel: React.FC = () => {
     }
   };
 
+  const downloadDebugData = () => {
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      polling: isPolling,
+      filters: telemetryFilters,
+      limits: {
+        network: MAX_NETWORK,
+        events: MAX_EVENTS,
+        telemetryEvents: MAX_TELEMETRY_EVENTS,
+      },
+      telemetry,
+      displayServerEvents,
+      fallbackEvents,
+      rawEvents: events,
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: 'application/json',
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `debug-console-export-${Date.now()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const togglePolling = () => setIsPolling((prev) => !prev);
 
   const filteredTelemetryEvents = useMemo(() => {
@@ -504,14 +533,21 @@ const DebuggerPanel: React.FC = () => {
                       {selfTestState.status === 'running' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                       Run self-test
                     </button>
-                    <button
-                      onClick={handleResetTelemetry}
-                      className="inline-flex items-center gap-2 rounded-md border border-[var(--claude-border)] bg-white px-3 py-2 text-sm text-[var(--claude-text)] hover:bg-[var(--claude-surface)]"
-                    >
-                      <RefreshCcw className="w-4 h-4" />
-                      Reset telemetry
-                    </button>
-                  </div>
+                  <button
+                    onClick={handleResetTelemetry}
+                    className="inline-flex items-center gap-2 rounded-md border border-[var(--claude-border)] bg-white px-3 py-2 text-sm text-[var(--claude-text)] hover:bg-[var(--claude-surface)]"
+                  >
+                    <RefreshCcw className="w-4 h-4" />
+                    Reset telemetry
+                  </button>
+                  <button
+                    onClick={downloadDebugData}
+                    className="inline-flex items-center gap-2 rounded-md border border-[var(--claude-border)] bg-white px-3 py-2 text-sm text-[var(--claude-text)] hover:bg-[var(--claude-surface)]"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download debug data
+                  </button>
+                </div>
                   {selfTestState.status !== 'idle' && (
                     <div className="rounded-md border border-[var(--claude-border)] bg-white p-2 text-xs text-[var(--claude-text)]">
                       <div className="flex items-center gap-2 font-medium">
