@@ -66,7 +66,7 @@ Programmatic: read 5 files → 1 code execution + 5KB summary
 ## Technical Notes
 
 - Uses Anthropic's `advanced-tool-use-2025-11-20` beta feature
-- Requires code execution tool (`code_execution_20250825`)
+- Requires bash tool (`bash_20250124`)
 - Anthropic's API currently rejects an `allowed_callers` field, so tools are sent without that custom property
 - All existing tools support programmatic calling
 - Backward compatible - defaults to hybrid mode
