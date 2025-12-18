@@ -31,7 +31,7 @@ const MAX_NETWORK = 200;
 const MAX_EVENTS = 200;
 const MAX_TELEMETRY_EVENTS = 400;
 
-type DebuggerTab = 'Overview' | 'Network' | 'Server Telemetry' | 'Self-test';
+type DebuggerTab = 'Overview' | 'Activity Log' | 'Network' | 'Server Telemetry' | 'Self-test';
 
 interface BuildInfo {
   clientSha?: string;
@@ -143,6 +143,7 @@ const DebuggerPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<DebuggerTab>('Overview');
   const [isPolling, setIsPolling] = useState(true);
   const [expandedNetworkId, setExpandedNetworkId] = useState<string | null>(null);
+  const [expandedActivityId, setExpandedActivityId] = useState<string | null>(null);
   const [telemetry, setTelemetry] = useState<TelemetryState>({
     build: {},
     lastRequest: {},
@@ -363,6 +364,14 @@ const DebuggerPanel: React.FC = () => {
 
   const networkWithFallback = telemetry.networkCalls.length > 0 ? telemetry.networkCalls : [];
 
+  const activityByCategory = useMemo(() => {
+    const buckets: Record<string, number> = {};
+    events.forEach((evt) => {
+      buckets[evt.category] = (buckets[evt.category] || 0) + 1;
+    });
+    return buckets;
+  }, [events]);
+
   return (
     <div
       className={`fixed top-0 right-0 h-screen z-50 transition-transform duration-200 ${collapsed ? 'translate-x-[calc(100%-2.75rem)]' : ''}`}
@@ -421,7 +430,7 @@ const DebuggerPanel: React.FC = () => {
           </div>
 
           <div className="px-3 pt-3 flex flex-wrap gap-2">
-            {(['Overview', 'Network', 'Server Telemetry', 'Self-test'] as DebuggerTab[]).map((tab) => (
+            {(['Overview', 'Activity Log', 'Network', 'Server Telemetry', 'Self-test'] as DebuggerTab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -569,6 +578,89 @@ const DebuggerPanel: React.FC = () => {
                       )}
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'Activity Log' && (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-[var(--claude-border)] bg-[var(--claude-surface-sunken)] p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-[var(--claude-text)]">
+                      <History className="w-4 h-4" />
+                      <span className="font-semibold">Recent actions</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] text-[var(--claude-text-muted)]">
+                      <span className="uppercase tracking-wide">By type</span>
+                      <div className="flex flex-wrap gap-1">
+                        {Object.entries(activityByCategory).map(([category, count]) => (
+                          <Pill key={category}>{`${category}: ${count}`}</Pill>
+                        ))}
+                        {events.length === 0 && <span>None logged yet</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 space-y-2 max-h-96 overflow-y-auto">
+                    {events.length === 0 && (
+                      <div className="text-xs text-[var(--claude-text-muted)]">
+                        Actions, file reads, and tool usage will appear here once recorded.
+                      </div>
+                    )}
+                    {events.map((evt) => {
+                      const expanded = expandedActivityId === evt.id;
+                      return (
+                        <div
+                          key={evt.id}
+                          className="rounded-md border border-[var(--claude-border)] bg-[var(--claude-surface)] p-2 text-xs text-[var(--claude-text)]"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <Pill>{evt.category}</Pill>
+                              <Pill
+                                color={
+                                  evt.severity === 'Error'
+                                    ? 'bg-red-100 text-red-800'
+                                    : evt.severity === 'Warning'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-blue-100 text-blue-800'
+                                }
+                              >
+                                {evt.severity}
+                              </Pill>
+                              <span className="font-semibold">{evt.title}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[var(--claude-text-muted)]">
+                              <span>{new Date(evt.timestamp).toLocaleTimeString()}</span>
+                              {evt.duration_ms !== undefined && <span>{formatDuration(evt.duration_ms)}</span>}
+                              <button
+                                onClick={() =>
+                                  setExpandedActivityId((prev) => (prev === evt.id ? null : evt.id))
+                                }
+                                className="rounded-full border border-[var(--claude-border)] px-2 py-1 text-[var(--claude-text)] hover:bg-[var(--claude-surface-sunken)]"
+                              >
+                                {expanded ? 'Hide' : 'Details'}
+                              </button>
+                            </div>
+                          </div>
+                          <div className="mt-1 text-[var(--claude-text-muted)]">{evt.summary}</div>
+                          {expanded && (
+                            <pre className="mt-2 whitespace-pre-wrap rounded-md bg-[var(--claude-surface-sunken)] p-2 text-[11px] text-[var(--claude-text)]">
+                              {JSON.stringify(evt.details || {}, null, 2)}
+                            </pre>
+                          )}
+                          {evt.related && evt.related.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-[var(--claude-text-muted)]">
+                              {evt.related.map((ref) => (
+                                <Pill key={ref} color="bg-[var(--claude-surface-sunken)] text-[var(--claude-text)]">
+                                  {ref}
+                                </Pill>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
