@@ -202,6 +202,7 @@ export class ClaudeClient {
 
     const config = this.getEffortConfig(effort, thinkingBudget);
     const allTools = this.buildToolsArray(tools, toolExecutionMode, enableCodeExecution, enableMemory);
+    const betas = this.buildBetaHeaders(enableCodeExecution, enableMemory, enableContextCompaction, enableInterleavedThinking, toolExecutionMode);
 
     // Build system blocks with prompt caching for BOTH system prompt and code context
     // Cache order matters: put most stable content first (system prompt), then code context
@@ -225,32 +226,21 @@ export class ClaudeClient {
     }
 
     try {
-      const betaHeaders = this.buildBetaHeaders(
-        enableCodeExecution,
-        enableMemory,
-        enableContextCompaction,
-        enableInterleavedThinking,
-        toolExecutionMode
-      );
-
-      const betaHeaderConfig =
-        betaHeaders.length > 0
-          ? { extra_headers: { 'anthropic-beta': betaHeaders.join(',') } }
-          : {};
-
       const response = await this.client.messages.create({
         model: this.model,
         max_tokens: config.maxTokens,
         system: systemBlocks as Anthropic.Messages.TextBlockParam[],
         messages: messages as Anthropic.Messages.MessageParam[],
         tools: allTools.length > 0 ? allTools as Anthropic.Messages.Tool[] : undefined,
-        ...betaHeaderConfig,
         stream: false,
         ...(enableThinking && {
           thinking: {
             type: 'enabled',
             budget_tokens: config.adjustedThinkingBudget,
           },
+        }),
+        ...(betas.length > 0 && {
+          betas,
         }),
       } as Anthropic.Messages.MessageCreateParams) as Anthropic.Messages.Message;
 
@@ -354,6 +344,7 @@ export class ClaudeClient {
 
     const config = this.getEffortConfig(effort, thinkingBudget);
     const allTools = this.buildToolsArray(tools, toolExecutionMode, enableCodeExecution, enableMemory);
+    const betas = this.buildBetaHeaders(enableCodeExecution, enableMemory, enableContextCompaction, enableInterleavedThinking, toolExecutionMode);
 
     // Build system blocks with caching
     const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [];
@@ -373,31 +364,20 @@ export class ClaudeClient {
     }
 
     try {
-      const betaHeaders = this.buildBetaHeaders(
-        enableCodeExecution,
-        enableMemory,
-        enableContextCompaction,
-        enableInterleavedThinking,
-        toolExecutionMode
-      );
-
-      const betaHeaderConfig =
-        betaHeaders.length > 0
-          ? { extra_headers: { 'anthropic-beta': betaHeaders.join(',') } }
-          : {};
-
       const stream = await this.client.messages.stream({
         model: this.model,
         max_tokens: config.maxTokens,
         system: systemBlocks as Anthropic.Messages.TextBlockParam[],
         messages: messages as Anthropic.Messages.MessageParam[],
         tools: allTools.length > 0 ? allTools as Anthropic.Messages.Tool[] : undefined,
-        ...betaHeaderConfig,
         ...(enableThinking && {
           thinking: {
             type: 'enabled',
             budget_tokens: config.adjustedThinkingBudget,
           },
+        }),
+        ...(betas.length > 0 && {
+          betas,
         }),
       } as Anthropic.Messages.MessageStreamParams);
 
@@ -472,7 +452,7 @@ export class ClaudeClient {
   // Default Tools - WITH LINE RANGE SUPPORT
   // --------------------------------------------------------------------------
 
-  getDefaultTools(_toolExecutionMode: ToolExecutionMode = 'direct'): ClaudeTool[] {
+  getDefaultTools(toolExecutionMode: ToolExecutionMode = 'direct'): ClaudeTool[] {
     const baseTools: ClaudeTool[] = [
       {
         name: 'read_file',
@@ -609,6 +589,8 @@ TIP: Use grep_search first to find the line numbers you need, then read_file wit
       },
     ];
 
+    // Note: allowed_callers removed - Anthropic API rejects unknown fields
+    // Direct mode is the only supported mode for now
     return baseTools;
   }
 
@@ -618,8 +600,8 @@ TIP: Use grep_search first to find the line numbers you need, then read_file wit
 
   getCodeExecutionTool(): { type: string; name: string } {
     return {
-      type: 'bash_20250124',
-      name: 'bash',
+      type: 'code_execution_20250825',
+      name: 'code_execution',
     };
   }
 
