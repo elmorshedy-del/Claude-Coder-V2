@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import DebuggerProvider from '@/components/DebuggerProvider';
+import DebuggerPanel from '@/components/DebuggerPanel';
 
 export const metadata: Metadata = {
   title: 'Claude Coder',
@@ -14,7 +16,10 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen">
-        {children}
+        <DebuggerProvider>
+          {children}
+          <DebuggerPanel />
+        </DebuggerProvider>
       </body>
     </html>
   );
