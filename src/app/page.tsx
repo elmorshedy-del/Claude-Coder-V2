@@ -1662,10 +1662,10 @@ export default function Home() {
                     {Object.entries(MODEL_DISPLAY_NAMES).map(([modelId, info]) => (
                       <button
                         key={modelId}
-                        onClick={() => {
-                          setSettings(prev => ({ ...prev, model: modelId }));
-                          setShowModelDropdown(false);
-                        }}
+                          onClick={() => {
+                            setSettings(prev => ({ ...prev, model: modelId as ModelType }));
+                            setShowModelDropdown(false);
+                          }}
                         className={`w-full px-4 py-3 text-left hover:bg-[var(--accent-dim)] transition-colors first:rounded-t-2xl last:rounded-b-2xl ${
                           settings.model === modelId ? 'bg-[var(--accent-dim)]' : ''
                         }`}
@@ -1782,7 +1782,8 @@ export default function Home() {
         onImportData={handleImportData}
       />
     </div>
-  );
+  </div>
+);
 }
 
 
