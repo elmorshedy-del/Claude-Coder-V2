@@ -1644,7 +1644,8 @@ export default function Home() {
                 }}
                 placeholder="How can I help you code today?"
                 rows={1}
-                className="flex-1 max-h-48 py-3 bg-transparent border-none focus:ring-0 text-[var(--text-primary)] placeholder-[var(--text-tertiary)] resize-none"
+                disabled={isStreaming}
+                className="flex-1 max-h-48 py-3 bg-transparent border-none focus:ring-0 text-[var(--text-primary)] placeholder-[var(--text-tertiary)] resize-none disabled:opacity-50 disabled:cursor-not-allowed"
               />
 
               {/* Model selector */}
