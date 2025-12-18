@@ -192,7 +192,7 @@ const DebuggerPanel: React.FC = () => {
 
       const newServerEvents: ServerEventRow[] = Array.isArray(data.serverEvents || data.events)
         ? (data.serverEvents || data.events).map((item: any, idx: number) => ({
-            id: item.id || item.requestId || `srv-${idx}-${Date.now()}`,
+            id: item.id || item.requestId || crypto.randomUUID(),
             timestamp: item.timestamp,
             type: item.type || item.category,
             severity: item.severity || item.level,
