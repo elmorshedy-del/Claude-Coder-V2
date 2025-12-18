@@ -2,7 +2,7 @@
 
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
-import { User, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { Message } from '@/types';
 import ThinkingBlock from './ThinkingBlock';
 import ActionBlock from './ActionBlock';
@@ -21,31 +21,25 @@ export default function ChatMessage({ message, onViewPR, onDiscard }: ChatMessag
   const isUser = message.role === 'user';
 
   return (
-    <div className={`py-6 px-4 ${isUser ? 'bg-transparent' : 'bg-[var(--claude-surface-sunken)]/50'}`}>
-      <div className="max-w-3xl mx-auto">
-        <div className="flex gap-4">
-          {/* Avatar */}
-          <div className={`
-            flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center
-            ${isUser
-              ? 'bg-[var(--claude-sand-light)]'
-              : 'bg-gradient-to-br from-[var(--claude-terracotta)] to-[#E89B7D]'
-            }
-          `}>
-            {isUser ? (
-              <User className="w-4 h-4 text-[var(--claude-text-secondary)]" />
-            ) : (
-              <Sparkles className="w-4 h-4 text-white" />
-            )}
-          </div>
+    <div className="w-full">
+      <div className={`group w-full flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+        <div className={`max-w-3xl w-full ${isUser ? '' : ''}`}>
+          {!isUser && (
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-7 h-7 rounded-md bg-[var(--accent)] flex items-center justify-center shadow-sm">
+                <Sparkles className="w-3.5 h-3.5 text-white" />
+              </div>
+              <span className="font-semibold text-sm text-[var(--text-primary)]">Claude</span>
+            </div>
+          )}
 
-          {/* Content */}
-          <div className="flex-1 min-w-0">
-            {/* Role label */}
-            <p className="text-sm font-medium text-[var(--claude-text-secondary)] mb-2">
-              {isUser ? 'You' : 'Claude'}
-            </p>
-
+          <div
+            className={`relative px-6 py-5 ${
+              isUser
+                ? 'bg-[#F4F4F5] text-[var(--text-primary)] rounded-3xl rounded-tr-sm shadow-sm ml-auto max-w-3xl'
+                : 'bg-transparent pl-0'
+            }`}
+          >
             {/* Thinking block */}
             {message.thinkingContent && (
               <ThinkingBlock
@@ -60,14 +54,14 @@ export default function ChatMessage({ message, onViewPR, onDiscard }: ChatMessag
             )}
 
             {/* Message content */}
-            <div className="prose max-w-none">
+            <div className="prose max-w-none prose-p:leading-relaxed prose-pre:rounded-xl">
               <ReactMarkdown
                 skipHtml
                 components={{
                   code({ className, children, ...props }) {
                     const match = /language-(\w+)/.exec(className || '');
                     const isInline = !match;
-                    
+
                     if (isInline) {
                       return (
                         <code className={className} {...props}>
@@ -91,8 +85,8 @@ export default function ChatMessage({ message, onViewPR, onDiscard }: ChatMessag
 
             {/* Loading indicator */}
             {message.isStreaming && !message.content && (
-              <div className="flex items-center gap-2 text-[var(--claude-text-muted)]">
-                <div className="w-2 h-2 rounded-full bg-[var(--claude-terracotta)] animate-pulse" />
+              <div className="flex items-center gap-2 text-[var(--text-tertiary)]">
+                <div className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" />
                 <span className="text-sm">Thinking...</span>
               </div>
             )}
@@ -146,7 +140,7 @@ export default function ChatMessage({ message, onViewPR, onDiscard }: ChatMessag
                 {message.files.map((file, index) => (
                   <span
                     key={index}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--claude-sand-light)] text-xs text-[var(--claude-text-secondary)]"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--accent-dim)] text-xs text-[var(--text-secondary)]"
                   >
                     📎 {file.name}
                   </span>
