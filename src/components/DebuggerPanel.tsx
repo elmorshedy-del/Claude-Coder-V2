@@ -287,7 +287,7 @@ const DebuggerPanel: React.FC = () => {
         </div>
         <button
           onClick={() => setCollapsed((prev) => !prev)}
-          className="w-10 h-12 mt-6 -ml-2 rounded-l-xl bg-[var(--claude-terracotta)] text-white flex items-center justify-center shadow-lg pointer-events-auto"
+          className="w-11 h-12 mt-6 rounded-l-xl bg-[var(--claude-terracotta)] text-white flex items-center justify-center shadow-lg pointer-events-auto"
           title={collapsed ? 'Expand debugger' : 'Collapse debugger'}
           aria-expanded={!collapsed}
         >
