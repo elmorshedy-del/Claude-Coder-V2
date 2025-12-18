@@ -203,7 +203,7 @@ const DebuggerPanel: React.FC = () => {
 
       const newTelemetryEvents: ServerEventRow[] = Array.isArray(data.telemetryEvents)
         ? data.telemetryEvents.map((item: any, idx: number) => ({
-            id: item.id || item.requestId || `telem-${idx}-${Date.now()}`,
+            id: item.id || item.requestId || crypto.randomUUID(),
             timestamp: item.timestamp,
             type: item.type || item.category,
             severity: item.severity || item.level,
