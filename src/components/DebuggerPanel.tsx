@@ -308,7 +308,7 @@ const DebuggerPanel: React.FC = () => {
       {collapsed && (
         <button
           type="button"
-          className="fixed right-4 bottom-4 z-50 flex items-center gap-2 px-3 py-2 rounded-full bg-[var(--claude-terracotta)] text-white shadow-lg hover:bg-[var(--claude-terracotta-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--claude-terracotta)] focus-visible:ring-offset-2"
+          className="fixed right-4 bottom-4 z-[60] flex items-center gap-2 px-3 py-2 rounded-full bg-[var(--claude-terracotta)] text-white shadow-lg hover:bg-[var(--claude-terracotta-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--claude-terracotta)] focus-visible:ring-offset-2"
           onClick={() => setCollapsed(false)}
           aria-label="Expand debugger"
         >
