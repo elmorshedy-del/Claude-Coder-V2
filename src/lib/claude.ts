@@ -231,6 +231,13 @@ export class ClaudeClient {
         system: systemBlocks as Anthropic.Messages.TextBlockParam[],
         messages: messages as Anthropic.Messages.MessageParam[],
         tools: allTools.length > 0 ? allTools as Anthropic.Messages.Tool[] : undefined,
+        betas: this.buildBetaHeaders(
+          enableCodeExecution,
+          enableMemory,
+          enableContextCompaction,
+          enableInterleavedThinking,
+          toolExecutionMode
+        ),
         stream: false,
         ...(enableThinking && {
           thinking: {
@@ -365,6 +372,13 @@ export class ClaudeClient {
         system: systemBlocks as Anthropic.Messages.TextBlockParam[],
         messages: messages as Anthropic.Messages.MessageParam[],
         tools: allTools.length > 0 ? allTools as Anthropic.Messages.Tool[] : undefined,
+        betas: this.buildBetaHeaders(
+          enableCodeExecution,
+          enableMemory,
+          enableContextCompaction,
+          enableInterleavedThinking,
+          toolExecutionMode
+        ),
         ...(enableThinking && {
           thinking: {
             type: 'enabled',
