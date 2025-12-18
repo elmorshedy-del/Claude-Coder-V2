@@ -178,7 +178,7 @@ const DebuggerPanel: React.FC = () => {
     >
       <div className="relative h-full flex">
         <div
-          className={`w-[360px] max-w-[420px] h-full bg-[var(--claude-bg)] border-l border-[var(--claude-border)] shadow-lg flex flex-col ${collapsed ? 'pointer-events-none' : ''}`}
+          className={`w-[360px] max-w-[420px] h-full bg-[var(--claude-bg)] border-l border-[var(--claude-border)] shadow-lg flex flex-col${collapsed ? ' pointer-events-none' : ''}`}
           aria-hidden={collapsed}
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--claude-border)] bg-[var(--claude-surface)]">
