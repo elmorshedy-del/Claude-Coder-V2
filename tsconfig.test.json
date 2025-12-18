@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "outDir": ".tmp-tests",
+    "esModuleInterop": true
+  },
+  "include": ["src/lib/claude.ts", "src/lib/claude.test.ts"]
+}
