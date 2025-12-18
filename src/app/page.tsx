@@ -78,10 +78,17 @@ export default function Home() {
   // --------------------------------------------------------------------------
   // STATE - Auth
   // --------------------------------------------------------------------------
-  const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('isUnlocked') === 'true';
+  });
   const [password, setPassword] = useState<string>('');
   const [loginError, setLoginError] = useState<string>('');
-  const [rememberMe, setRememberMe] = useState<boolean>(false);
+  const [rememberMe, setRememberMe] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const stored = localStorage.getItem('rememberMe');
+    return stored ? stored === 'true' : true;
+  });
 
   // --------------------------------------------------------------------------
   // STATE - API Keys
@@ -242,9 +249,6 @@ export default function Home() {
   // EFFECTS - Initialize from localStorage
   // --------------------------------------------------------------------------
   useEffect(() => {
-    const savedUnlocked = localStorage.getItem('isUnlocked');
-    if (savedUnlocked === 'true') setIsUnlocked(true);
-    
     const autoBackup = restoreFromAutoBackup();
     if (autoBackup) {
       setConversations(autoBackup.conversations || []);
@@ -282,6 +286,10 @@ export default function Home() {
     if (savedCurrentConvId) setCurrentConversationId(savedCurrentConvId);
     if (savedTotalCost && !autoBackup) setTotalCost(parseFloat(savedTotalCost));
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem('rememberMe', String(rememberMe));
+  }, [rememberMe]);
 
   // --------------------------------------------------------------------------
   // EFFECTS - Load repo cache when repo/branch changes
