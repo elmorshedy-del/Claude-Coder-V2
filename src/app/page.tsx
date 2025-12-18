@@ -291,6 +291,14 @@ export default function Home() {
     localStorage.setItem('rememberMe', String(rememberMe));
   }, [rememberMe]);
 
+  useEffect(() => {
+    if (rememberMe && isUnlocked) {
+      localStorage.setItem('isUnlocked', 'true');
+    } else if (!rememberMe) {
+      localStorage.removeItem('isUnlocked');
+    }
+  }, [isUnlocked, rememberMe]);
+
   // --------------------------------------------------------------------------
   // EFFECTS - Load repo cache when repo/branch changes
   // --------------------------------------------------------------------------

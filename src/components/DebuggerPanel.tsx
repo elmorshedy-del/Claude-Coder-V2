@@ -136,7 +136,10 @@ const HANDLE_WIDTH = 44;
 
 const DebuggerPanel: React.FC = () => {
   const { events, clearEvents, exportEvents, importEvents } = useDebugger();
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('debuggerCollapsed') === 'true';
+  });
   const [activeCategory, setActiveCategory] = useState<DebuggerCategory | 'All'>('All');
   const [severity, setSeverity] = useState<DebuggerSeverity | 'All'>('All');
   const [onlyErrors, setOnlyErrors] = useState(false);
@@ -185,6 +188,11 @@ const DebuggerPanel: React.FC = () => {
     return () => {
       root.style.removeProperty('--debugger-offset');
     };
+  }, [collapsed]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem('debuggerCollapsed', String(collapsed));
   }, [collapsed]);
 
   return (
