@@ -1013,8 +1013,8 @@ export default function Home() {
       return;
     }
 
-    if (!branch || branch === repo.defaultBranch) {
-      alert('Switch to a feature branch before creating a pull request.');
+    if (!branch) {
+      alert('Select a branch before creating a pull request.');
       return;
     }
 
