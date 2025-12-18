@@ -173,7 +173,9 @@ const DebuggerPanel: React.FC = () => {
   };
 
   return (
-    <div className={`fixed top-0 right-0 h-screen z-50 transition-transform duration-200 ${collapsed ? 'translate-x-[calc(100%-3rem)]' : ''}`}>
+    <div
+      className={`fixed top-0 right-0 h-screen z-50 transition-transform duration-200 ${collapsed ? 'translate-x-[calc(100%-3rem)] pointer-events-none' : 'pointer-events-auto'}`}
+    >
       <div className="relative h-full flex">
         <div
           className={`w-[360px] max-w-[420px] h-full bg-[var(--claude-bg)] border-l border-[var(--claude-border)] shadow-lg flex flex-col ${collapsed ? 'pointer-events-none' : ''}`}
@@ -268,8 +270,9 @@ const DebuggerPanel: React.FC = () => {
         </div>
         <button
           onClick={() => setCollapsed((prev) => !prev)}
-          className="w-10 h-12 mt-6 -ml-2 rounded-l-xl bg-[var(--claude-terracotta)] text-white flex items-center justify-center shadow-lg"
+          className="w-10 h-12 mt-6 -ml-2 rounded-l-xl bg-[var(--claude-terracotta)] text-white flex items-center justify-center shadow-lg pointer-events-auto"
           title={collapsed ? 'Expand debugger' : 'Collapse debugger'}
+          aria-expanded={!collapsed}
         >
           {collapsed ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
         </button>
