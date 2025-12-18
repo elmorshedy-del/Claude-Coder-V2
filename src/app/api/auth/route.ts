@@ -80,10 +80,12 @@ export async function POST(request: NextRequest) {
 
       try {
         const crypto = await import('crypto');
-        const isValid = crypto.timingSafeEqual(
-          Buffer.from(password || ''),
-          Buffer.from(appPassword)
-        );
+        const provided = Buffer.from(password || '');
+        const expected = Buffer.from(appPassword);
+
+        const isValid =
+          provided.length === expected.length &&
+          crypto.timingSafeEqual(provided, expected);
         
         if (isValid) {
           return NextResponse.json({ success: true });
