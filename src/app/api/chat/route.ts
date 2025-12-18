@@ -221,6 +221,7 @@ export async function PUT(request: NextRequest) {
     if (settings.toolExecutionMode !== 'direct') {
       tools.push(claude.getCodeExecutionTool() as any);
     }
+    console.log('DEBUG TOOLS:', { hasRepoContext, isLocalMode, toolCount: tools.length, toolNames: tools.map((t: any) => t.name) });
 
     // ========================================================================
     // AGENTIC LOOP
