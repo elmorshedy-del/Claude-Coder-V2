@@ -18,7 +18,6 @@ Added support for Anthropic's programmatic tool calling feature, allowing Claude
 
 ### 3. API Integration
 - Added `toolExecutionMode` parameter to settings
-- Updated Claude client to support `allowed_callers` configuration
 - Added beta header `advanced-tool-use-2025-11-20` when needed
 - Added code execution tool when programmatic mode is enabled
 
@@ -31,10 +30,6 @@ Added support for Anthropic's programmatic tool calling feature, allowing Claude
 
 ### Claude Client Changes
 - Updated `getDefaultTools()` to accept tool execution mode
-- Added `allowed_callers` configuration based on mode:
-  - Direct: `['direct']`
-  - Hybrid: `['direct', 'code_execution_20250825']`
-  - Programmatic: `['code_execution_20250825']`
 - Added beta header support for programmatic tool calling
 
 ### API Route Changes
@@ -72,6 +67,7 @@ Programmatic: read 5 files → 1 code execution + 5KB summary
 
 - Uses Anthropic's `advanced-tool-use-2025-11-20` beta feature
 - Requires code execution tool (`code_execution_20250825`)
+- Anthropic's API currently rejects an `allowed_callers` field, so tools are sent without that custom property
 - All existing tools support programmatic calling
 - Backward compatible - defaults to hybrid mode
 
