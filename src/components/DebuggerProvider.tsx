@@ -15,6 +15,7 @@ interface DebuggerContextValue {
 const DebuggerContext = createContext<DebuggerContextValue | null>(null);
 
 const STORAGE_KEY = 'claude-debugger-events';
+const MAX_STORED_EVENTS = 100;
 
 const safeParse = (json: string) => {
   try {
@@ -30,7 +31,8 @@ export const DebuggerProvider: React.FC<React.PropsWithChildren> = ({ children }
     if (typeof window === 'undefined') return [];
     const existing = localStorage.getItem(STORAGE_KEY);
     if (!existing) return [];
-    return safeParse(existing) as DebuggerEvent[];
+    const parsed = safeParse(existing) as DebuggerEvent[];
+    return parsed.slice(0, MAX_STORED_EVENTS);
   });
 
   useEffect(() => {
@@ -52,7 +54,7 @@ export const DebuggerProvider: React.FC<React.PropsWithChildren> = ({ children }
         related: event.related || [],
       };
 
-      setEvents((prev) => [finalEvent, ...prev]);
+      setEvents((prev) => [finalEvent, ...prev].slice(0, MAX_STORED_EVENTS));
     },
     []
   );
@@ -91,7 +93,11 @@ export const DebuggerProvider: React.FC<React.PropsWithChildren> = ({ children }
       }))
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-    setEvents(sanitized);
+    setEvents(sanitized.slice(0, MAX_STORED_EVENTS));
+  }, []);
+
+  useEffect(() => {
+    setEvents((prev) => prev.slice(0, MAX_STORED_EVENTS));
   }, []);
 
   const value = useMemo(
