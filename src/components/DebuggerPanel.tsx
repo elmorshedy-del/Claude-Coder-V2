@@ -188,17 +188,16 @@ const DebuggerPanel: React.FC = () => {
   }, [collapsed]);
 
   return (
-    <>
-      <div
-        className={`fixed top-0 right-0 h-screen z-50 transition-transform duration-200 ${collapsed ? 'translate-x-[calc(100%-2.75rem)]' : ''}`}
-        style={{ width: PANEL_WIDTH + HANDLE_WIDTH }}
-      >
-        <div className="relative h-full flex">
-          <div
-            className={`h-full bg-[var(--claude-bg)] border-l border-[var(--claude-border)] shadow-lg flex flex-col transition-opacity duration-200${collapsed ? ' pointer-events-none opacity-0' : ' opacity-100'}`}
-            style={{ width: PANEL_WIDTH }}
-            aria-hidden={collapsed}
-          >
+    <div
+      className={`fixed top-0 right-0 h-screen z-50 transition-transform duration-200 ${collapsed ? 'translate-x-[calc(100%-2.75rem)]' : ''}`}
+      style={{ width: PANEL_WIDTH + HANDLE_WIDTH }}
+    >
+      <div className="relative h-full flex">
+        <div
+          className={`h-full bg-[var(--claude-bg)] border-l border-[var(--claude-border)] shadow-lg flex flex-col transition-opacity duration-200${collapsed ? ' pointer-events-none opacity-0' : ' opacity-100'}`}
+          style={{ width: PANEL_WIDTH }}
+          aria-hidden={collapsed}
+        >
           <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--claude-border)] bg-[var(--claude-surface)]">
             <div className="flex items-center gap-2 text-[var(--claude-text)]">
               <Filter className="w-4 h-4" />
@@ -307,8 +306,28 @@ const DebuggerPanel: React.FC = () => {
 
       {collapsed && (
         <button
+          onClick={() => setCollapsed((prev) => !prev)}
+          className="w-11 h-12 mt-6 rounded-l-xl bg-[var(--claude-terracotta)] text-white flex items-center justify-center shadow-lg pointer-events-auto"
+          title={collapsed ? 'Expand debugger' : 'Collapse debugger'}
+          aria-expanded={!collapsed}
+        >
+          <ChevronLeft className="w-4 h-4" />
+          <span className="text-sm font-semibold">Open debugger</span>
+        </button>
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json"
+        className="hidden"
+        onChange={(e) => handleImport(e.target.files)}
+      />
+
+      {collapsed && (
+        <button
           type="button"
-          className="fixed right-4 bottom-4 z-[60] flex items-center gap-2 px-3 py-2 rounded-full bg-[var(--claude-terracotta)] text-white shadow-lg hover:bg-[var(--claude-terracotta-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--claude-terracotta)] focus-visible:ring-offset-2"
+          className="fixed right-4 bottom-4 z-50 flex items-center gap-2 px-3 py-2 rounded-full bg-[var(--claude-terracotta)] text-white shadow-lg hover:bg-[var(--claude-terracotta-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--claude-terracotta)] focus-visible:ring-offset-2"
           onClick={() => setCollapsed(false)}
           aria-label="Expand debugger"
         >
@@ -316,7 +335,7 @@ const DebuggerPanel: React.FC = () => {
           <span className="text-sm font-semibold">Open debugger</span>
         </button>
       )}
-    </>
+    </div>
   );
 };
 
