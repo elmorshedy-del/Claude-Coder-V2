@@ -221,7 +221,6 @@ export async function PUT(request: NextRequest) {
     if (settings.toolExecutionMode !== 'direct') {
       tools.push(claude.getCodeExecutionTool() as any);
     }
-    console.log('DEBUG TOOLS:', { hasRepoContext, isLocalMode, toolCount: tools.length, toolNames: tools.map((t: any) => t.name) });
 
     // ========================================================================
     // AGENTIC LOOP
@@ -239,14 +238,32 @@ export async function PUT(request: NextRequest) {
           const seenFiles = new Set<string>();
           let lastToolCallsSignature = '';
           let repeatCount = 0;
-          const MAX_REPEATS = 2;
+          const MAX_REPEATS = 3; // Increased from 2 - allow more exploration
 
           type ContentBlock =
             | { type: 'text'; text: string }
             | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
             | { type: 'tool_result'; tool_use_id: string; content: string };
 
-          const convo: Array<{ role: 'user' | 'assistant'; content: string | ContentBlock[] }> = messages.map(m => ({
+          // CONTEXT COMPRESSION: Summarize old messages to reduce tokens
+          const compressMessages = (msgs: typeof messages): typeof messages => {
+            if (msgs.length <= 6) return msgs; // Keep short convos as-is
+            
+            // Keep last 4 messages full, summarize the rest
+            const keepFull = msgs.slice(-4);
+            const toCompress = msgs.slice(0, -4);
+            
+            // Create simple summary
+            const summary = `[Previous ${toCompress.length} messages summarized: User and assistant discussed the task. Key context preserved in recent messages.]`;
+            
+            return [
+              { role: 'user' as const, content: summary },
+              ...keepFull
+            ];
+          };
+
+          const compressedMessages = compressMessages(messages);
+          const convo: Array<{ role: 'user' | 'assistant'; content: string | ContentBlock[] }> = compressedMessages.map(m => ({
             role: m.role,
             content: m.content,
           }));
@@ -327,11 +344,6 @@ export async function PUT(request: NextRequest) {
               break;
             }
 
-            // Stop if already made edits and has text response
-            if (fileChanges.length > 0 && assistantBlocks.some(b => b.type === 'text' && b.text.length > 50)) {
-              break;
-            }
-
             // No filesystem access
             if (!github && !localFs) {
               controller.enqueue(encoder.encode(JSON.stringify({
@@ -341,9 +353,8 @@ export async function PUT(request: NextRequest) {
               break;
             }
 
-            // Stuck detection
+            // Stuck detection - ONLY for exact repeated actions, increased threshold
             const currentSignature = pendingToolCalls.map(t => `${t.name}:${JSON.stringify(t.input)}`).sort().join('|');
-            const onlyAnalysis = pendingToolCalls.every(t => ['read_file', 'search_files', 'grep_search'].includes(t.name));
 
             if (currentSignature === lastToolCallsSignature) {
               repeatCount++;
@@ -356,7 +367,7 @@ export async function PUT(request: NextRequest) {
                 const nudge: ContentBlock[] = pendingToolCalls.map(tc => ({
                   type: 'tool_result',
                   tool_use_id: tc.id,
-                  content: 'STOP REPEATING. Make the actual edit NOW with str_replace or create_file.'
+                  content: 'You repeated the same action. Try a different approach or make an edit.'
                 }));
                 convo.push({ role: 'assistant', content: assistantBlocks.length > 0 ? assistantBlocks : [{ type: 'text', text: '' }] });
                 convo.push({ role: 'user', content: nudge });
@@ -364,25 +375,12 @@ export async function PUT(request: NextRequest) {
                 repeatCount = 0;
                 continue;
               }
-            } else if (onlyAnalysis && round >= 2 && fileChanges.length === 0) {
-              controller.enqueue(encoder.encode(JSON.stringify({
-                type: 'stuck_warning',
-                message: 'Too much analysis. Nudging to edit...',
-              }) + '\n'));
-
-              const nudge: ContentBlock[] = pendingToolCalls.map(tc => ({
-                type: 'tool_result',
-                tool_use_id: tc.id,
-                content: 'STOP ANALYZING. You have enough info. Make the edit NOW.'
-              }));
-              convo.push({ role: 'assistant', content: assistantBlocks.length > 0 ? assistantBlocks : [{ type: 'text', text: '' }] });
-              convo.push({ role: 'user', content: nudge });
-              lastToolCallsSignature = '';
-              continue;
             } else {
               lastToolCallsSignature = currentSignature;
               repeatCount = 0;
             }
+
+            // REMOVED: "onlyAnalysis" guardrail - it was blocking legitimate exploration
 
             // Execute tools
             const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = [];
@@ -395,8 +393,17 @@ export async function PUT(request: NextRequest) {
                 result = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
               }
 
-              const cap = toolCall.name === 'read_file' ? 20000 : 6000;
-              const clipped = result.length > cap ? result.slice(0, cap) + '...(truncated)' : result;
+              const cap = toolCall.name === 'read_file' ? 6000 : 4000;
+              let clipped = result;
+              if (result.length > cap) {
+                clipped = result.slice(0, cap);
+                clipped += `\n\n--- OUTPUT TRUNCATED (${result.length} chars total) ---`;
+                if (toolCall.name === 'read_file') {
+                  clipped += `\nUse start_line/end_line to read specific sections.`;
+                } else if (toolCall.name === 'grep_search') {
+                  clipped += `\nNarrow search or check specific files.`;
+                }
+              }
               
               controller.enqueue(encoder.encode(JSON.stringify({
                 type: 'tool_result',
@@ -471,13 +478,23 @@ async function executeToolCall(
     const input = toolCall.input as { path: string; start_line?: number; end_line?: number };
     let content: string;
     
-    if (localFs) {
-      content = await localFs.readFile(input.path);
-    } else if (github) {
-      const file = await github.getFileContent(input.path, repoContext.branch);
-      content = file.content;
-    } else {
-      throw new Error('No file system available');
+    try {
+      if (localFs) {
+        content = await localFs.readFile(input.path);
+      } else if (github) {
+        const file = await github.getFileContent(input.path, repoContext.branch);
+        content = file.content;
+      } else {
+        throw new Error('No file system available');
+      }
+    } catch (error) {
+      // Clear error message with repo context
+      const repoName = repoContext?.repo || settings.localWorkspacePath || 'unknown';
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMsg.includes('not found') || errorMsg.includes('ENOENT') || errorMsg.includes('404')) {
+        return `Error: File "${input.path}" not found in ${repoName}.\nCheck the path or use search_files to find the correct file.`;
+      }
+      return `Error reading ${input.path}: ${errorMsg}`;
     }
     
     // Apply line range if specified
@@ -492,11 +509,14 @@ async function executeToolCall(
       result = selectedLines.map((line, i) => `${startLine + i}: ${line}`).join('\n');
       result = `--- ${input.path} (lines ${startLine}-${endLine} of ${lines.length}) ---\n${result}`;
     } else {
-      // Full file - truncate if too long
-      const MAX = 15000;
+      // Full file - truncate if too long (save tokens)
+      const MAX = 6000;
+      const totalLines = lines.length;
       result = content.slice(0, MAX);
       if (content.length > MAX) {
-        result += `\n\n...[truncated at ${MAX} chars, use start_line/end_line to read specific sections]`;
+        const linesShown = result.split('\n').length;
+        result += `\n\n--- TRUNCATED (showing ~${linesShown} of ${totalLines} lines) ---`;
+        result += `\nFile continues. Use read_file with start_line/end_line to see more.`;
       }
       result = `--- ${input.path} (${lines.length} lines, ${content.length} chars) ---\n${result}`;
     }
