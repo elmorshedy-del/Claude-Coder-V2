@@ -177,7 +177,7 @@ const DebuggerPanel: React.FC = () => {
       const data = await res.json();
       const newNetwork: NetworkCallRow[] = Array.isArray(data.networkCalls || data.network)
         ? (data.networkCalls || data.network).map((item: any, idx: number) => ({
-            id: item.id || item.requestId || `net-${idx}-${Date.now()}`,
+            id: item.id || item.requestId || crypto.randomUUID(),
             timestamp: item.timestamp || item.time,
             endpoint: item.endpoint || item.url,
             method: item.method || item.verb,
