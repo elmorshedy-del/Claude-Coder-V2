@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Send,
+  ArrowUp,
   Settings as SettingsIcon,
   Plus,
   GitBranch,
@@ -1357,7 +1357,7 @@ export default function Home() {
   const currentModel = MODEL_DISPLAY_NAMES[settings.model] || MODEL_DISPLAY_NAMES['claude-sonnet-4-5-20250929'];
 
   return (
-    <div className={`min-h-screen flex ${darkMode ? 'dark' : ''}`}>
+    <div className={`min-h-screen flex bg-[var(--bg-app)] ${darkMode ? 'dark' : ''}`}>
       {/* Sidebar */}
       <Sidebar
         isOpen={sidebarOpen}
@@ -1370,53 +1370,53 @@ export default function Home() {
       />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0 bg-[var(--claude-bg)]">
+      <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Header */}
-        <header className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-[var(--claude-border)] bg-[var(--claude-surface)]">
+        <header className="flex-shrink-0 flex items-center justify-between px-8 py-4 sticky top-0 z-20 glass border-b border-[var(--border-subtle)]">
           <div className="flex items-center gap-4">
-            <h1 className="text-lg font-serif text-[var(--claude-text)]">🚀 Claude Coder</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-[var(--text-primary)]">Claude Coder</h1>
 
             {/* Repo selector */}
             <div className="relative" ref={repoDropdownRef}>
               <button
                 onClick={() => setShowRepoDropdown(!showRepoDropdown)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-sm text-[var(--claude-text)] hover:border-[var(--claude-border-strong)] transition-colors"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] shadow-sm hover:border-[var(--border-highlight)] transition-colors"
               >
-                <GitBranch className="w-4 h-4 text-[var(--claude-text-muted)]" />
+                <GitBranch className="w-4 h-4 text-[var(--text-tertiary)]" />
                 {currentRepo ? currentRepo.fullName : 'No Repo'}
-                <ChevronDown className="w-3 h-3 text-[var(--claude-text-muted)]" />
+                <ChevronDown className="w-3 h-3 text-[var(--text-tertiary)]" />
               </button>
 
               {showRepoDropdown && (
-                <div className="absolute top-full left-0 mt-1 w-72 max-h-80 overflow-y-auto rounded-xl bg-[var(--claude-surface)] border border-[var(--claude-border)] shadow-lg z-20">
+                <div className="absolute top-full left-0 mt-1 w-72 max-h-80 overflow-y-auto rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] shadow-lg z-20">
                   {/* No Repo option */}
                   <button
                     onClick={() => handleSelectRepo(null)}
-                    className={`w-full px-4 py-2 text-left text-sm hover:bg-[var(--claude-sand-light)] transition-colors ${
-                      !currentRepo ? 'bg-[var(--claude-terracotta-subtle)]' : ''
+                    className={`w-full px-4 py-2 text-left text-sm hover:bg-[var(--accent-dim)] transition-colors ${
+                      !currentRepo ? 'bg-[var(--accent-dim)]' : ''
                     }`}
                   >
-                    <p className="font-medium text-[var(--claude-text)]">No Repo</p>
-                    <p className="text-xs text-[var(--claude-text-muted)]">Just chat with Claude</p>
+                    <p className="font-medium text-[var(--text-primary)]">No Repo</p>
+                    <p className="text-xs text-[var(--text-tertiary)]">Just chat with Claude</p>
                   </button>
-                  <div className="border-t border-[var(--claude-border)]" />
+                  <div className="border-t border-[var(--border-subtle)]" />
                   {repos.map((repo) => (
                     <button
                       key={repo.fullName}
                       onClick={() => handleSelectRepo(repo)}
-                      className={`w-full px-4 py-2 text-left text-sm hover:bg-[var(--claude-sand-light)] transition-colors ${
-                        currentRepo?.fullName === repo.fullName ? 'bg-[var(--claude-terracotta-subtle)]' : ''
+                      className={`w-full px-4 py-2 text-left text-sm hover:bg-[var(--accent-dim)] transition-colors ${
+                        currentRepo?.fullName === repo.fullName ? 'bg-[var(--accent-dim)]' : ''
                       }`}
                     >
-                      <p className="font-medium text-[var(--claude-text)]">{repo.fullName}</p>
-                      <p className="text-xs text-[var(--claude-text-muted)]">{repo.defaultBranch}</p>
+                      <p className="font-medium text-[var(--text-primary)]">{repo.fullName}</p>
+                      <p className="text-xs text-[var(--text-tertiary)]">{repo.defaultBranch}</p>
                     </button>
                   ))}
                   {repos.length === 0 && githubToken && (
-                    <p className="px-4 py-2 text-sm text-[var(--claude-text-muted)]">Loading repos...</p>
+                    <p className="px-4 py-2 text-sm text-[var(--text-tertiary)]">Loading repos...</p>
                   )}
                   {!githubToken && (
-                    <p className="px-4 py-2 text-sm text-[var(--claude-text-muted)]">
+                    <p className="px-4 py-2 text-sm text-[var(--text-tertiary)]">
                       Add GitHub token in settings to connect repos
                     </p>
                   )}
@@ -1430,18 +1430,18 @@ export default function Home() {
                 <select
                   value={currentBranch}
                   onChange={(e) => setCurrentBranch(e.target.value)}
-                  className="px-3 py-1.5 rounded-lg bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-sm text-[var(--claude-text)] focus:outline-none"
+                  className="px-3 py-1.5 rounded-full bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] focus:outline-none shadow-sm"
                 >
                   {branches.map((branch) => (
                     <option key={branch} value={branch}>{branch}</option>
                   ))}
                 </select>
-                
+
                 {/* Repo cache indicator */}
                 {repoCache && (
                   <button
                     onClick={handleRefreshRepo}
-                    className="text-xs px-2 py-1 rounded bg-[var(--claude-success)]/10 text-[var(--claude-success)] hover:bg-[var(--claude-success)]/20 transition-colors"
+                    className="text-xs px-2 py-1 rounded-full bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/15 transition-colors"
                     title={`Cached ${Math.round((Date.now() - repoCache.timestamp) / 1000 / 60)}min ago. Click to refresh.`}
                   >
                     ⚡ Cached
@@ -1458,7 +1458,7 @@ export default function Home() {
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {/* Undo button - shows if last message had file changes */}
             {messages.length > 0 && messages[messages.length - 1]?.filesChanged && (
               <button
@@ -1484,7 +1484,7 @@ export default function Home() {
                     }
                   }
                 }}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--claude-warning)]/10 text-[var(--claude-warning)] hover:bg-[var(--claude-warning)]/20 transition-colors text-sm"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--warning)]/10 text-[var(--warning)] hover:bg-[var(--warning)]/20 transition-colors text-sm"
                 title="Undo last file changes"
               >
                 <Undo2 className="w-4 h-4" />
@@ -1503,10 +1503,10 @@ export default function Home() {
             {artifacts.length > 0 && (
               <button
                 onClick={() => setShowArtifactsList(!showArtifactsList)}
-                className={`p-2 rounded-lg transition-colors ${
+                className={`p-2 rounded-full transition-colors ${
                   showArtifactsList
-                    ? 'bg-[var(--claude-terracotta-subtle)] text-[var(--claude-terracotta)]'
-                    : 'hover:bg-[var(--claude-sand-light)] text-[var(--claude-text-secondary)]'
+                    ? 'bg-[var(--accent-dim)] text-[var(--accent)]'
+                    : 'hover:bg-[var(--accent-dim)] text-[var(--text-secondary)]'
                 }`}
                 title={`${showArtifactsList ? 'Hide' : 'Show'} Artifacts (${artifacts.length})`}
               >
@@ -1517,7 +1517,7 @@ export default function Home() {
             {/* Dark mode toggle */}
             <button
               onClick={() => setDarkMode(!darkMode)}
-              className="p-2 rounded-lg hover:bg-[var(--claude-sand-light)] text-[var(--claude-text-secondary)] transition-colors"
+              className="p-2 rounded-full hover:bg-[var(--accent-dim)] text-[var(--text-secondary)] transition-colors"
             >
               {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
@@ -1525,7 +1525,7 @@ export default function Home() {
             {/* Settings button */}
             <button
               onClick={() => setSettingsOpen(true)}
-              className="p-2 rounded-lg hover:bg-[var(--claude-sand-light)] text-[var(--claude-text-secondary)] transition-colors"
+              className="p-2 rounded-full hover:bg-[var(--accent-dim)] text-[var(--text-secondary)] transition-colors"
             >
               <SettingsIcon className="w-5 h-5" />
             </button>
@@ -1533,40 +1533,42 @@ export default function Home() {
         </header>
 
         {/* Messages area */}
-        <div className="flex-1 overflow-y-auto">
-          {messages.length === 0 ? (
-            <WelcomeScreen repo={currentRepo} branch={currentBranch} />
-          ) : (
-            <div className="pb-32">
-              {messages.map((message) => (
-              <ChatMessage
-                key={message.id}
-                message={message}
-                onViewPR={(prUrl?: string) => handleViewPR(prUrl)}
-                onDiscard={() => handleDiscard()}
-              />
-              ))}
-              {/* Progress indicator */}
-              {isStreaming && progressTotal > 0 && (
-                <div className="max-w-3xl mx-auto px-4 py-4">
-                  <ProgressBar
-                    current={progressCurrent}
-                    total={progressTotal}
-                    label={progressMessage}
+        <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-6">
+          <div className="max-w-4xl mx-auto space-y-6 pb-28">
+            {messages.length === 0 ? (
+              <WelcomeScreen repo={currentRepo} branch={currentBranch} />
+            ) : (
+              <>
+                {messages.map((message) => (
+                  <ChatMessage
+                    key={message.id}
+                    message={message}
+                    onViewPR={(prUrl?: string) => handleViewPR(prUrl)}
+                    onDiscard={() => handleDiscard()}
                   />
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-          )}
+                ))}
+                {/* Progress indicator */}
+                {isStreaming && progressTotal > 0 && (
+                  <div className="max-w-3xl mx-auto px-2 sm:px-4 py-4">
+                    <ProgressBar
+                      current={progressCurrent}
+                      total={progressTotal}
+                      label={progressMessage}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
 
         {/* Input area */}
-        <div className="flex-shrink-0 border-t border-[var(--claude-border)] bg-[var(--claude-surface)] p-4">
-          <div className="max-w-3xl mx-auto">
+        <div className="flex-shrink-0 z-20 px-6 pb-6 pt-2 pointer-events-none">
+          <div className="max-w-3xl mx-auto pointer-events-auto">
             {/* File upload */}
             {uploadedFiles.length > 0 && (
-              <div className="mb-3">
+              <div className="mb-3 card-float p-3">
                 <FileUpload
                   files={uploadedFiles}
                   onFilesChange={setUploadedFiles}
@@ -1575,11 +1577,11 @@ export default function Home() {
             )}
 
             {/* Input row */}
-            <div className="flex items-end gap-2">
+            <div className="input-capsule p-2 flex items-end gap-2 bg-white relative">
               {/* Attach button */}
               <button
                 onClick={() => document.getElementById('file-input')?.click()}
-                className="p-3 rounded-xl hover:bg-[var(--claude-sand-light)] text-[var(--claude-text-secondary)] transition-colors"
+                className="p-3 rounded-full hover:bg-[var(--accent-dim)] text-[var(--text-secondary)] transition-colors"
                 title="Attach files"
               >
                 <Plus className="w-5 h-5" />
@@ -1613,7 +1615,7 @@ export default function Home() {
               <div className="relative">
                 <button
                   onClick={() => setQuickSettingsOpen(!quickSettingsOpen)}
-                  className="p-3 rounded-xl hover:bg-[var(--claude-sand-light)] text-[var(--claude-text-secondary)] transition-colors"
+                  className="p-3 rounded-full hover:bg-[var(--accent-dim)] text-[var(--text-secondary)] transition-colors"
                   title="Quick settings"
                 >
                   <SettingsIcon className="w-5 h-5" />
@@ -1635,43 +1637,45 @@ export default function Home() {
                 ref={inputRef}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyPress}
-                placeholder="Ask Claude anything..."
-                disabled={isStreaming}
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                    handleSendMessage();
+                  }
+                }}
+                placeholder="How can I help you code today?"
                 rows={1}
-                className="flex-1 px-4 py-3 rounded-xl bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-[var(--claude-text)] placeholder:text-[var(--claude-text-muted)] focus:outline-none focus:border-[var(--claude-terracotta)] resize-none disabled:opacity-50"
-                style={{ minHeight: '48px', maxHeight: '200px' }}
+                disabled={isStreaming}
+                className="flex-1 max-h-48 py-3 bg-transparent border-none focus:ring-0 text-[var(--text-primary)] placeholder-[var(--text-tertiary)] resize-none disabled:opacity-50 disabled:cursor-not-allowed"
               />
 
-              {/* Model dropdown */}
+              {/* Model selector */}
               <div className="relative" ref={modelDropdownRef}>
                 <button
                   onClick={() => setShowModelDropdown(!showModelDropdown)}
-                  className="flex items-center gap-1 px-3 py-3 rounded-xl bg-[var(--claude-surface-sunken)] border border-[var(--claude-border)] text-sm text-[var(--claude-text)] hover:border-[var(--claude-border-strong)] transition-colors"
+                  className="p-3 rounded-full hover:bg-[var(--accent-dim)] text-[var(--text-secondary)] transition-colors"
                   title="Select model"
                 >
-                  <span>{currentModel.name}</span>
-                  <span className="text-xs">{currentModel.cost}</span>
-                  <ChevronDown className="w-3 h-3 text-[var(--claude-text-muted)]" />
+                  <span className="text-sm font-medium">{currentModel.name}</span>
                 </button>
+
                 {showModelDropdown && (
-                  <div className="absolute bottom-full right-0 mb-2 w-56 rounded-xl bg-[var(--claude-surface)] border border-[var(--claude-border)] shadow-lg z-50">
-                    {(Object.entries(MODEL_DISPLAY_NAMES) as [ModelType, typeof MODEL_DISPLAY_NAMES[ModelType]][]).map(([modelId, info]) => (
+                  <div className="absolute bottom-full right-0 mb-2 w-72 rounded-2xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] shadow-lg z-20 overflow-hidden">
+                    {Object.entries(MODEL_DISPLAY_NAMES).map(([modelId, info]) => (
                       <button
                         key={modelId}
-                        onClick={() => {
-                          setSettings(prev => ({ ...prev, model: modelId }));
-                          setShowModelDropdown(false);
-                        }}
-                        className={`w-full px-4 py-3 text-left hover:bg-[var(--claude-sand-light)] transition-colors first:rounded-t-xl last:rounded-b-xl ${
-                          settings.model === modelId ? 'bg-[var(--claude-terracotta-subtle)]' : ''
+                          onClick={() => {
+                            setSettings(prev => ({ ...prev, model: modelId as ModelType }));
+                            setShowModelDropdown(false);
+                          }}
+                        className={`w-full px-4 py-3 text-left hover:bg-[var(--accent-dim)] transition-colors first:rounded-t-2xl last:rounded-b-2xl ${
+                          settings.model === modelId ? 'bg-[var(--accent-dim)]' : ''
                         }`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-medium text-[var(--claude-text)]">{info.name}</span>
-                          <span className="text-xs">{info.cost}</span>
+                          <span className="font-medium text-[var(--text-primary)]">{info.name}</span>
+                          <span className="text-xs text-[var(--text-tertiary)]">{info.cost}</span>
                         </div>
-                        <p className="text-xs text-[var(--claude-text-muted)]">{info.description}</p>
+                        <p className="text-xs text-[var(--text-tertiary)]">{info.description}</p>
                       </button>
                     ))}
                   </div>
@@ -1681,17 +1685,17 @@ export default function Home() {
               {/* Web search toggle */}
               <button
                 onClick={cycleWebSearchMode}
-                className={`p-3 rounded-xl transition-colors ${
+                className={`p-3 rounded-full transition-colors ${
                   settings.webSearchMode !== 'off'
-                    ? 'bg-[var(--claude-terracotta-subtle)] text-[var(--claude-terracotta)]'
-                    : 'hover:bg-[var(--claude-sand-light)] text-[var(--claude-text-muted)]'
+                    ? 'bg-[var(--accent-dim)] text-[var(--accent)]'
+                    : 'hover:bg-[var(--accent-dim)] text-[var(--text-tertiary)]'
                 }`}
                 title={`Web Search: ${settings.webSearchMode}`}
               >
                 <div className="relative">
                   <Search className="w-5 h-5" />
                   {settings.webSearchMode === 'auto' && (
-                    <span className="absolute -top-1 -right-1 text-[8px] font-bold bg-[var(--claude-terracotta)] text-white rounded px-0.5">
+                    <span className="absolute -top-1 -right-1 text-[8px] font-bold bg-[var(--accent)] text-white rounded px-0.5">
                       A
                     </span>
                   )}
@@ -1701,10 +1705,10 @@ export default function Home() {
               {/* Extended thinking toggle */}
               <button
                 onClick={toggleExtendedThinking}
-                className={`p-3 rounded-xl transition-colors ${
+                className={`p-3 rounded-full transition-colors ${
                   settings.enableExtendedThinking
-                    ? 'bg-[var(--claude-terracotta-subtle)] text-[var(--claude-terracotta)]'
-                    : 'hover:bg-[var(--claude-sand-light)] text-[var(--claude-text-muted)]'
+                    ? 'bg-[var(--accent-dim)] text-[var(--accent)]'
+                    : 'hover:bg-[var(--accent-dim)] text-[var(--text-tertiary)]'
                 }`}
                 title={`Extended Thinking: ${settings.enableExtendedThinking ? 'ON' : 'OFF'}`}
               >
@@ -1715,7 +1719,7 @@ export default function Home() {
               {isStreaming ? (
                 <button
                   onClick={handleStop}
-                  className="p-3 rounded-xl bg-[var(--claude-error)] text-white hover:bg-[var(--claude-error)]/80 transition-colors animate-pulse"
+                  className="p-3 rounded-full bg-[var(--error)] text-white hover:bg-[var(--error)]/90 transition-colors animate-pulse shadow-md"
                   title="Stop (saves money!)"
                 >
                   <Square className="w-5 h-5" />
@@ -1724,16 +1728,18 @@ export default function Home() {
                 <button
                   onClick={handleSendMessage}
                   disabled={!inputValue.trim()}
-                  className="p-3 rounded-xl bg-[var(--claude-terracotta)] text-white hover:bg-[var(--claude-terracotta-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="p-3 rounded-full bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-transform shadow-md hover:scale-105"
                   title="Send"
                 >
-                  <Send className="w-5 h-5" />
+                  <ArrowUp className="w-5 h-5" />
                 </button>
               )}
             </div>
+            <div className="text-center mt-2 text-xs text-[var(--text-tertiary)]">
+              Claude Coder v2.0 • AI can make mistakes.
+            </div>
           </div>
         </div>
-      </div>
 
       {/* Artifacts Panel */}
       {selectedArtifact && (
@@ -1777,7 +1783,8 @@ export default function Home() {
         onImportData={handleImportData}
       />
     </div>
-  );
+  </div>
+);
 }
 
 
