@@ -11,6 +11,7 @@ import {
   CirclePause,
   CirclePlay,
   Copy,
+  Download,
   Filter,
   Globe2,
   History,
@@ -27,10 +28,10 @@ const PANEL_WIDTH = 400;
 const HANDLE_WIDTH = 44;
 const POLL_INTERVAL = 2500;
 const MAX_NETWORK = 200;
-const MAX_EVENTS = 50;
-const MAX_TELEMETRY_EVENTS = 120;
+const MAX_EVENTS = 200;
+const MAX_TELEMETRY_EVENTS = 400;
 
-type DebuggerTab = 'Overview' | 'Network' | 'Server Telemetry' | 'Self-test';
+type DebuggerTab = 'Overview' | 'Activity Log' | 'Network' | 'Server Telemetry' | 'Self-test';
 
 interface BuildInfo {
   clientSha?: string;
@@ -142,6 +143,7 @@ const DebuggerPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<DebuggerTab>('Overview');
   const [isPolling, setIsPolling] = useState(true);
   const [expandedNetworkId, setExpandedNetworkId] = useState<string | null>(null);
+  const [expandedActivityId, setExpandedActivityId] = useState<string | null>(null);
   const [telemetry, setTelemetry] = useState<TelemetryState>({
     build: {},
     lastRequest: {},
@@ -319,6 +321,34 @@ const DebuggerPanel: React.FC = () => {
     }
   };
 
+  const downloadDebugData = () => {
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      polling: isPolling,
+      filters: telemetryFilters,
+      limits: {
+        network: MAX_NETWORK,
+        events: MAX_EVENTS,
+        telemetryEvents: MAX_TELEMETRY_EVENTS,
+      },
+      telemetry,
+      displayServerEvents,
+      fallbackEvents,
+      rawEvents: events,
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: 'application/json',
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `debug-console-export-${Date.now()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const togglePolling = () => setIsPolling((prev) => !prev);
 
   const filteredTelemetryEvents = useMemo(() => {
@@ -333,6 +363,14 @@ const DebuggerPanel: React.FC = () => {
   const activeRequestId = telemetry.lastRequest.requestId || telemetry.networkCalls[0]?.requestId;
 
   const networkWithFallback = telemetry.networkCalls.length > 0 ? telemetry.networkCalls : [];
+
+  const activityByCategory = useMemo(() => {
+    const buckets: Record<string, number> = {};
+    events.forEach((evt) => {
+      buckets[evt.category] = (buckets[evt.category] || 0) + 1;
+    });
+    return buckets;
+  }, [events]);
 
   return (
     <div
@@ -392,7 +430,7 @@ const DebuggerPanel: React.FC = () => {
           </div>
 
           <div className="px-3 pt-3 flex flex-wrap gap-2">
-            {(['Overview', 'Network', 'Server Telemetry', 'Self-test'] as DebuggerTab[]).map((tab) => (
+            {(['Overview', 'Activity Log', 'Network', 'Server Telemetry', 'Self-test'] as DebuggerTab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -504,14 +542,21 @@ const DebuggerPanel: React.FC = () => {
                       {selfTestState.status === 'running' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                       Run self-test
                     </button>
-                    <button
-                      onClick={handleResetTelemetry}
-                      className="inline-flex items-center gap-2 rounded-md border border-[var(--claude-border)] bg-white px-3 py-2 text-sm text-[var(--claude-text)] hover:bg-[var(--claude-surface)]"
-                    >
-                      <RefreshCcw className="w-4 h-4" />
-                      Reset telemetry
-                    </button>
-                  </div>
+                  <button
+                    onClick={handleResetTelemetry}
+                    className="inline-flex items-center gap-2 rounded-md border border-[var(--claude-border)] bg-white px-3 py-2 text-sm text-[var(--claude-text)] hover:bg-[var(--claude-surface)]"
+                  >
+                    <RefreshCcw className="w-4 h-4" />
+                    Reset telemetry
+                  </button>
+                  <button
+                    onClick={downloadDebugData}
+                    className="inline-flex items-center gap-2 rounded-md border border-[var(--claude-border)] bg-white px-3 py-2 text-sm text-[var(--claude-text)] hover:bg-[var(--claude-surface)]"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download debug data
+                  </button>
+                </div>
                   {selfTestState.status !== 'idle' && (
                     <div className="rounded-md border border-[var(--claude-border)] bg-white p-2 text-xs text-[var(--claude-text)]">
                       <div className="flex items-center gap-2 font-medium">
@@ -533,6 +578,89 @@ const DebuggerPanel: React.FC = () => {
                       )}
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'Activity Log' && (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-[var(--claude-border)] bg-[var(--claude-surface-sunken)] p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-[var(--claude-text)]">
+                      <History className="w-4 h-4" />
+                      <span className="font-semibold">Recent actions</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] text-[var(--claude-text-muted)]">
+                      <span className="uppercase tracking-wide">By type</span>
+                      <div className="flex flex-wrap gap-1">
+                        {Object.entries(activityByCategory).map(([category, count]) => (
+                          <Pill key={category}>{`${category}: ${count}`}</Pill>
+                        ))}
+                        {events.length === 0 && <span>None logged yet</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 space-y-2 max-h-96 overflow-y-auto">
+                    {events.length === 0 && (
+                      <div className="text-xs text-[var(--claude-text-muted)]">
+                        Actions, file reads, and tool usage will appear here once recorded.
+                      </div>
+                    )}
+                    {events.map((evt) => {
+                      const expanded = expandedActivityId === evt.id;
+                      return (
+                        <div
+                          key={evt.id}
+                          className="rounded-md border border-[var(--claude-border)] bg-[var(--claude-surface)] p-2 text-xs text-[var(--claude-text)]"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <Pill>{evt.category}</Pill>
+                              <Pill
+                                color={
+                                  evt.severity === 'Error'
+                                    ? 'bg-red-100 text-red-800'
+                                    : evt.severity === 'Warning'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-blue-100 text-blue-800'
+                                }
+                              >
+                                {evt.severity}
+                              </Pill>
+                              <span className="font-semibold">{evt.title}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[var(--claude-text-muted)]">
+                              <span>{new Date(evt.timestamp).toLocaleTimeString()}</span>
+                              {evt.duration_ms !== undefined && <span>{formatDuration(evt.duration_ms)}</span>}
+                              <button
+                                onClick={() =>
+                                  setExpandedActivityId((prev) => (prev === evt.id ? null : evt.id))
+                                }
+                                className="rounded-full border border-[var(--claude-border)] px-2 py-1 text-[var(--claude-text)] hover:bg-[var(--claude-surface-sunken)]"
+                              >
+                                {expanded ? 'Hide' : 'Details'}
+                              </button>
+                            </div>
+                          </div>
+                          <div className="mt-1 text-[var(--claude-text-muted)]">{evt.summary}</div>
+                          {expanded && (
+                            <pre className="mt-2 whitespace-pre-wrap rounded-md bg-[var(--claude-surface-sunken)] p-2 text-[11px] text-[var(--claude-text)]">
+                              {JSON.stringify(evt.details || {}, null, 2)}
+                            </pre>
+                          )}
+                          {evt.related && evt.related.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-[var(--claude-text-muted)]">
+                              {evt.related.map((ref) => (
+                                <Pill key={ref} color="bg-[var(--claude-surface-sunken)] text-[var(--claude-text)]">
+                                  {ref}
+                                </Pill>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
