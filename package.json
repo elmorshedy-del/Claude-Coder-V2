@@ -6,7 +6,8 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "tsc --project tsconfig.test.json && node --test .tmp-tests/lib/claude.test.js && rm -rf .tmp-tests"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",

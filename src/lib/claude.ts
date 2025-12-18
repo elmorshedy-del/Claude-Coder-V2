@@ -4,11 +4,11 @@
 // ============================================================================
 
 import Anthropic from '@anthropic-ai/sdk';
-import { 
-  CostTracker, 
-  TokenUsage, 
-  MessageCost, 
-  ModelType, 
+import {
+  CostTracker,
+  TokenUsage,
+  MessageCost,
+  ModelType,
   EffortLevel,
   Settings,
   ClaudeTool,
@@ -17,7 +17,59 @@ import {
   ArtifactType,
   Citation,
   ToolExecutionMode,
-} from '@/types';
+} from '../types';
+
+export const FORBIDDEN_BODY_KEYS = ['betas'] as const;
+
+export function validateAnthropicRequestBody(
+  body: unknown,
+  env: 'production' | 'development' | 'test' = process.env.NODE_ENV === 'production'
+    ? 'production'
+    : process.env.NODE_ENV === 'test'
+      ? 'test'
+      : 'development',
+): void {
+  if (!body || typeof body !== 'object') return;
+
+  const requestBody = body as Record<string, unknown>;
+
+  const forbidden = FORBIDDEN_BODY_KEYS.filter(key => key in requestBody);
+  if (forbidden.length === 0) return;
+
+  const keys = Object.keys(requestBody);
+  const message = `Forbidden Anthropic request keys detected: ${forbidden.join(', ')}`;
+
+  if (env !== 'production') {
+    throw new Error(message);
+  }
+
+  for (const key of forbidden) {
+    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+    delete requestBody[key];
+  }
+
+  console.warn(
+    `[ClaudeClient] Stripped forbidden Anthropic request keys (${forbidden.join(', ')}). Body keys: ${keys.join(', ')}`,
+  );
+}
+
+export function buildBetaHeaderValue(betas: string[], existingHeader?: string | null): string | undefined {
+  const values = new Set<string>();
+
+  if (existingHeader) {
+    existingHeader
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean)
+      .forEach(v => values.add(v));
+  }
+
+  betas.filter(Boolean).forEach(beta => values.add(beta));
+
+  if (values.size === 0) return undefined;
+
+  return Array.from(values).join(', ');
+}
 
 // ----------------------------------------------------------------------------
 // Claude Client Class
@@ -158,6 +210,13 @@ export class ClaudeClient {
     return betas;
   }
 
+  private getExistingBetaHeader(): string | undefined {
+    const options = (this.client as any)?._clientOptions || (this.client as any)?.clientOptions || (this.client as any)?.options;
+    const headers = options?.headers as Record<string, unknown> | undefined;
+    const headerValue = headers?.['anthropic-beta'] || headers?.['Anthropic-Beta'];
+    return typeof headerValue === 'string' ? headerValue : undefined;
+  }
+
   // --------------------------------------------------------------------------
   // Main Chat Function (Non-streaming)
   // --------------------------------------------------------------------------
@@ -225,24 +284,28 @@ export class ClaudeClient {
       });
     }
 
+    const params: Anthropic.Messages.MessageCreateParams = {
+      model: this.model,
+      max_tokens: config.maxTokens,
+      system: systemBlocks as Anthropic.Messages.TextBlockParam[],
+      messages: messages as Anthropic.Messages.MessageParam[],
+      tools: allTools.length > 0 ? allTools as Anthropic.Messages.Tool[] : undefined,
+      stream: false,
+      ...(enableThinking && {
+        thinking: {
+          type: 'enabled',
+          budget_tokens: config.adjustedThinkingBudget,
+        },
+      }),
+    };
+
+    validateAnthropicRequestBody(params);
+
+    const betaHeaderValue = buildBetaHeaderValue(betas, this.getExistingBetaHeader());
+    const requestOptions = betaHeaderValue ? { headers: { 'anthropic-beta': betaHeaderValue } } : undefined;
+
     try {
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: config.maxTokens,
-        system: systemBlocks as Anthropic.Messages.TextBlockParam[],
-        messages: messages as Anthropic.Messages.MessageParam[],
-        tools: allTools.length > 0 ? allTools as Anthropic.Messages.Tool[] : undefined,
-        stream: false,
-        ...(enableThinking && {
-          thinking: {
-            type: 'enabled',
-            budget_tokens: config.adjustedThinkingBudget,
-          },
-        }),
-        ...(betas.length > 0 && {
-          betas,
-        }),
-      } as Anthropic.Messages.MessageCreateParams) as Anthropic.Messages.Message;
+      const response = await this.client.messages.create(params, requestOptions) as Anthropic.Messages.Message;
 
       // Extract content
       let textContent = '';
@@ -363,23 +426,27 @@ export class ClaudeClient {
       });
     }
 
+    const params: Anthropic.Messages.MessageStreamParams = {
+      model: this.model,
+      max_tokens: config.maxTokens,
+      system: systemBlocks as Anthropic.Messages.TextBlockParam[],
+      messages: messages as Anthropic.Messages.MessageParam[],
+      tools: allTools.length > 0 ? allTools as Anthropic.Messages.Tool[] : undefined,
+      ...(enableThinking && {
+        thinking: {
+          type: 'enabled',
+          budget_tokens: config.adjustedThinkingBudget,
+        },
+      }),
+    };
+
+    validateAnthropicRequestBody(params);
+
+    const betaHeaderValue = buildBetaHeaderValue(betas, this.getExistingBetaHeader());
+    const requestOptions = betaHeaderValue ? { headers: { 'anthropic-beta': betaHeaderValue } } : undefined;
+
     try {
-      const stream = await this.client.messages.stream({
-        model: this.model,
-        max_tokens: config.maxTokens,
-        system: systemBlocks as Anthropic.Messages.TextBlockParam[],
-        messages: messages as Anthropic.Messages.MessageParam[],
-        tools: allTools.length > 0 ? allTools as Anthropic.Messages.Tool[] : undefined,
-        ...(enableThinking && {
-          thinking: {
-            type: 'enabled',
-            budget_tokens: config.adjustedThinkingBudget,
-          },
-        }),
-        ...(betas.length > 0 && {
-          betas,
-        }),
-      } as Anthropic.Messages.MessageStreamParams);
+      const stream = await this.client.messages.stream(params, requestOptions);
 
       let currentToolCall: { id: string; name: string; input: string } | null = null;
 
