@@ -444,7 +444,7 @@ export class ClaudeClient {
   // Default Tools - WITH LINE RANGE SUPPORT
   // --------------------------------------------------------------------------
 
-  getDefaultTools(toolExecutionMode: ToolExecutionMode = 'direct'): ClaudeTool[] {
+  getDefaultTools(_toolExecutionMode: ToolExecutionMode = 'direct'): ClaudeTool[] {
     const baseTools: ClaudeTool[] = [
       {
         name: 'read_file',
@@ -581,19 +581,7 @@ TIP: Use grep_search first to find the line numbers you need, then read_file wit
       },
     ];
 
-    // Only add allowed_callers for non-direct modes
-    if (toolExecutionMode === 'direct') {
-      return baseTools;
-    }
-
-    const allowedCallers: string[] = toolExecutionMode === 'hybrid' 
-      ? ['direct', 'code_execution_20250825']
-      : ['code_execution_20250825'];
-
-    return baseTools.map(tool => ({
-      ...tool,
-      allowed_callers: allowedCallers,
-    }));
+    return baseTools;
   }
 
   // --------------------------------------------------------------------------
