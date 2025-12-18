@@ -62,6 +62,7 @@ export default function ChatMessage({ message, onViewPR, onDiscard }: ChatMessag
             {/* Message content */}
             <div className="prose max-w-none">
               <ReactMarkdown
+                skipHtml
                 components={{
                   code({ className, children, ...props }) {
                     const match = /language-(\w+)/.exec(className || '');

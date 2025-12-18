@@ -233,13 +233,18 @@ export class ClaudeClient {
         toolExecutionMode
       );
 
+      const betaHeaderConfig =
+        betaHeaders.length > 0
+          ? { extra_headers: { 'anthropic-beta': betaHeaders.join(',') } }
+          : {};
+
       const response = await this.client.messages.create({
         model: this.model,
         max_tokens: config.maxTokens,
         system: systemBlocks as Anthropic.Messages.TextBlockParam[],
         messages: messages as Anthropic.Messages.MessageParam[],
         tools: allTools.length > 0 ? allTools as Anthropic.Messages.Tool[] : undefined,
-        ...(betaHeaders.length > 0 ? { betas: betaHeaders } : {}),
+        ...betaHeaderConfig,
         stream: false,
         ...(enableThinking && {
           thinking: {
@@ -376,13 +381,18 @@ export class ClaudeClient {
         toolExecutionMode
       );
 
+      const betaHeaderConfig =
+        betaHeaders.length > 0
+          ? { extra_headers: { 'anthropic-beta': betaHeaders.join(',') } }
+          : {};
+
       const stream = await this.client.messages.stream({
         model: this.model,
         max_tokens: config.maxTokens,
         system: systemBlocks as Anthropic.Messages.TextBlockParam[],
         messages: messages as Anthropic.Messages.MessageParam[],
         tools: allTools.length > 0 ? allTools as Anthropic.Messages.Tool[] : undefined,
-        ...(betaHeaders.length > 0 ? { betas: betaHeaders } : {}),
+        ...betaHeaderConfig,
         ...(enableThinking && {
           thinking: {
             type: 'enabled',
