@@ -243,7 +243,9 @@ const DebuggerPanel: React.FC = () => {
     if (!root) return;
     const offset = collapsed ? HANDLE_WIDTH : PANEL_WIDTH + HANDLE_WIDTH;
     root.style.setProperty('--debugger-offset', `${offset}px`);
-    return () => root.style.removeProperty('--debugger-offset');
+    return () => {
+      root.style.removeProperty('--debugger-offset');
+    };
   }, [collapsed]);
 
   useEffect(() => {
