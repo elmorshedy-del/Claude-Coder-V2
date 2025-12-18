@@ -75,6 +75,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+#app-root {
+  padding-right: var(--debugger-offset, 0px);
+  transition: padding-right 0.2s var(--ease-out-expo);
+}
+
 h1, h2, h3 {
   font-family: 'Source Serif 4', Georgia, serif;
   font-weight: 600;

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, Copy, Download, Filter, Pin, PinOff, Search, Trash2, Upload } from 'lucide-react';
 import { DebuggerCategory, DebuggerEvent, DebuggerSeverity } from '@/types';
 import { useDebugger } from './DebuggerProvider';
@@ -131,6 +131,9 @@ const EventCard: React.FC<{ event: DebuggerEvent }> = ({ event }) => {
 
 const categories: DebuggerCategory[] = ['Tool', 'Command', 'File', 'Network', 'Plan', 'Test', 'Error', 'Note'];
 
+const PANEL_WIDTH = 400;
+const HANDLE_WIDTH = 44;
+
 const DebuggerPanel: React.FC = () => {
   const { events, clearEvents, exportEvents, importEvents } = useDebugger();
   const [collapsed, setCollapsed] = useState(false);
@@ -172,13 +175,27 @@ const DebuggerPanel: React.FC = () => {
     reader.readAsText(file);
   };
 
+  useEffect(() => {
+    const root = document.getElementById('app-root');
+    if (!root) return;
+
+    const offset = collapsed ? HANDLE_WIDTH : PANEL_WIDTH + HANDLE_WIDTH;
+    root.style.setProperty('--debugger-offset', `${offset}px`);
+
+    return () => {
+      root.style.removeProperty('--debugger-offset');
+    };
+  }, [collapsed]);
+
   return (
     <div
-      className={`fixed top-0 right-0 h-screen z-50 transition-transform duration-200 ${collapsed ? 'translate-x-[calc(100%-3rem)] pointer-events-none' : 'pointer-events-auto'}`}
+      className={`fixed top-0 right-0 h-screen z-50 transition-transform duration-200 ${collapsed ? 'translate-x-[calc(100%-2.75rem)]' : ''}`}
+      style={{ width: PANEL_WIDTH + HANDLE_WIDTH }}
     >
       <div className="relative h-full flex">
         <div
-          className={`w-[360px] max-w-[420px] h-full bg-[var(--claude-bg)] border-l border-[var(--claude-border)] shadow-lg flex flex-col${collapsed ? ' pointer-events-none' : ''}`}
+          className={`h-full bg-[var(--claude-bg)] border-l border-[var(--claude-border)] shadow-lg flex flex-col transition-opacity duration-200${collapsed ? ' pointer-events-none opacity-0' : ' opacity-100'}`}
+          style={{ width: PANEL_WIDTH }}
           aria-hidden={collapsed}
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--claude-border)] bg-[var(--claude-surface)]">
@@ -270,7 +287,7 @@ const DebuggerPanel: React.FC = () => {
         </div>
         <button
           onClick={() => setCollapsed((prev) => !prev)}
-          className="w-10 h-12 mt-6 -ml-2 rounded-l-xl bg-[var(--claude-terracotta)] text-white flex items-center justify-center shadow-lg pointer-events-auto"
+          className="w-11 h-12 mt-6 rounded-l-xl bg-[var(--claude-terracotta)] text-white flex items-center justify-center shadow-lg pointer-events-auto"
           title={collapsed ? 'Expand debugger' : 'Collapse debugger'}
           aria-expanded={!collapsed}
         >
@@ -285,6 +302,18 @@ const DebuggerPanel: React.FC = () => {
         className="hidden"
         onChange={(e) => handleImport(e.target.files)}
       />
+
+      {collapsed && (
+        <button
+          type="button"
+          className="fixed right-4 bottom-4 z-50 flex items-center gap-2 px-3 py-2 rounded-full bg-[var(--claude-terracotta)] text-white shadow-lg hover:bg-[var(--claude-terracotta-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--claude-terracotta)] focus-visible:ring-offset-2"
+          onClick={() => setCollapsed(false)}
+          aria-label="Expand debugger"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          <span className="text-sm font-semibold">Open debugger</span>
+        </button>
+      )}
     </div>
   );
 };
