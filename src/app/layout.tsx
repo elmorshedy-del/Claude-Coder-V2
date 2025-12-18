@@ -15,11 +15,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="min-h-screen">
-        <DebuggerProvider>
-          {children}
-          <DebuggerPanel />
-        </DebuggerProvider>
+      <body>
+        <div id="app-root" className="min-h-screen">
+          <DebuggerProvider>
+            {children}
+            <DebuggerPanel />
+          </DebuggerProvider>
+        </div>
       </body>
     </html>
   );
