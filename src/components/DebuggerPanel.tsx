@@ -629,13 +629,13 @@ const DebuggerPanel: React.FC = () => {
                             </div>
                           </div>
                           <div className="mt-1 grid grid-cols-2 gap-2">
-                            {details.input && (
+                            {details.input !== undefined && details.input !== null && (
                               <div>
                                 <div className="text-[var(--claude-text-muted)]">Input</div>
                                 <pre className="max-h-20 overflow-y-auto whitespace-pre-wrap rounded bg-white p-2 font-mono text-[11px]">{truncateText(JSON.stringify(details.input, null, 2), 400)}</pre>
                               </div>
                             )}
-                            {details.output && (
+                            {details.output !== undefined && details.output !== null && (
                               <div>
                                 <div className="text-[var(--claude-text-muted)]">Output</div>
                                 <pre className="max-h-20 overflow-y-auto whitespace-pre-wrap rounded bg-white p-2 font-mono text-[11px]">{truncateText(JSON.stringify(details.output, null, 2), 400)}</pre>
